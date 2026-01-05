@@ -111,12 +111,28 @@ digit           = "0"..."9" ;
 
 ### 1.4 予約語（52語）
 
+IRISは52個の予約語を持ち、SystemVerilogの約220語と比較して大幅に削減されている。
+
 #### 1.4.1 モジュール構造（11語）
 
 ```
 mod     extern  inst    in      out     inout
 const   type    import  export  pub
 ```
+
+| 予約語 | 説明 | SystemVerilog相当 | 使用例 |
+|--------|------|-------------------|--------|
+| `mod` | モジュール定義。ハードウェアの基本単位を定義する。`{}`で囲まれた本体にポート、信号、ロジックを含む | `module ... endmodule` | `mod Counter { in clk: clock, out count: bit[8] }` |
+| `extern` | 外部モジュール宣言。Verilog/VHDLで記述された既存モジュールを参照する際に使用 | `(* black_box *)` | `extern mod LegacyIP { in clk: clock, out data: bit[8] }` |
+| `inst` | モジュールインスタンス化。定義済みモジュールの実体を作成する | モジュールインスタンス | `inst u_counter: Counter[8];` |
+| `in` | 入力ポート宣言。モジュールへの入力信号を定義 | `input` | `in data_valid: bit` |
+| `out` | 出力ポート宣言。モジュールからの出力信号を定義 | `output` | `out data_out: bit[8]` |
+| `inout` | 双方向ポート宣言。トライステートバッファ等で使用される双方向信号 | `inout` | `inout bidir_data: bit[8]` |
+| `const` | 定数定義。コンパイル時に決定される値を定義。外部から参照可能 | `parameter`, `localparam` | `const MAX_COUNT: uint = 255;` |
+| `type` | 型エイリアス定義。既存の型に新しい名前を付ける | `typedef` | `type Byte = bit[8];` |
+| `import` | 他パッケージからの取り込み。外部パッケージの定義を現在のスコープに導入 | `import` | `import math::sqrt;` |
+| `export` | 外部への公開。パッケージ内の定義を外部に公開 | - | `export const PI;` |
+| `pub` | 公開可視性修飾子。モジュールや信号を外部から参照可能にする | - | `pub mod Utilities { ... }` |
 
 #### 1.4.2 制御構造（8語）
 
@@ -125,14 +141,41 @@ if      else    match   for     while
 break   continue return
 ```
 
-#### 1.4.3 型関連（12語）
+| 予約語 | 説明 | SystemVerilog相当 | 使用例 |
+|--------|------|-------------------|--------|
+| `if` | 条件分岐。条件式がtrueの場合にブロックを実行 | `if` | `if enable { count = count + 1; }` |
+| `else` | 条件分岐の代替。if条件がfalseの場合に実行されるブロック | `else` | `if valid { process(); } else { skip(); }` |
+| `match` | パターンマッチング。列挙型や値に対する網羅的な分岐。全ケースの網羅性をコンパイラが検証 | `case`, `casez`, `casex` | `match state { Idle => ..., Run => ..., }` |
+| `for` | 繰り返し。合成時にはループ展開される。固定回数の繰り返しに使用 | `for`, `generate for` | `for i in 0..8 { out[i] = in[7-i]; }` |
+| `while` | 条件付き繰り返し。条件がtrueの間ループを継続。シミュレーション専用 | `while` | `while !done { await clk.posedge; }` |
+| `break` | ループ脱出。最も内側のループを即座に終了 | `break` | `for i in 0..100 { if found { break; } }` |
+| `continue` | ループの次反復へスキップ。現在の反復を中断し次の反復を開始 | `continue` | `for i in 0..10 { if skip[i] { continue; } }` |
+| `return` | 関数からの戻り。関数の実行を終了し値を返す | `return` | `return a + b;` |
+
+#### 1.4.3 型関連（11語）
 
 ```
-bit     int     uint    bool    enum
-struct  union   clock   reset   let
-var     mut     mem
+bit     bool    enum    struct  union
+clock   reset   let     var     mut     mem
 ```
-※ `var`は`let mut`と同義（可変宣言のシンタックスシュガー）
+
+| 予約語 | 説明 | SystemVerilog相当 | 使用例 |
+|--------|------|-------------------|--------|
+| `bit` | ビットベクトル型。ハードウェア信号の基本型。4値論理（0, 1, x, z）をサポート | `logic`, `reg`, `wire` | `let data: bit[8];` |
+| `bool` | 論理型。true/falseの2値。条件式の結果型 | `logic`（1ビット） | `let is_valid: bool = true;` |
+| `enum` | 列挙型定義。名前付き定数の集合を定義。FSM状態やオプション値に使用 | `enum` | `enum State { Idle, Run, Stop }` |
+| `struct` | 構造体定義。複数のフィールドをまとめた複合型。パック保証 | `struct packed` | `struct Header { addr: bit[16], data: bit[32] }` |
+| `union` | 共用体定義。同一メモリ領域を異なる型で解釈。ビットキャスト用 | `union packed` | `union View { as_word: bit[32], as_bytes: bit[8][4] }` |
+| `clock` | クロック信号型。`.posedge`/`.negedge`属性でエッジを指定可能 | - | `in clk: clock` |
+| `reset` | リセット信号型。`.sync`/`.async`属性で同期/非同期を指定。極性指定可能 | - | `in rst_n: reset(active_low)` |
+| `let` | 不変信号宣言。組み合わせ回路として合成。一度代入したら変更不可 | `wire` + `assign` | `let sum = a + b;` |
+| `var` | 可変信号宣言（**推奨**）。順序回路として合成。syncブロック内で更新可能 | `reg` | `var counter: bit[8] = 0;` |
+| `mut` | 可変修飾子。`let mut`で可変信号を宣言（`var`と同義、Rust互換構文） | - | `let mut cnt: bit[8] = 0;` |
+| `mem` | メモリ宣言。RAM/ROM推論のためのメモリ配列を定義 | 配列 | `mem buffer: bit[8][1024];` |
+
+※ `var`は`let mut`と同義。可変信号には`var`の使用を推奨（簡潔で可読性が高い）。
+
+**整数型について:** `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`などの整数型は予約語ではなく、組み込み型名として提供される。詳細は「2.1.2 整数型」を参照。
 
 #### 1.4.4 論理ブロック（9語）
 
@@ -141,6 +184,18 @@ comb    sync    fsm     state   when
 goto    initial transitions default
 ```
 
+| 予約語 | 説明 | SystemVerilog相当 | 使用例 |
+|--------|------|-------------------|--------|
+| `comb` | 組み合わせ論理ブロック。クロックに依存しない純粋な論理関数。完全割り当てが必要 | `always_comb` | `comb { result = a & b \| c; }` |
+| `sync` | 同期論理ブロック。クロックエッジで動作する順序回路を記述 | `always_ff` | `sync(clk.posedge, rst.async) { q = d; }` |
+| `fsm` | 有限状態機械定義。状態遷移を宣言的に記述するための専用ブロック | - | `fsm controller { state enum { Idle, Run }, ... }` |
+| `state` | FSM状態定義。FSM内で使用する状態列挙を定義 | `enum` | `state enum { Idle, Fetch, Execute, Halt }` |
+| `when` | FSM遷移条件。指定条件が成立した場合の状態遷移を定義 | `if` | `when request && !busy: goto Processing;` |
+| `goto` | FSM状態遷移。指定した状態への遷移を実行 | - | `goto NextState;` |
+| `initial` | FSM初期状態指定。リセット後の開始状態を指定 | - | `initial Idle;` |
+| `transitions` | FSM遷移ブロック。状態遷移ルールをまとめて記述 | - | `transitions { Idle: when start: goto Run; }` |
+| `default` | match/FSMのデフォルト分岐。明示的に列挙されていないケースを処理 | `default` | `match x { 0 => ..., default => ... }` |
+
 #### 1.4.5 検証（7語）
 
 ```
@@ -148,17 +203,54 @@ test    assert  expect  cover   assume
 constraint await
 ```
 
+| 予約語 | 説明 | SystemVerilog相当 | 使用例 |
+|--------|------|-------------------|--------|
+| `test` | テストブロック定義。シミュレーション専用のテストケースを記述 | - | `test "counter_overflow" { ... }` |
+| `assert` | 即時アサーション。条件が満たされない場合にエラーを報告 | `assert` | `assert(count <= MAX);` |
+| `expect` | 並行アサーション。時間的な性質を検証。SVA相当の機能 | `assert property` | `expect(req |-> ##[1:3] ack);` |
+| `cover` | カバレッジポイント。指定条件が満たされた回数を記録 | `cover` | `cover(state == Idle && start);` |
+| `assume` | 仮定。フォーマル検証で入力制約を指定。シミュレーションではチェック | `assume` | `assume(valid |-> data != 0);` |
+| `constraint` | 制約定義。ランダム生成の制約を指定 | `constraint` | `constraint valid_range { value inside {[0:100]}; }` |
+| `await` | シミュレーション待機。指定イベントまで実行を中断 | `@`, `wait` | `await clk.posedge;` |
+
 #### 1.4.6 インターフェース（4語）
 
 ```
 interface   initiator  target   view
 ```
 
+| 予約語 | 説明 | SystemVerilog相当 | 使用例 |
+|--------|------|-------------------|--------|
+| `interface` | インターフェース定義。関連する信号群をバンドルして再利用可能にする | `interface` | `interface AxiLite { addr: bit[32], data: bit[32], ... }` |
+| `initiator` | マスター側ビュー。バスマスターとして動作する際の信号方向を定義 | `modport` | `view initiator { out addr, out wdata, in rdata }` |
+| `target` | スレーブ側ビュー。バススレーブとして動作する際の信号方向を定義 | `modport` | `view target { in addr, in wdata, out rdata }` |
+| `view` | インターフェースビュー定義。インターフェースの異なる視点を定義 | `modport` | `view monitor { in addr, in wdata, in rdata }` |
+
 #### 1.4.7 その他（2語）
 
 ```
 where   fn
 ```
+
+| 予約語 | 説明 | SystemVerilog相当 | 使用例 |
+|--------|------|-------------------|--------|
+| `where` | ジェネリック制約。型パラメータや値パラメータに対する制約を指定 | - | `mod Fifo[Depth: u32] where Depth > 0, Depth.is_power_of_two()` |
+| `fn` | 関数定義。再利用可能な組み合わせ論理を関数として定義 | `function` | `fn max(a: bit[8], b: bit[8]) -> bit[8] { if a > b { a } else { b } }` |
+
+#### 1.4.8 予約語一覧表
+
+| カテゴリ | 予約語 | 語数 |
+|----------|--------|------|
+| モジュール構造 | `mod`, `extern`, `inst`, `in`, `out`, `inout`, `const`, `type`, `import`, `export`, `pub` | 11 |
+| 制御構造 | `if`, `else`, `match`, `for`, `while`, `break`, `continue`, `return` | 8 |
+| 型関連 | `bit`, `bool`, `enum`, `struct`, `union`, `clock`, `reset`, `let`, `var`, `mut`, `mem` | 11 |
+| 論理ブロック | `comb`, `sync`, `fsm`, `state`, `when`, `goto`, `initial`, `transitions`, `default` | 9 |
+| 検証 | `test`, `assert`, `expect`, `cover`, `assume`, `constraint`, `await` | 7 |
+| インターフェース | `interface`, `initiator`, `target`, `view` | 4 |
+| その他 | `where`, `fn` | 2 |
+| **合計** | | **52** |
+
+※ 整数型（`i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `i128`, `u128`）は予約語ではなく組み込み型名。
 
 ### 1.5 リテラル
 
@@ -258,34 +350,44 @@ let byte_val: bit[8];      // 8ビット
 let word_val: bit[31:0];   // 32ビット（範囲指定）
 ```
 
-**`bit[N]` と `uint[N]` の違い:**
+**`bit[N]` と `uN` の違い:**
 
 | 型 | 値の範囲 | 4値論理 | 用途 |
 |----|----------|---------|------|
 | `bit[N]` | 0または1のN個の値 | サポート（x, z） | 合成可能な信号 |
-| `uint[N]` | 0 ～ 2^N - 1 の整数 | 非サポート | 演算、インデックス |
+| `uN` | 0 ～ 2^N - 1 の整数 | 非サポート | 演算、インデックス |
 
 - `bit[N]`: ハードウェア信号として使用。シミュレーション時にx/z値を持つ可能性がある。
-- `uint[N]`: 純粋な符号なし整数。演算やループカウンタに使用。
+- `uN`: 純粋な符号なし整数。演算やループカウンタに使用。
 
 ```rust
 let signal: bit[8];    // ハードウェア信号（x/z可能）
-let index: uint[8];    // 整数値（x/z不可）
+let index: u8;         // 整数値（x/z不可）
 ```
 
 #### 2.1.2 整数型
 
 | 型 | ビット幅 | 符号 | 用途 |
 |----|----------|------|------|
-| `int` | 32 | 符号付き | 汎用整数 |
-| `uint` | 32 | 符号なし | 汎用符号なし整数 |
-| `int[N]` | N | 符号付き | Nビット符号付き整数 |
-| `uint[N]` | N | 符号なし | Nビット符号なし整数 |
+| `i32` | 32 | 符号付き | 汎用整数（デフォルト） |
+| `u32` | 32 | 符号なし | 汎用符号なし整数（デフォルト） |
+| `iN` | N | 符号付き | Nビット符号付き整数（例: `i8`, `i16`, `i64`） |
+| `uN` | N | 符号なし | Nビット符号なし整数（例: `u8`, `u16`, `u64`） |
 
 ```rust
-let count: uint[8] = 0;      // 8ビット符号なし
-let offset: int[16] = -100;  // 16ビット符号付き
+let count: u8 = 0;           // 8ビット符号なし
+let offset: i16 = -100;      // 16ビット符号付き
 ```
+
+**標準整数型:**
+
+| 符号付き | 符号なし | ビット幅 |
+|----------|----------|----------|
+| `i8` | `u8` | 8 |
+| `i16` | `u16` | 16 |
+| `i32` | `u32` | 32 |
+| `i64` | `u64` | 64 |
+| `i128` | `u128` | 128 |
 
 #### 2.1.3 論理型
 
@@ -538,7 +640,7 @@ let z = x == y;          // 型: bool（比較結果）
 ```rust
 let a: bit[8] = 8'hFF;
 let b: bit[16] = a.extend[16];       // 0x00FF
-let c: int[16] = a.sign_extend[16];  // 0xFFFF（-1）
+let c: i16 = a.sign_extend[16];      // 0xFFFF（-1）
 let d: bit[4] = a.truncate[4];       // 0xF
 let e: bit[4] = a.saturate[4];       // 0xF（飽和）
 ```
@@ -605,7 +707,7 @@ where
     out overflow: bit,
 
     // ===== 内部信号 =====
-    let mut count_reg: bit[Width] = 0;  // 初期値（リセット値）
+    var count_reg: bit[Width] = 0;  // 初期値（リセット値）
     let next_count: bit[Width + 1];
 
     // ===== 組み合わせ論理 =====
@@ -675,21 +777,21 @@ mod Example {
 | `let 名前: 型;` | 不変信号（型のみ） | wire | モジュール |
 | `let 名前 = 式;` | 不変信号（型推論） | wire | モジュール |
 | `let 名前: 型 = 式;` | 不変信号（型と式指定） | wire | モジュール |
-| `let mut 名前: 型;` | 可変信号（型のみ） | register | モジュール |
-| `let mut 名前 = 初期値;` | 可変信号（型推論） | register | モジュール |
-| `let mut 名前: 型 = 初期値;` | 可変信号（型と初期値指定） | register | モジュール |
-| `var 名前: 型;` | 可変信号（`let mut`と同義） | register | モジュール |
-| `var 名前 = 初期値;` | 可変信号（`let mut`と同義） | register | モジュール |
-| `var 名前: 型 = 初期値;` | 可変信号（`let mut`と同義） | register | モジュール |
+| `var 名前: 型;` | 可変信号（型のみ）**推奨** | register | モジュール |
+| `var 名前 = 初期値;` | 可変信号（型推論）**推奨** | register | モジュール |
+| `var 名前: 型 = 初期値;` | 可変信号（型と初期値指定）**推奨** | register | モジュール |
+| `let mut 名前: 型;` | 可変信号（`var`と同義） | register | モジュール |
+| `let mut 名前 = 初期値;` | 可変信号（`var`と同義） | register | モジュール |
+| `let mut 名前: 型 = 初期値;` | 可変信号（`var`と同義） | register | モジュール |
 | `const` | モジュール定数（外部から参照可能） | parameter相当 | モジュール/パッケージ |
 | `mem` | メモリ | RAM/ROM | モジュール |
 
-※ `var`は`let mut`のシンタックスシュガー（同義）。
+※ `var`と`let mut`は同義。可変信号には`var`の使用を推奨（簡潔で可読性が高い）。
 
-**`let` vs `let mut` vs `var` vs `const` の違い:**
+**`let` vs `var` vs `let mut` vs `const` の違い:**
 - `let`: 不変信号宣言。組み合わせ回路として合成（Verilogの`wire`に相当）。型のみ、式のみ、または両方を指定可能。
-- `let mut`: 可変信号宣言。順序回路として合成（Verilogの`reg`に相当）。syncブロック内で更新可能。型のみ、初期値のみ、または両方を指定可能（初期値設定時はリセット値として使用）。
-- `var`: `let mut`と同義。可変信号の短縮形。
+- `var`: 可変信号宣言（**推奨**）。順序回路として合成（Verilogの`reg`に相当）。syncブロック内で更新可能。型のみ、初期値のみ、または両方を指定可能（初期値設定時はリセット値として使用）。
+- `let mut`: `var`と同義（Rust互換の代替構文）。
 - `const`: モジュールレベルまたはパッケージレベルの定数。外部から参照可能。
 
 **組み合わせ回路の記述:**
@@ -724,16 +826,16 @@ mod Example {
 
 **合成セマンティクス:**
 - `let`（不変信号）: 組み合わせ回路として合成（Verilogの`wire`に相当）
-- `let mut`/`var`（可変信号）: 順序回路として合成（Verilogの`reg`に相当）
+- `var`/`let mut`（可変信号）: 順序回路として合成（Verilogの`reg`に相当）
 
 | 記述方法 | 合成結果 |
 |----------|----------|
 | `let 名前 = 式;` | 組み合わせ回路（wire） |
 | `let 名前: 型 = 式;` | 組み合わせ回路（wire） |
+| `var 名前 = 初期値;` + `sync`ブロック内で代入 | 順序回路（リセット値あり）**推奨** |
+| `var 名前: 型;` + `sync`ブロック内で代入 | 順序回路（リセット値なし）**推奨** |
 | `let mut 名前 = 初期値;` + `sync`ブロック内で代入 | 順序回路（リセット値あり） |
-| `var 名前 = 初期値;` + `sync`ブロック内で代入 | 順序回路（リセット値あり） |
 | `let mut 名前: 型;` + `sync`ブロック内で代入 | 順序回路（リセット値なし） |
-| `var 名前: 型;` + `sync`ブロック内で代入 | 順序回路（リセット値なし） |
 | `comb`ブロック内で出力ポートに代入 | 組み合わせ回路（wire） |
 
 #### 3.3.2.1 Multi Drive禁止
@@ -793,9 +895,8 @@ mod Counter {
     in  enable: bit,
     out count: bit[8],
 
-    // 順序論理（let mut または var 宣言 + syncブロック）
-    let mut counter: bit[8] = 0;  // 初期値あり → リセット時に0
-    // または: var counter: bit[8] = 0;  // let mutと同義
+    // 順序論理（var 宣言 + syncブロック）
+    var counter: bit[8] = 0;  // 初期値あり → リセット時に0
 
     sync(clk.posedge, rst.async) {
         if enable {
@@ -819,15 +920,15 @@ let value1: bit[8];              // 型のみ指定
 let value2 = 8'hFF;              // 初期値から型推論（bit[8]）
 let value3: bit[8] = 8'hFF;      // 型と初期値の両方を指定
 
-// 可変信号（let mut）
-let mut counter1: bit[8];        // 型のみ指定（リセット値なし）
-let mut counter2 = 0;            // 初期値から型推論
-let mut counter3: bit[8] = 0;    // 型と初期値の両方を指定（リセット時に0）
+// 可変信号（var）- 推奨
+var counter1: bit[8];            // 型のみ指定（リセット値なし）
+var counter2 = 0;                // 初期値から型推論
+var counter3: bit[8] = 0;        // 型と初期値の両方を指定（リセット時に0）
 
-// 可変信号（var - let mutと同義）
-var flag1: bool;                 // 型のみ指定
-var flag2 = false;               // 初期値から型推論
-var flag3: bool = false;         // 型と初期値の両方を指定（リセット時にfalse）
+// 可変信号（let mut - varと同義、Rust互換構文）
+let mut flag1: bool;             // 型のみ指定
+let mut flag2 = false;           // 初期値から型推論
+let mut flag3: bool = false;     // 型と初期値の両方を指定（リセット時にfalse）
 
 // 定数
 const MAX_VAL: uint = 255;       // コンパイル時定数
@@ -1452,10 +1553,10 @@ sync(clk.negedge) {
 | `rst.sync` | 同期リセット | クロックエッジでリセット評価 |
 | `rst.async` | 非同期リセット | クロックに非同期でリセット |
 
-リセット値は`let`宣言時の初期値から決定される。
+リセット値は`var`宣言時の初期値から決定される。
 
 ```rust
-let mut count: bit[8] = 0;  // リセット時は0
+var count: bit[8] = 0;  // リセット時は0
 
 // 同期リセット
 sync(clk.posedge, rst.sync) {
@@ -1473,7 +1574,7 @@ sync(clk.posedge, rst.async) {
 
 ```rust
 // IRIS
-let mut q: bit[8] = 0;
+var q: bit[8] = 0;
 
 sync(clk.posedge, rst.async) {
     q = d;
@@ -1574,7 +1675,7 @@ fsm StateMachineName(clk.posedge, rst.async) {
     initial: Idle
 
     // 3. ローカル変数（オプション）
-    var counter: uint[8] = 0;
+    var counter: u8 = 0;
 
     // 4. 状態遷移
     transitions {
@@ -2112,11 +2213,10 @@ pub fn parity(data: Byte) -> bit {
 
 | 修飾子 | 可視範囲 | 用途 |
 |--------|----------|------|
-| なし | 同一パッケージ内のみ | 内部実装 |
+| なし | 同一パッケージ内のみ | 内部実装（プライベート） |
 | `pub` | どこからでもアクセス可能 | 公開API |
-| `pub(crate)` | 同一クレート内のみ | クレート内共有 |
-| `pub(super)` | 親パッケージまで | 限定公開 |
-| `pub(in path)` | 指定パスまで | 詳細制御 |
+
+**注意:** IRISでは可視性制御をシンプルに保つため、Rustの`pub(crate)`、`pub(super)`、`pub(in path)`などの限定公開修飾子は**サポートしない**。可視性は「プライベート（デフォルト）」または「完全公開（`pub`）」の2択とする。
 
 ### 8.3 インポート
 
@@ -2483,7 +2583,7 @@ mem small_fifo: bit[32][32];
 
 ```rust
 #[synthesis(keep)]
-let mut debug_probe: bit[32];
+var debug_probe: bit[32];
 
 #[synthesis(flatten)]
 mod SmallHelper { ... }
@@ -2521,7 +2621,7 @@ in async_reset: reset;
 
 // マルチサイクルパス
 #[timing(multicycle_path = 2)]
-let mut slow_data: bit[64];
+var slow_data: bit[64];
 
 // 最大遅延指定
 #[timing(max_delay = "5.0ns")]
@@ -2675,8 +2775,7 @@ source_file = { item } ;
 item = visibility_modifier ( mod_def | type_def | const_def | fn_def
      | interface_def | package_decl | import_decl | test_def ) ;
 
-visibility_modifier = [ "pub" [ "(" visibility_scope ")" ] ] ;
-visibility_scope = "crate" | "super" | "in" path ;
+visibility_modifier = [ "pub" ] ;
 ```
 
 #### 14.1.2 モジュール定義
@@ -2711,14 +2810,14 @@ type_alias = "type" identifier [ generic_params ] "=" type_expr ";" ;
 - `let 名前: 型;` - 不変信号（型のみ指定）
 - `let 名前 = 初期値;` - 不変信号（型推論）
 - `let 名前: 型 = 初期値;` - 不変信号（型と初期値）
-- `let mut 名前: 型;` - 可変信号（型のみ指定）
-- `let mut 名前 = 初期値;` - 可変信号（型推論）
-- `let mut 名前: 型 = 初期値;` - 可変信号（型と初期値）
-- `var 名前: 型;` - 可変信号（`let mut`と同義）
-- `var 名前 = 初期値;` - 可変信号（`let mut`と同義）
-- `var 名前: 型 = 初期値;` - 可変信号（`let mut`と同義）
+- `var 名前: 型;` - 可変信号（型のみ指定）**推奨**
+- `var 名前 = 初期値;` - 可変信号（型推論）**推奨**
+- `var 名前: 型 = 初期値;` - 可変信号（型と初期値）**推奨**
+- `let mut 名前: 型;` - 可変信号（`var`と同義）
+- `let mut 名前 = 初期値;` - 可変信号（`var`と同義）
+- `let mut 名前: 型 = 初期値;` - 可変信号（`var`と同義）
 
-※ `var`は`let mut`のシンタックスシュガー（同義）。
+※ `var`と`let mut`は同義。可変信号には`var`の使用を推奨（簡潔で可読性が高い）。
 
 #### 14.1.4 論理ブロック
 
@@ -2778,7 +2877,7 @@ mod Counter8 {
     in  enable: bit,
     out count: bit[8],
 
-    let mut counter: bit[8] = 0;
+    var counter: bit[8] = 0;
 
     sync(clk.posedge, rst.async) {
         if enable {
@@ -2809,9 +2908,9 @@ mod SyncFifo[Width: uint = 8, Depth: uint = 16] {
     const ADDR_WIDTH: uint = $clog2(Depth);
 
     mem buffer: bit[Width][Depth];
-    let mut wr_ptr: bit[ADDR_WIDTH] = 0;
-    let mut rd_ptr: bit[ADDR_WIDTH] = 0;
-    let mut count: bit[ADDR_WIDTH + 1] = 0;
+    var wr_ptr: bit[ADDR_WIDTH] = 0;
+    var rd_ptr: bit[ADDR_WIDTH] = 0;
+    var count: bit[ADDR_WIDTH + 1] = 0;
 
     sync(clk.posedge, rst.async) {
         if push && !full {
@@ -2987,7 +3086,7 @@ let _unused_debug: bit[32];
 |---------------|------|
 | `module name #(parameter P=1) (input a, output b);` | `mod Name[P: uint = 1] { in a: bit, out b: bit }` |
 | `input [7:0] data` | `in data: bit[8]` |
-| `output reg [7:0] q` | `out q: bit[8]` (let mut + sync) |
+| `output reg [7:0] q` | `out q: bit[8]` (var + sync) |
 | `inout bidir` | `inout bidir: bit` |
 
 #### 16.1.2 データ型
@@ -2995,10 +3094,10 @@ let _unused_debug: bit[32];
 | SystemVerilog | IRIS | 備考 |
 |---------------|------|------|
 | `logic [N-1:0]` | `bit[N]` | |
-| `reg [N-1:0]` | `let mut x: bit[N] = 0` | syncブロック内で代入（順序回路） |
+| `reg [N-1:0]` | `var x: bit[N] = 0` | syncブロック内で代入（順序回路） |
 | `wire [N-1:0]` | `let x: bit[N] = 式;` | 組み合わせ回路 |
-| `integer` | `int[32]` | |
-| `logic signed [N-1:0]` | `int[N]` | |
+| `integer` | `i32` | |
+| `logic signed [N-1:0]` | `iN` | |
 
 #### 16.1.3 組み合わせ論理
 
@@ -3038,7 +3137,7 @@ end
 
 **IRIS:**
 ```rust
-let mut count: bit[8] = 0;
+var count: bit[8] = 0;
 
 sync(clk.posedge, rst_n.async) {
     if en {
@@ -3152,7 +3251,7 @@ IRISでは代入演算子を`=`に統一。コンテキストに応じてコン�
 
 - [ ] モジュール宣言を`mod`形式に変換
 - [ ] ポート宣言を`in`/`out`/`inout`形式に変換
-- [ ] データ型を`bit[N]`/`int[N]`/`uint[N]`に変換
+- [ ] データ型を`bit[N]`/`iN`/`uN`に変換
 - [ ] `wire`と単純な`assign`を`let`宣言に変換
 - [ ] 複雑な`always_comb`を`comb`ブロックに変換
 - [ ] `always_ff`を`sync`ブロックに変換
@@ -3172,7 +3271,7 @@ IRISでは代入演算子を`=`に統一。コンテキストに応じてコン�
 |------|---------------|------|
 | 括弧 | `begin ... end` | `{ ... }` |
 | 型宣言（組み合わせ） | `wire [7:0] data` | `let data: bit[8] = 式;` |
-| 型宣言（順序） | `reg [7:0] data` | `let mut data: bit[8]` |
+| 型宣言（順序） | `reg [7:0] data` | `var data: bit[8]`（推奨） |
 | 分岐 | `case ... endcase` | `match { ... }` |
 | 組み合わせ論理 | `wire` + `assign` / `always_comb` | `let`宣言 / `comb { }` |
 | 順序論理 | `always_ff @(posedge clk)` | `sync(clk.posedge) { }` |
