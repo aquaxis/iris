@@ -43,27 +43,58 @@ sync(clk.negedge) {
 
 ---
 
-## 5.2 可変信号の宣言
+## 5.2 順序回路用の信号宣言
 
-順序回路を記述するには、`var`（または`let mut`）で可変信号を宣言します。
+順序回路を記述するには、`let`、`let mut`、または`var`で信号を宣言し、`sync`ブロック内で代入します。
 
-### 5.2.1 varによる宣言（推奨）
+**重要:** IRISでは、信号の合成結果は**使用コンテキスト**によって決定されます。`let`で宣言した信号でも、`sync`ブロック内で代入されると順序回路（レジスタ）として合成されます。
+
+### 5.2.1 letによる宣言
 
 ```rust
-// リセット値あり
-var counter: bit[8] = 0;
+// letでも順序回路として使用可能
+let counter: bit[8] = 0;  // リセット値あり
+let data: bit[8];         // リセット値なし（初期値省略可）
 
-// リセット値なし
-var data: bit[8];
+sync(clk.posedge, rst.async) {
+    counter = counter + 1;  // letで宣言した変数もsyncブロック内で代入可能
+}
 ```
 
-### 5.2.2 let mutによる宣言
+### 5.2.2 varによる宣言（順序回路専用）
+
+**重要:** `var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。`comb`ブロックや直接代入で使用するとコンパイルエラーになります。
+
+```rust
+// varによる宣言（順序回路専用）
+var counter: bit[8] = 0;  // リセット値あり
+var data: bit[8];         // リセット値なし
+
+sync(clk.posedge, rst.async) {
+    counter = counter + 1;  // OK: sync内で使用
+}
+
+// 以下はエラー
+// comb { counter = 0; }  // エラー: varはsync/fsm外で使用不可
+```
+
+### 5.2.3 let mutによる宣言
 
 ```rust
 // Rust互換構文（varと同義）
 let mut counter: bit[8] = 0;
 let mut data: bit[8];
 ```
+
+### 5.2.4 宣言形式の選択
+
+| 宣言 | 用途 | 使用可能コンテキスト | 備考 |
+|------|------|---------------------|------|
+| `let` | 汎用的な信号宣言 | どこでも | コンテキストにより組み合わせ/順序回路を自動判定 |
+| `var` | 順序回路専用 | **sync/fsmのみ** | 明示的にレジスタであることを示す |
+| `let mut` | 可変信号（初期値付き） | sync/fsm推奨 | 初期値がリセット値となる |
+
+**推奨:** 順序回路用の信号には`var`を使用することを推奨します。`var`は`sync`/`fsm`ブロックでのみ使用可能であるため、意図が明確になります。`let`はどこでも使用可能ですが、使用コンテキストにより回路種別が決定されます。
 
 ---
 
@@ -236,7 +267,7 @@ sync(clk.posedge, rst.async) {
 ### 5.7.1 カウンタ
 
 ```rust
-mod Counter {
+mod Counter(
     in  clk: clock,
     in  rst: reset,
     in  enable: bit,
@@ -244,7 +275,7 @@ mod Counter {
     in  load_value: bit[8],
     out count: bit[8],
     out overflow: bit,
-
+) {
     var counter: bit[8] = 0;
 
     sync(clk.posedge, rst.async) {
@@ -265,13 +296,13 @@ mod Counter {
 ### 5.7.2 シフトレジスタ
 
 ```rust
-mod ShiftRegister {
+mod ShiftRegister(
     in  clk: clock,
     in  rst: reset,
     in  shift: bit,
     in  din: bit,
     out dout: bit[8],
-
+) {
     var reg: bit[8] = 0;
 
     sync(clk.posedge, rst.async) {
@@ -289,12 +320,12 @@ mod ShiftRegister {
 ### 5.7.3 パイプラインレジスタ
 
 ```rust
-mod Pipeline {
+mod Pipeline(
     in  clk: clock,
     in  rst: reset,
     in  din: bit[32],
     out dout: bit[32],
-
+) {
     var stage1: bit[32] = 0;
     var stage2: bit[32] = 0;
     var stage3: bit[32] = 0;
@@ -318,10 +349,10 @@ mod Pipeline {
 モジュール内に複数の`sync`ブロックを配置できますが、同一信号への代入は禁止されています。
 
 ```rust
-mod Example {
+mod Example(
     in  clk: clock,
     in  rst: reset,
-
+) {
     var reg_a: bit[8] = 0;
     var reg_b: bit[8] = 0;
 
@@ -341,12 +372,12 @@ mod Example {
 ## 5.9 syncブロックとcombブロックの関係
 
 ```rust
-mod Example {
+mod Example(
     in  clk: clock,
     in  rst: reset,
     in  din: bit[8],
     out dout: bit[8],
-
+) {
     var reg: bit[8] = 0;
     let next_val: bit[8];
 

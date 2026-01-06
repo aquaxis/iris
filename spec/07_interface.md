@@ -135,11 +135,11 @@ interface I2C {
 ### 7.3.1 ポート宣言
 
 ```rust
-mod AxiMaster {
+mod AxiMaster(
     in  clk: clock,
     in  rst: reset,
     initiator axi: AxiLite,  // initiatorビューで接続
-
+) {
     // 内部ロジック
     comb {
         axi.awaddr = address;
@@ -147,12 +147,12 @@ mod AxiMaster {
     }
 }
 
-mod AxiSlave {
+mod AxiSlave(
     in  clk: clock,
     in  rst: reset,
     target axi: AxiLite,  // targetビューで接続
     out reg_out: bit[32][16],
-
+) {
     // 内部ロジック
     comb {
         axi.awready = !busy;
@@ -163,10 +163,10 @@ mod AxiSlave {
 ### 7.3.2 インターフェース接続
 
 ```rust
-mod Top {
+mod Top(
     in clk: clock,
     in rst: reset,
-
+) {
     // インターフェースインスタンス
     let axi_bus: AxiLite[AddrWidth: 16, DataWidth: 32];
 
@@ -189,11 +189,11 @@ mod Top {
 ### 7.3.3 配列インターフェース
 
 ```rust
-mod MultiPortController {
+mod MultiPortController(
     in clk: clock,
     in rst: reset,
     initiator ports[4]: AxiLite,  // 4つのAXIポート
-
+) {
     // 各ポートへのアクセス
     for i in 0..4 {
         comb {
@@ -219,9 +219,9 @@ interface Simple {
     view initiator { out: valid, data }
 }
 
-mod Producer {
+mod Producer(
     initiator out_if: Simple,
-}
+) {}
 ```
 
 **生成されるSystemVerilog:**
@@ -319,10 +319,10 @@ interface AxiFull {
 
 ```rust
 // エラー例
-mod BadConnection {
+mod BadConnection(
     initiator port_a: Handshake,
     initiator port_b: Handshake,
-
+) {
     // エラー: 両方がinitiatorのため接続不可
 }
 ```

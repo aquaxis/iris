@@ -75,11 +75,11 @@ mod Rom[DataWidth: uint = 8, Depth: uint = 256] {
 }
 
 // ファイルから初期化
-mod RomFromFile {
+mod RomFromFile(
     in clk: clock,
     in addr: bit[10],
     out data: bit[32],
-
+) {
     const rom_data: bit[32][1024] {
         init_file: "rom_contents.hex"
     };

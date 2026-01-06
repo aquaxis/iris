@@ -45,6 +45,81 @@ error[O0001]: incomplete signal assignment in combinational block
 2. `comb default(signal = value)`でデフォルト値を指定
 3. match式を使用して全ケースを網羅
 
+### O0002: var宣言のsync/fsm外での使用
+
+```
+error[O0002]: 'var' declaration used outside sync/fsm block
+  --> src/counter.iris:8:5
+   |
+8  |     var counter: bit[8] = 0;
+9  |     comb {
+10 |         counter = counter + 1;
+   |         ^^^^^^^ 'var' signal assigned in comb block
+   |
+   = help: use 'let' for combinational logic, or move to sync/fsm block
+   = note: 'var' declarations are only allowed in sync or fsm blocks
+```
+
+**原因:** `var`で宣言した信号を`sync`/`fsm`ブロック外で使用している
+
+**修正方法:**
+1. 組み合わせ論理の場合は`let`を使用
+2. 順序論理の場合は`sync`または`fsm`ブロック内で使用
+
+### O0003: 予約語の識別子使用
+
+```
+error[O0003]: reserved keyword used as identifier
+  --> src/module.iris:5:9
+   |
+5  |     let match: bit[8];
+   |         ^^^^^ 'match' is a reserved keyword
+   |
+   = help: rename the signal, e.g., 'match_result' or 'match_val'
+   = note: see language reference for list of reserved keywords
+```
+
+**原因:** 予約語を識別子として使用している
+
+**修正方法:**
+1. 別の名前に変更
+2. サフィックスやプレフィックスを追加
+
+### O0004: 括弧の不一致
+
+```
+error[O0004]: mismatched brackets
+  --> src/expr.iris:12:20
+   |
+12 |     result = data[7:0;
+   |                      ^ expected ']', found ';'
+   |
+   = help: add closing bracket ']'
+```
+
+**原因:** 開き括弧に対応する閉じ括弧がない
+
+**修正方法:**
+1. 対応する閉じ括弧を追加
+
+### O0005: セミコロンの欠落
+
+```
+error[O0005]: expected ';'
+  --> src/assign.iris:15:18
+   |
+15 |     count = count + 1
+16 |     overflow = (count == 8'hFF);
+   |     ^^^^^^^^ expected ';' before this
+   |
+   = help: add ';' at the end of line 15
+```
+
+**原因:** 文の終わりにセミコロンがない
+
+**修正方法:**
+1. 文の終わりにセミコロンを追加
+
 ---
 
 ## 13.3 型エラー（O1001-O1999）
@@ -88,6 +163,62 @@ error[O1002]: signed/unsigned mismatch in comparison
 1. 明示的なキャストを追加
 2. `.signed()` または `.unsigned()` メソッドを使用
 
+### O1003: ビット幅の不一致
+
+```
+error[O1003]: bit width mismatch
+  --> src/concat.iris:10:12
+   |
+10 |     result = {a, b};
+   |              ^^^^^^ concatenation produces `bit[24]`, expected `bit[16]`
+   |
+   = help: result type should be bit[24] or truncate the concatenation
+   = note: {a: bit[16], b: bit[8]} produces bit[24]
+```
+
+**原因:** 連結演算の結果のビット幅が期待と異なる
+
+**修正方法:**
+1. 左辺の型を正しいビット幅に変更
+2. 連結する信号を調整
+
+### O1004: 配列インデックスの型エラー
+
+```
+error[O1004]: invalid array index type
+  --> src/mem.iris:18:14
+   |
+18 |     data = mem[addr];
+   |                ^^^^ expected unsigned integer type, found `int[8]`
+   |
+   = help: cast to unsigned: `mem[addr as uint[8]]`
+   = note: array indices must be unsigned
+```
+
+**原因:** 配列インデックスに符号付き型を使用している
+
+**修正方法:**
+1. インデックスを符号なし型にキャスト
+2. 信号の宣言時に符号なし型を使用
+
+### O1005: ジェネリックパラメータの制約違反
+
+```
+error[O1005]: generic parameter constraint violation
+  --> src/counter.iris:3:25
+   |
+3  |     inst cnt = Counter[Width: 64] { ... };
+   |                        ^^^^^^^^^ Width=64 violates constraint: Width <= 32
+   |
+   = note: Counter requires: Width >= 1, Width <= 32
+```
+
+**原因:** ジェネリックパラメータの値が制約を満たしていない
+
+**修正方法:**
+1. 制約を満たす値を指定
+2. モジュールの制約定義を確認
+
 ---
 
 ## 13.4 論理エラー（O2001-O2999）
@@ -130,6 +261,68 @@ error[O2002]: signal assigned outside logic block
 **修正方法:**
 1. 代入をsyncブロック内に移動（レジスタの場合）
 2. 代入をcombブロック内に移動（組み合わせ論理の場合）
+
+### O2003: 同一信号への複数ドライバ
+
+```
+error[O2003]: multiple drivers for signal
+  --> src/mux.iris:15:9
+   |
+12 |     comb {
+13 |         if sel { result = a; }
+14 |     }
+15 |     comb {
+16 |         if !sel { result = b; }
+   |                   ^^^^^^ 'result' is also driven at line 13
+   |
+   = help: combine into a single comb block with complete if-else
+   = note: each signal must have exactly one driver
+```
+
+**原因:** 同一信号が複数のブロックから駆動されている
+
+**修正方法:**
+1. 単一のcombブロックに統合
+2. if-else式を使用して完全な条件分岐を記述
+
+### O2004: 未初期化レジスタの読み取り
+
+```
+error[O2004]: potentially uninitialized register read
+  --> src/pipe.iris:22:16
+   |
+22 |         stage2 = stage1;
+   |                  ^^^^^^ 'stage1' may be read before initialization
+   |
+   = help: add initial value: `var stage1: bit[8] = 0;`
+   = note: registers without reset values have undefined initial state
+```
+
+**原因:** リセット値のないレジスタを読み取っている可能性
+
+**修正方法:**
+1. var宣言時に初期値を指定
+2. リセット処理で値を設定
+
+### O2005: クロックドメイン交差
+
+```
+warning[O2005]: clock domain crossing detected
+  --> src/cdc.iris:18:14
+   |
+18 |     sync(clk_b.posedge) {
+19 |         data_b = data_a;
+   |                  ^^^^^^ 'data_a' is in clock domain 'clk_a'
+   |
+   = help: use synchronizer: `sync_ff(data_a, stages: 2)`
+   = note: direct CDC may cause metastability
+```
+
+**原因:** 異なるクロックドメイン間で直接信号を渡している
+
+**修正方法:**
+1. `sync_ff`などの同期化プリミティブを使用
+2. 適切なCDC手法を適用
 
 ---
 

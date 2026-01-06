@@ -8,14 +8,13 @@
 
 ```rust
 /// 8ビットカウンタ
-mod Counter8 {
+mod Counter8(
     in  clk: clock,
     in  rst: reset,
     in  enable: bit,
     out count: bit[8],
-
+) {
     let counter: bit[8] = 0;
-    let count: bit[8];
 
     sync(clk.posedge, rst.async) {
         if enable {
@@ -35,7 +34,7 @@ mod Counter8 {
 
 ```rust
 /// パラメータ化されたカウンタ
-mod Counter[Width: uint = 8] {
+mod Counter[Width: uint = 8](
     in  clk: clock,
     in  rst: reset,
     in  enable: bit,
@@ -43,10 +42,8 @@ mod Counter[Width: uint = 8] {
     in  data: bit[Width],
     out count: bit[Width],
     out overflow: bit,
-
+) {
     let counter: bit[Width] = 0;
-    let count: bit[Width];
-    let overflow: bit;
 
     sync(clk.posedge, rst.async) {
         if load {
@@ -69,7 +66,7 @@ mod Counter[Width: uint = 8] {
 
 ```rust
 /// 同期FIFO
-mod SyncFifo[Width: uint = 8, Depth: uint = 16] {
+mod SyncFifo[Width: uint = 8, Depth: uint = 16](
     in  clk: clock,
     in  rst: reset,
     in  push: bit,
@@ -78,33 +75,30 @@ mod SyncFifo[Width: uint = 8, Depth: uint = 16] {
     out dout: bit[Width],
     out full: bit,
     out empty: bit,
-
+) {
     const ADDR_WIDTH: uint = $clog2(Depth);
 
     mem buffer: bit[Width][Depth];
     let wr_ptr: bit[ADDR_WIDTH] = 0;
     let rd_ptr: bit[ADDR_WIDTH] = 0;
-    let count: bit[ADDR_WIDTH + 1] = 0;
-    let dout: bit[Width];
-    let full: bit;
-    let empty: bit;
+    let fifo_count: bit[ADDR_WIDTH + 1] = 0;
 
     sync(clk.posedge, rst.async) {
         if push && !full {
             buffer[wr_ptr] = din;
             wr_ptr = wr_ptr + 1;
-            count = count + 1;
+            fifo_count = fifo_count + 1;
         }
         if pop && !empty {
             rd_ptr = rd_ptr + 1;
-            count = count - 1;
+            fifo_count = fifo_count - 1;
         }
     }
 
     comb {
         dout = buffer[rd_ptr];
-        full = count == Depth;
-        empty = count == 0;
+        full = fifo_count == Depth;
+        empty = fifo_count == 0;
     }
 }
 ```
@@ -115,17 +109,14 @@ mod SyncFifo[Width: uint = 8, Depth: uint = 16] {
 
 ```rust
 /// 4機能ALU
-mod Alu[Width: uint = 8] {
+mod Alu[Width: uint = 8](
     in  a: bit[Width],
     in  b: bit[Width],
     in  op: bit[2],
     out result: bit[Width],
     out zero: bit,
     out carry: bit,
-
-    let result: bit[Width];
-    let zero: bit;
-    let carry: bit;
+) {
     let extended: bit[Width + 1];
 
     comb {
@@ -148,17 +139,15 @@ mod Alu[Width: uint = 8] {
 
 ```rust
 /// パラメータ化シフトレジスタ
-mod ShiftRegister[Width: uint = 8, Depth: uint = 4] {
+mod ShiftRegister[Width: uint = 8, Depth: uint = 4](
     in  clk: clock,
     in  rst: reset,
     in  enable: bit,
     in  din: bit[Width],
     out dout: bit[Width],
     out parallel_out: bit[Width][Depth],
-
+) {
     let stages: bit[Width][Depth] = [0; Depth];
-    let dout: bit[Width];
-    let parallel_out: bit[Width][Depth];
 
     sync(clk.posedge, rst.async) {
         if enable {
@@ -181,7 +170,7 @@ mod ShiftRegister[Width: uint = 8, Depth: uint = 4] {
 ## 16.6 FSM例：UARTトランスミッタ制御
 
 ```rust
-mod UartTxFsm {
+mod UartTxFsm(
     in  clk: clock,
     in  rst: reset,
     in  start: bit,
@@ -190,7 +179,7 @@ mod UartTxFsm {
     out tx_en: bit,
     out shift_en: bit,
     out busy: bit,
-
+) {
     fsm Controller(clk.posedge, rst.async) {
         state enum {
             Idle    [tx_en = 0, shift_en = 0, busy = 0],
@@ -224,12 +213,12 @@ mod UartTxFsm {
 ```rust
 import iris_std::axi::AxiLite;
 
-mod AxiLiteRegs[NumRegs: uint = 4] {
+mod AxiLiteRegs[NumRegs: uint = 4](
     in clk: clock,
     in rst: reset,
     target axi: AxiLite,
     out regs: bit[32][NumRegs],
-
+) {
     let registers: bit[32][NumRegs] = [0; NumRegs];
     let aw_ready: bit = 1;
     let w_ready: bit = 1;
@@ -237,7 +226,6 @@ mod AxiLiteRegs[NumRegs: uint = 4] {
     let ar_ready: bit = 1;
     let r_valid: bit = 0;
     let r_data: bit[32] = 0;
-    let regs: bit[32][NumRegs];
 
     // 書き込みロジック
     sync(clk.posedge, rst.async) {
@@ -284,14 +272,11 @@ mod AxiLiteRegs[NumRegs: uint = 4] {
 
 ```rust
 /// パラメータ化優先度エンコーダ
-mod PriorityEncoder[Width: uint = 8] {
+mod PriorityEncoder[Width: uint = 8](
     in  request: bit[Width],
     out grant: bit[$clog2(Width)],
     out valid: bit,
-
-    let grant: bit[$clog2(Width)];
-    let valid: bit;
-
+) {
     comb {
         valid = request.or_reduce();
         grant = 0;
@@ -309,7 +294,7 @@ mod PriorityEncoder[Width: uint = 8] {
 ## 16.9 デュアルポートRAM
 
 ```rust
-mod DualPortRam[Width: uint = 32, Depth: uint = 1024] {
+mod DualPortRam[Width: uint = 32, Depth: uint = 1024](
     in  clk: clock,
     // ポートA
     in  a_we: bit,
@@ -321,16 +306,13 @@ mod DualPortRam[Width: uint = 32, Depth: uint = 1024] {
     in  b_addr: bit[$clog2(Depth)],
     in  b_wdata: bit[Width],
     out b_rdata: bit[Width],
-
+) {
     #[synthesis(ram_style = "block")]
     mem storage: bit[Width][Depth] {
         ports: 2,
         type: true_dual_port,
         read_mode: read_first
     };
-
-    let a_rdata: bit[Width];
-    let b_rdata: bit[Width];
 
     sync(clk.posedge) {
         // ポートA
@@ -354,7 +336,7 @@ mod DualPortRam[Width: uint = 32, Depth: uint = 1024] {
 
 ```rust
 /// 3段パイプライン乗算器
-mod PipelinedMultiplier[Width: uint = 16] {
+mod PipelinedMultiplier[Width: uint = 16](
     in  clk: clock,
     in  rst: reset,
     in  valid_in: bit,
@@ -362,7 +344,7 @@ mod PipelinedMultiplier[Width: uint = 16] {
     in  b: bit[Width],
     out valid_out: bit,
     out product: bit[Width * 2],
-
+) {
     // パイプラインレジスタ
     let stage1_a: bit[Width] = 0;
     let stage1_b: bit[Width] = 0;
@@ -373,9 +355,6 @@ mod PipelinedMultiplier[Width: uint = 16] {
 
     let stage3_product: bit[Width * 2] = 0;
     let stage3_valid: bit = 0;
-
-    let valid_out: bit;
-    let product: bit[Width * 2];
 
     sync(clk.posedge, rst.async) {
         // ステージ1: 入力ラッチ
@@ -405,15 +384,14 @@ mod PipelinedMultiplier[Width: uint = 16] {
 
 ```rust
 /// 2段フリップフロップ同期化器
-mod Synchronizer[Width: uint = 1] {
+mod Synchronizer[Width: uint = 1](
     in  clk_dst: clock,
     in  rst: reset,
     in  async_in: bit[Width],
     out sync_out: bit[Width],
-
+) {
     let sync_ff1: bit[Width] = 0;
     let sync_ff2: bit[Width] = 0;
-    let sync_out: bit[Width];
 
     #[allow(cdc_crossing)]
     sync(clk_dst.posedge, rst.async) {
@@ -429,7 +407,697 @@ mod Synchronizer[Width: uint = 1] {
 
 ---
 
-## 16.12 テストベンチ例
+## 16.12 PWMジェネレータ
+
+```rust
+/// パルス幅変調（PWM）ジェネレータ
+mod PwmGenerator[Width: uint = 8](
+    in  clk: clock,
+    in  rst: reset,
+    in  enable: bit,
+    in  duty: bit[Width],       // デューティ比（0〜2^Width-1）
+    in  period: bit[Width],     // 周期（カウント値）
+    out pwm_out: bit,
+    out cycle_done: bit,
+) {
+    var counter: bit[Width] = 0;
+    var pwm_reg: bit = 0;
+    var done_reg: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_reg = 0;
+
+        if enable {
+            if counter >= period {
+                counter = 0;
+                done_reg = 1;
+            } else {
+                counter = counter + 1;
+            }
+
+            // デューティ比に基づいてPWM出力を設定
+            pwm_reg = (counter < duty) ? 1'b1 : 1'b0;
+        } else {
+            counter = 0;
+            pwm_reg = 0;
+        }
+    }
+
+    comb {
+        pwm_out = pwm_reg;
+        cycle_done = done_reg;
+    }
+}
+```
+
+---
+
+## 16.13 タイマーモジュール
+
+```rust
+/// プログラマブルタイマー
+mod Timer[Width: uint = 32](
+    in  clk: clock,
+    in  rst: reset,
+    in  enable: bit,
+    in  mode: bit[2],           // 00: ワンショット, 01: 連続, 10: カウントアップ
+    in  load: bit,
+    in  load_value: bit[Width],
+    out count: bit[Width],
+    out timeout: bit,
+    out running: bit,
+) {
+
+    const MODE_ONESHOT: bit[2] = 2'b00;
+    const MODE_CONTINUOUS: bit[2] = 2'b01;
+    const MODE_COUNTUP: bit[2] = 2'b10;
+
+    var counter: bit[Width] = 0;
+    var timeout_reg: bit = 0;
+    var running_reg: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        timeout_reg = 0;
+
+        if load {
+            counter = load_value;
+            running_reg = 1;
+        } else if enable && running_reg {
+            match mode {
+                MODE_COUNTUP => {
+                    if counter == load_value {
+                        timeout_reg = 1;
+                        counter = 0;
+                    } else {
+                        counter = counter + 1;
+                    }
+                }
+                _ => {
+                    // カウントダウンモード
+                    if counter == 0 {
+                        timeout_reg = 1;
+                        if mode == MODE_CONTINUOUS {
+                            counter = load_value;
+                        } else {
+                            running_reg = 0;
+                        }
+                    } else {
+                        counter = counter - 1;
+                    }
+                }
+            }
+        }
+    }
+
+    comb {
+        count = counter;
+        timeout = timeout_reg;
+        running = running_reg;
+    }
+}
+```
+
+---
+
+## 16.14 SPIマスターコントローラ
+
+```rust
+/// SPI マスターコントローラ（Mode 0: CPOL=0, CPHA=0）
+mod SpiMaster[DataWidth: uint = 8](
+    in  clk: clock,
+    in  rst: reset,
+    // 制御インターフェース
+    in  start: bit,
+    in  tx_data: bit[DataWidth],
+    out rx_data: bit[DataWidth],
+    out busy: bit,
+    out done: bit,
+    // SPI インターフェース
+    out sclk: bit,
+    out mosi: bit,
+    in  miso: bit,
+    out cs_n: bit,
+    // クロック分周設定
+    in  clk_div: bit[8],
+) {
+    var state: bit[2] = 0;
+    var bit_count: bit[$clog2(DataWidth)] = 0;
+    var clk_count: bit[8] = 0;
+    var shift_reg: bit[DataWidth] = 0;
+    var rx_reg: bit[DataWidth] = 0;
+    var sclk_reg: bit = 0;
+    var done_reg: bit = 0;
+
+    const STATE_IDLE: bit[2] = 2'b00;
+    const STATE_LOAD: bit[2] = 2'b01;
+    const STATE_SHIFT: bit[2] = 2'b10;
+    const STATE_DONE: bit[2] = 2'b11;
+
+    sync(clk.posedge, rst.async) {
+        done_reg = 0;
+
+        match state {
+            STATE_IDLE => {
+                sclk_reg = 0;
+                if start {
+                    shift_reg = tx_data;
+                    bit_count = DataWidth - 1;
+                    clk_count = 0;
+                    state = STATE_LOAD;
+                }
+            }
+            STATE_LOAD => {
+                // データをMOSIにセット
+                state = STATE_SHIFT;
+            }
+            STATE_SHIFT => {
+                if clk_count == clk_div {
+                    clk_count = 0;
+                    if sclk_reg == 0 {
+                        // 立ち上がりエッジ：MISOをサンプル
+                        sclk_reg = 1;
+                        rx_reg = {rx_reg[DataWidth-2:0], miso};
+                    } else {
+                        // 立ち下がりエッジ：次のビットをシフト
+                        sclk_reg = 0;
+                        if bit_count == 0 {
+                            state = STATE_DONE;
+                        } else {
+                            bit_count = bit_count - 1;
+                            shift_reg = {shift_reg[DataWidth-2:0], 1'b0};
+                        }
+                    }
+                } else {
+                    clk_count = clk_count + 1;
+                }
+            }
+            STATE_DONE => {
+                done_reg = 1;
+                state = STATE_IDLE;
+            }
+        }
+    }
+
+    comb {
+        sclk = sclk_reg;
+        mosi = shift_reg[DataWidth - 1];
+        cs_n = (state == STATE_IDLE) ? 1'b1 : 1'b0;
+        rx_data = rx_reg;
+        busy = (state != STATE_IDLE);
+        done = done_reg;
+    }
+}
+```
+
+---
+
+## 16.15 I2Cマスターコントローラ
+
+```rust
+/// I2C マスターコントローラ（簡易版）
+mod I2cMaster(
+    in  clk: clock,
+    in  rst: reset,
+    // 制御インターフェース
+    in  start: bit,
+    in  stop: bit,
+    in  write: bit,
+    in  tx_data: bit[8],
+    out rx_data: bit[8],
+    out ack: bit,
+    out busy: bit,
+    out done: bit,
+    // I2C インターフェース
+    inout sda: bit,
+    out scl: bit,
+    // クロック分周設定
+    in  clk_div: bit[8],
+) {
+    // 状態定義
+    enum State {
+        Idle,
+        StartBit,
+        SendBit,
+        ReadAck,
+        RecvBit,
+        SendAck,
+        StopBit,
+        Complete
+    }
+
+    var state: State = State::Idle;
+    var bit_count: bit[3] = 0;
+    var clk_count: bit[8] = 0;
+    var phase: bit[2] = 0;  // SCLサイクル内のフェーズ
+    var shift_reg: bit[8] = 0;
+    var rx_reg: bit[8] = 0;
+    var ack_reg: bit = 0;
+    var scl_reg: bit = 1;
+    var sda_out: bit = 1;
+    var sda_oe: bit = 0;
+    var done_reg: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_reg = 0;
+
+        if clk_count < clk_div {
+            clk_count = clk_count + 1;
+        } else {
+            clk_count = 0;
+            phase = phase + 1;
+
+            match state {
+                State::Idle => {
+                    scl_reg = 1;
+                    sda_out = 1;
+                    sda_oe = 0;
+                    if start {
+                        state = State::StartBit;
+                        phase = 0;
+                    }
+                }
+                State::StartBit => {
+                    sda_oe = 1;
+                    match phase {
+                        2'b00 => { sda_out = 1; scl_reg = 1; }
+                        2'b01 => { sda_out = 0; }  // START条件
+                        2'b10 => { scl_reg = 0; }
+                        2'b11 => {
+                            if write {
+                                shift_reg = tx_data;
+                                bit_count = 7;
+                                state = State::SendBit;
+                            } else {
+                                bit_count = 7;
+                                state = State::RecvBit;
+                            }
+                            phase = 0;
+                        }
+                    }
+                }
+                State::SendBit => {
+                    sda_oe = 1;
+                    match phase {
+                        2'b00 => { sda_out = shift_reg[7]; }
+                        2'b01 => { scl_reg = 1; }
+                        2'b10 => { scl_reg = 0; }
+                        2'b11 => {
+                            shift_reg = {shift_reg[6:0], 1'b0};
+                            if bit_count == 0 {
+                                state = State::ReadAck;
+                            } else {
+                                bit_count = bit_count - 1;
+                            }
+                            phase = 0;
+                        }
+                    }
+                }
+                State::ReadAck => {
+                    sda_oe = 0;  // SDAを解放
+                    match phase {
+                        2'b01 => { scl_reg = 1; }
+                        2'b10 => { ack_reg = !sda; }  // ACK=0はACK
+                        2'b11 => {
+                            scl_reg = 0;
+                            if stop {
+                                state = State::StopBit;
+                            } else {
+                                state = State::Complete;
+                            }
+                            phase = 0;
+                        }
+                        _ => {}
+                    }
+                }
+                State::StopBit => {
+                    sda_oe = 1;
+                    match phase {
+                        2'b00 => { sda_out = 0; }
+                        2'b01 => { scl_reg = 1; }
+                        2'b10 => { sda_out = 1; }  // STOP条件
+                        2'b11 => {
+                            sda_oe = 0;
+                            state = State::Complete;
+                            phase = 0;
+                        }
+                    }
+                }
+                State::Complete => {
+                    done_reg = 1;
+                    state = State::Idle;
+                }
+                _ => {
+                    state = State::Idle;
+                }
+            }
+        }
+    }
+
+    comb {
+        scl = scl_reg;
+        sda = sda_oe ? sda_out : 1'bz;  // トライステート
+        rx_data = rx_reg;
+        ack = ack_reg;
+        busy = (state != State::Idle);
+        done = done_reg;
+    }
+}
+```
+
+---
+
+## 16.16 信号宣言パターン集
+
+このセクションでは、`let`、`let mut`、`var`宣言を各コンテキスト（comb、sync、fsm）で使用するパターンを示します。
+
+### 16.16.1 let宣言のパターン
+
+#### combでの使用（組み合わせ回路）
+
+```rust
+/// let + 直接代入による組み合わせ回路
+mod LetCombExample(
+    in  a: bit[8],
+    in  b: bit[8],
+    in  sel: bit,
+    out sum: bit[8],
+    out mux_out: bit[8],
+) {
+    // let + 直接代入 → 組み合わせ回路
+    let temp = a + b;
+
+    comb {
+        sum = temp;
+        // comb内でのlet（ローカル変数として使用）
+        let selected = if sel { a } else { b };
+        mux_out = selected;
+    }
+}
+```
+
+#### syncでの使用（順序回路）
+
+```rust
+/// let（宣言のみ）+ sync内代入による順序回路
+mod LetSyncExample(
+    in  clk: clock,
+    in  rst: reset,
+    in  data_in: bit[8],
+    out data_out: bit[8],
+) {
+    // let（宣言のみ）→ syncで使用すると順序回路
+    let reg_data: bit[8];
+
+    sync(clk.posedge, rst.async) {
+        reg_data = data_in;
+    }
+
+    comb {
+        data_out = reg_data;
+    }
+}
+```
+
+#### fsmでの使用（順序回路）
+
+```rust
+/// let（宣言のみ）+ fsm内代入による順序回路
+mod LetFsmExample(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    out busy: bit,
+    out count: bit[4],
+) {
+    // let（宣言のみ）→ fsmで使用すると順序回路
+    let counter: bit[4];
+
+    fsm Controller(clk.posedge, rst.async) {
+        state enum {
+            Idle  [busy = 0],
+            Active[busy = 1]
+        }
+
+        transitions {
+            Idle => {
+                when start {
+                    counter = 0;
+                    goto Active;
+                }
+            }
+            Active => {
+                counter = counter + 1;
+                when counter == 15 { goto Idle; }
+            }
+        }
+    }
+
+    comb {
+        count = counter;
+    }
+}
+```
+
+### 16.16.2 let mut宣言のパターン
+
+#### combでの使用（累積計算用ローカル変数）
+
+```rust
+/// comb内でのlet mut（累積計算用）
+mod LetMutCombExample(
+    in  values: bit[8][4],
+    out max_value: bit[8],
+    out sum_value: bit[10],
+) {
+    comb {
+        // let mutを累積計算に使用
+        let mut max: bit[8] = values[0];
+        let mut sum: bit[10] = 0;
+
+        for i in 0..4 {
+            if values[i] > max {
+                max = values[i];
+            }
+            sum = sum + values[i].extend[10]();
+        }
+
+        max_value = max;
+        sum_value = sum;
+    }
+}
+```
+
+#### syncでの使用（順序回路 + リセット値）
+
+```rust
+/// let mut + 初期値 → sync使用で順序回路（初期値がリセット値）
+mod LetMutSyncExample(
+    in  clk: clock,
+    in  rst: reset,
+    in  enable: bit,
+    in  load: bit,
+    in  data: bit[8],
+    out count: bit[8],
+) {
+    // let mut + 初期値 → 順序回路（0がリセット値）
+    let mut counter: bit[8] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if load {
+            counter = data;
+        } else if enable {
+            counter = counter + 1;
+        }
+    }
+
+    comb {
+        count = counter;
+    }
+}
+```
+
+#### fsmでの使用（順序回路 + リセット値）
+
+```rust
+/// let mut + 初期値 → fsm使用で順序回路（初期値がリセット値）
+mod LetMutFsmExample(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  threshold: bit[8],
+    out done: bit,
+    out result: bit[8],
+) {
+    // let mut + 初期値 → 順序回路（0がリセット値）
+    let mut accumulator: bit[8] = 0;
+
+    fsm Processor(clk.posedge, rst.async) {
+        state enum {
+            Idle    [done = 0],
+            Compute [done = 0],
+            Done    [done = 1]
+        }
+
+        transitions {
+            Idle => {
+                when start {
+                    accumulator = 0;
+                    goto Compute;
+                }
+            }
+            Compute => {
+                accumulator = accumulator + 1;
+                when accumulator >= threshold { goto Done; }
+            }
+            Done => {
+                result = accumulator;
+                when !start { goto Idle; }
+            }
+        }
+    }
+}
+```
+
+### 16.16.3 var宣言のパターン
+
+**注意**: `var`宣言は`sync`または`fsm`ブロックでのみ使用可能です。
+
+#### syncでの使用（順序回路専用）
+
+```rust
+/// var → sync/fsmでのみ使用可能（順序回路専用）
+mod VarSyncExample(
+    in  clk: clock,
+    in  rst: reset,
+    in  load: bit,
+    in  shift: bit,
+    in  data: bit[8],
+    out q: bit[8],
+    out serial_out: bit,
+) {
+    // var → 順序回路専用（sync/fsmでのみ使用可能）
+    var reg: bit[8] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if load {
+            reg = data;
+        } else if shift {
+            reg = {reg[6:0], 1'b0};
+        }
+    }
+
+    comb {
+        q = reg;
+        serial_out = reg[7];
+    }
+}
+```
+
+#### fsmでの使用（順序回路専用）
+
+```rust
+/// var → fsmで使用（順序回路専用）
+mod VarFsmExample(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  data_in: bit[8],
+    out data_out: bit[8],
+    out valid: bit,
+) {
+    // var → fsmで使用（順序回路専用）
+    var buffer: bit[8] = 0;
+    var cycle_count: bit[4] = 0;
+
+    fsm Pipeline(clk.posedge, rst.async) {
+        state enum {
+            Idle    [valid = 0],
+            Load    [valid = 0],
+            Process [valid = 0],
+            Output  [valid = 1]
+        }
+
+        transitions {
+            Idle => {
+                when start {
+                    goto Load;
+                }
+            }
+            Load => {
+                buffer = data_in;
+                cycle_count = 0;
+                goto Process;
+            }
+            Process => {
+                cycle_count = cycle_count + 1;
+                when cycle_count == 3 { goto Output; }
+            }
+            Output => {
+                data_out = buffer;
+                when !start { goto Idle; }
+            }
+        }
+    }
+}
+```
+
+### 16.16.4 使用禁止パターン（エラー例）
+
+以下のパターンはコンパイルエラーになります。
+
+```rust
+// ❌ エラー: varはcombで使用不可
+mod InvalidVarComb(
+    in a: bit[8],
+    out b: bit[8],
+) {
+    var temp: bit[8];  // varを宣言
+
+    comb {
+        temp = a;  // エラー O0002: varはsync/fsm外で代入不可
+        b = temp;
+    }
+}
+```
+
+```rust
+// ❌ エラー: varは直接代入（組み合わせ回路）不可
+mod InvalidVarDirect(
+    in a: bit[8],
+    in b: bit[8],
+) {
+    var result: bit[8] = a + b;  // エラー: varは直接代入不可
+}
+```
+
+```rust
+// ❌ エラー: varはモジュールレベルの組み合わせ論理で使用不可
+mod InvalidVarModuleLevel(
+    in a: bit[8],
+    out b: bit[8],
+) {
+    var temp: bit[8] = 0;
+    let sum = temp + a;  // エラー: varは組み合わせ論理の右辺として使用不可（sync/fsm外）
+}
+```
+
+### 16.16.5 宣言パターン比較表
+
+| 宣言 | comb | sync | fsm | 回路種別 | 備考 |
+|------|------|------|-----|----------|------|
+| `let x = expr;` | ✅ | ✅ | ✅ | 組み合わせ | 直接代入は常に組み合わせ回路 |
+| `let x: T;` (comb使用) | ✅ | - | - | 組み合わせ | comb内で代入 |
+| `let x: T;` (sync使用) | - | ✅ | - | 順序 | sync内で代入 |
+| `let x: T;` (fsm使用) | - | - | ✅ | 順序 | fsm内で代入 |
+| `let mut x = v;` (comb) | ✅ | - | - | 組み合わせ | 累積計算用 |
+| `let mut x = v;` (sync) | - | ✅ | - | 順序 | vがリセット値 |
+| `let mut x = v;` (fsm) | - | - | ✅ | 順序 | vがリセット値 |
+| `var x: T;` | ❌ | ✅ | ✅ | 順序 | sync/fsmでのみ使用可 |
+| `var x = v;` | ❌ | ✅ | ✅ | 順序 | sync/fsmでのみ使用可、vがリセット値 |
+
+---
+
+## 16.17 テストベンチ例
 
 ```rust
 #[test]

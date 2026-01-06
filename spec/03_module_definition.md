@@ -10,12 +10,20 @@
 
 ```ebnf
 module_decl = "mod" identifier [ generic_params ] [ where_clause ]
-              "{" module_body "}" ;
+              "(" port_list ")" "{" module_body "}" ;
 generic_params = "[" generic_param { "," generic_param } "]" ;
 generic_param = identifier ":" type [ "=" default_value ] ;
 where_clause = "where" constraint { "," constraint } ;
-module_body = { port_decl | signal_decl | logic_block | instance } ;
+port_list = { port_decl } ;
+port_decl = port_direction identifier ":" type [ "," ] ;
+port_direction = "in" | "out" | "inout" ;
+module_body = { signal_decl | logic_block | instance } ;
 ```
+
+**構文の特徴:**
+- ポート宣言は`()`内に記述（Rust関数の引数リストに類似）
+- モジュール本体は`{}`内に記述
+- ポート宣言とモジュール本体が明確に分離される
 
 ### 3.1.2 完全な例
 
@@ -28,7 +36,7 @@ mod Counter[Width: uint = 8]
 where
     Width >= 1,
     Width <= 32
-{
+(
     // ===== ポート宣言 =====
     in  clk: clock,
     in  rst: reset,
@@ -37,7 +45,7 @@ where
     in  load_value: bit[Width],
     out count: bit[Width],
     out overflow: bit,
-
+) {
     // ===== 内部信号 =====
     var count_reg: bit[Width] = 0;  // 初期値（リセット値）
     let next_count: bit[Width + 1];
@@ -76,7 +84,10 @@ where
 
 ### 3.2.2 ポート宣言構文
 
+ポート宣言は`()`内に記述します。
+
 ```ebnf
+port_list = { port_decl } ;
 port_decl = port_direction identifier ":" type [ "," ] ;
 port_direction = "in" | "out" | "inout" ;
 ```
@@ -84,7 +95,7 @@ port_direction = "in" | "out" | "inout" ;
 ### 3.2.3 ポート例
 
 ```rust
-mod Example {
+mod Example(
     // 基本ポート
     in  clk: clock,
     in  rst: reset,
@@ -103,6 +114,8 @@ mod Example {
     // インターフェースポート
     initiator axi_m: AxiLite,
     target axi_s: AxiLite,
+) {
+    // モジュール本体
 }
 ```
 
@@ -112,42 +125,135 @@ mod Example {
 
 ### 3.3.1 信号の種類
 
-| 宣言 | 用途 | 合成結果 | スコープ |
-|------|------|----------|----------|
-| `let 名前: 型;` | 不変信号（型のみ） | wire | モジュール |
-| `let 名前 = 初期値;` | 不変信号（型推論） | wire | モジュール |
-| `let 名前: 型 = 初期値;` | 不変信号（型と初期値指定） | wire | モジュール |
-| `var 名前: 型;` | 可変信号（型のみ） | register | モジュール |
-| `var 名前 = 初期値;` | 可変信号（型推論） | register | モジュール |
-| `var 名前: 型 = 初期値;` | 可変信号（型と初期値指定） | register | モジュール |
-| `let mut 名前: 型;` | 可変信号（`var`と同義） | register | モジュール |
-| `const` | モジュール定数 | parameter相当 | モジュール/パッケージ |
-| `mem` | メモリ | RAM/ROM | モジュール |
+| 宣言 | 用途 | 使用可能コンテキスト | 回路種別 |
+|------|------|---------------------|----------|
+| `let 名前 = 式;` | 直接代入 | どこでも | 組み合わせ |
+| `let 名前: 型;` | 型のみ宣言 | どこでも | コンテキスト依存 |
+| `let mut 名前 = 初期値;` | 可変信号（初期値付き） | sync/fsm推奨 | 順序（リセット値あり） |
+| `var 名前: 型;` | 順序回路専用 | **sync/fsmのみ** | 順序 |
+| `var 名前 = 初期値;` | 順序回路専用（初期値付き） | **sync/fsmのみ** | 順序（リセット値あり） |
+| `const` | モジュール定数 | どこでも | - |
+| `mem` | メモリ | モジュール | RAM/ROM |
 
-※ `var`は`let mut`のシンタックスシュガー（同義）。
+**重要: `var`の使用制限**
 
-**`let` vs `var` vs `const` の違い:**
+`var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。`comb`ブロックや直接代入で使用するとコンパイルエラーになります。
 
-- `let`: 不変信号宣言。組み合わせ回路として合成（Verilogの`wire`に相当）
-- `var`: 可変信号宣言。順序回路として合成（Verilogの`reg`に相当）
-- `let mut`: `var`と同義。Rust互換の代替構文
+**`let` vs `var` vs `let mut` の違い:**
+
+- `let`: 汎用的な信号宣言。直接代入（`let x = expr;`）は組み合わせ回路。`sync`/`fsm`内で代入すると順序回路
+- `var`: **順序回路専用**。`sync`/`fsm`ブロックでのみ使用可能
+- `let mut`: 可変信号。初期値を指定して`sync`/`fsm`で使用すると、初期値がリセット値となる
 - `const`: モジュールレベルまたはパッケージレベルの定数
 
 ### 3.3.2 信号の合成セマンティクス
 
-**合成セマンティクス:**
+**コンテキストによる合成:**
 
-- `let`（不変信号）: 組み合わせ回路として合成（Verilogの`wire`に相当）
-- `var`/`let mut`（可変信号）: 順序回路として合成（Verilogの`reg`に相当）
+IRISでは、信号の合成結果は**使用コンテキスト**によって決定されます。
+
+| 使用コンテキスト | 合成結果 | 説明 |
+|------------------|----------|------|
+| `comb`ブロック内で代入 | 組み合わせ回路（wire） | Verilogの`always_comb`相当 |
+| `sync`ブロック内で代入 | 順序回路（register） | Verilogの`always_ff`相当 |
+| `fsm`ブロック内で代入 | 順序回路（register） | FSMの状態レジスタ |
+
+**宣言形式と合成結果:**
 
 | 記述方法 | 合成結果 |
 |----------|----------|
-| `let 名前 = 式;` | 組み合わせ回路（wire） |
-| `var 名前 = 初期値;` + `sync`ブロック内で代入 | 順序回路（リセット値あり） |
+| `let 名前 = 式;`（`comb`内で代入） | 組み合わせ回路（wire） |
+| `let 名前: 型;` + `sync`ブロック内で代入 | 順序回路（リセット値なし） |
+| `let 名前: 型 = 初期値;` + `sync`ブロック内で代入 | 順序回路（リセット値あり） |
 | `var 名前: 型;` + `sync`ブロック内で代入 | 順序回路（リセット値なし） |
+| `var 名前 = 初期値;` + `sync`ブロック内で代入 | 順序回路（リセット値あり） |
 | `comb`ブロック内で出力ポートに代入 | 組み合わせ回路（wire） |
 
-### 3.3.3 Multi Drive禁止
+**重要:** `let`/`let mut`/`var`のいずれで宣言しても、`sync`または`fsm`ブロック内で代入された場合は順序回路（レジスタ）として合成されます。
+
+### 3.3.3 ポート宣言と信号宣言の同等性
+
+**概要:**
+
+`out`および`inout`ポートは`let`宣言と**同等**として扱われます。ポート宣言自体が信号宣言として機能するため、モジュール内で追加の`let`宣言なしに直接代入や参照が可能です。
+
+**ポートと信号宣言の対応:**
+
+| ポート宣言 | 同等の信号宣言 | 説明 |
+|-----------|---------------|------|
+| `in x: T` | `let x: T;`（読み取り専用） | 外部から値が供給される |
+| `out x: T` | `let x: T;` | モジュール内で値を代入して出力 |
+| `inout x: T` | `let x: T;` | 双方向（トライステート） |
+
+**セマンティクス:**
+
+- `out`ポートは`let`と同様に、`comb`ブロックで代入すると組み合わせ回路、`sync`/`fsm`ブロックで代入すると順序回路として合成される
+- `inout`ポートも同様のセマンティクスを持つ
+- ポート宣言後、モジュール本体で同名の`let`を再宣言する必要はない
+
+**使用例:**
+
+```rust
+mod Counter8(
+    in  clk: clock,
+    in  rst: reset,
+    in  enable: bit,
+    out count: bit[8],  // out宣言 = let count: bit[8]; と同等
+) {
+    let counter: bit[8] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if enable {
+            counter = counter + 1;
+        }
+    }
+
+    comb {
+        count = counter;  // outポートに直接代入可能
+    }
+}
+```
+
+**combでの出力:**
+
+```rust
+mod Adder(
+    in  a: bit[8],
+    in  b: bit[8],
+    out sum: bit[8],    // let sum: bit[8]; と同等
+    out carry: bit,     // let carry: bit; と同等
+) {
+    let extended = a.extend[9] + b.extend[9];
+
+    comb {
+        sum = extended[7:0];     // outポートに直接代入
+        carry = extended[8];     // outポートに直接代入
+    }
+}
+```
+
+**syncでの出力:**
+
+```rust
+mod Register(
+    in  clk: clock,
+    in  rst: reset,
+    in  d: bit[8],
+    out q: bit[8],      // let q: bit[8]; と同等
+) {
+    sync(clk.posedge, rst.async) {
+        q = d;  // outポートをsyncで代入 → 順序回路
+    }
+}
+```
+
+**設計意図:**
+
+- ポート宣言と信号宣言のセマンティクスを統一し、言語の一貫性を向上
+- 冗長な宣言を不要にし、簡潔なコード記述を可能に
+- Rustの関数引数と戻り値の概念に近づけた直感的な設計
+
+### 3.3.4 Multi Drive禁止
 
 IRISでは、同一信号への複数箇所からの駆動（multi drive）をコンパイル時にエラーとして検出する。
 
@@ -160,12 +266,12 @@ IRISでは、同一信号への複数箇所からの駆動（multi drive）を�
 **エラー例:**
 
 ```rust
-mod MultiDriveError {
+mod MultiDriveError(
     in  sel: bit,
     in  a: bit[8],
     in  b: bit[8],
     out result: bit[8],
-
+) {
     // エラー: resultへの複数ドライバ
     comb {
         if sel {
@@ -184,12 +290,12 @@ mod MultiDriveError {
 **正しい記述:**
 
 ```rust
-mod SingleDriver {
+mod SingleDriver(
     in  sel: bit,
     in  a: bit[8],
     in  b: bit[8],
     out result: bit[8],
-
+) {
     // 正しい: 単一のcombブロック内で完結
     comb {
         result = if sel { a } else { b };
@@ -197,7 +303,7 @@ mod SingleDriver {
 }
 ```
 
-### 3.3.4 初期値（オプション）
+### 3.3.5 初期値（オプション）
 
 **宣言形式のバリエーション:**
 
@@ -239,11 +345,11 @@ port_connection = identifier ":" expression ;
 ### 3.4.2 基本インスタンス
 
 ```rust
-mod Top {
+mod Top(
     in  sys_clk: clock,
     in  sys_rst: reset,
     out led: bit[8],
-
+) {
     // 基本インスタンス化
     inst counter1 = Counter[Width: 8] {
         clk: sys_clk,
@@ -271,12 +377,12 @@ mod Top {
 ### 3.4.3 配列インスタンス
 
 ```rust
-mod Top {
+mod Top(
     in  clk: clock,
     in  rst: reset,
     in  enables: bit[4],
     out counts: bit[4][4],
-
+) {
     // 4つのカウンタをインスタンス化
     inst counters[4] = Counter[Width: 4] {
         clk: clk,
@@ -306,17 +412,17 @@ let debug_count = counter1.count_reg;
 
 ```rust
 // 既存のVerilogモジュールを宣言
-extern mod legacy_uart {
+extern mod legacy_uart(
     in  clk: clock,
     in  rst_n: reset(active_low),
     in  tx_data: bit[8],
     in  tx_valid: bit,
     out tx_ready: bit,
-    out tx: bit
-}
+    out tx: bit,
+);
 
 // パラメータ付き外部モジュール
-extern mod legacy_fifo[DEPTH: uint, WIDTH: uint] {
+extern mod legacy_fifo[DEPTH: uint, WIDTH: uint](
     in  clk: clock,
     in  rst: reset,
     in  wr_en: bit,
@@ -324,17 +430,17 @@ extern mod legacy_fifo[DEPTH: uint, WIDTH: uint] {
     in  din: bit[WIDTH],
     out dout: bit[WIDTH],
     out full: bit,
-    out empty: bit
-}
+    out empty: bit,
+);
 ```
 
 ### 3.5.2 外部モジュールの使用
 
 ```rust
-mod Top {
+mod Top(
     in clk: clock,
     in rst: reset,
-
+) {
     // 外部Verilogモジュールをインスタンス化
     inst uart0 = legacy_uart {
         clk: clk,
@@ -365,24 +471,24 @@ mod Top {
 ```rust
 // トップモジュール指定
 #[top]
-mod TopLevel {
+mod TopLevel(...) {
     // ...
 }
 
 // クロックドメイン指定
 #[clock_domain("fast_clk")]
-mod HighSpeedProcessor {
+mod HighSpeedProcessor(...) {
     // ...
 }
 
 // 合成オプション
 #[synthesis(flatten)]
-mod SmallModule {
+mod SmallModule(...) {
     // 合成時に親モジュールに展開
 }
 
 #[synthesis(keep_hierarchy)]
-mod ImportantModule {
+mod ImportantModule(...) {
     // 階層を維持
 }
 ```

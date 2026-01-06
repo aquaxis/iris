@@ -8,10 +8,14 @@
 
 IRISでは、組み合わせ論理は2つの方法で記述できます：
 
-1. **`let`宣言**: 単純な組み合わせ論理に適している
+1. **`let`宣言 + 直接代入**: 単純な組み合わせ論理に適している
 2. **`comb`ブロック**: 複雑な組み合わせ論理を記述する場合に使用
 
-両方とも組み合わせ回路として合成されます（Verilogの`wire` + `assign`または`always_comb`に相当）。
+`comb`ブロック内で代入された信号は組み合わせ回路として合成されます（Verilogの`wire` + `assign`または`always_comb`に相当）。
+
+**注意:** `let`で宣言した信号でも、`sync`や`fsm`ブロック内で代入された場合は順序回路（レジスタ）として合成されます。詳細は[第5章 順序論理](./05_sequential_logic.md)を参照してください。
+
+**重要:** `var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。組み合わせ論理（`let`直接代入や`comb`ブロック）で`var`を使用するとコンパイルエラーになります。
 
 ---
 
@@ -67,12 +71,12 @@ default_spec = "default" "(" identifier_list ")" ;
 ### 4.3.2 基本形式
 
 ```rust
-mod Alu {
+mod Alu(
     in  a: bit[8],
     in  b: bit[8],
     in  op: bit[2],
     out result: bit[8],
-
+) {
     // combブロックによる組み合わせ論理
     comb {
         result = match op {
@@ -267,12 +271,12 @@ error[O0015]: combinational loop detected
 `comb`ブロック内で出力ポートに直接代入することができます：
 
 ```rust
-mod Adder {
+mod Adder(
     in  a: bit[8],
     in  b: bit[8],
     out sum: bit[8],
     out carry: bit,
-
+) {
     comb {
         let extended_sum = a.extend[9] + b.extend[9];
         sum = extended_sum[7:0];
@@ -288,12 +292,12 @@ mod Adder {
 モジュール内に複数の`comb`ブロックを配置できますが、同一信号への代入は禁止されています：
 
 ```rust
-mod Example {
+mod Example(
     in  a: bit[8],
     in  b: bit[8],
     out x: bit[8],
     out y: bit[8],
-
+) {
     // OK: 異なる信号への代入
     comb {
         x = a + b;
@@ -319,14 +323,14 @@ IRISの組み合わせ論理は、以下のようにSystemVerilogに変換され
 **IRIS:**
 
 ```rust
-mod Mux4 {
+mod Mux4(
     in  sel: bit[2],
     in  d0: bit[8],
     in  d1: bit[8],
     in  d2: bit[8],
     in  d3: bit[8],
     out out: bit[8],
-
+) {
     comb {
         out = match sel {
             2'b00 => d0,

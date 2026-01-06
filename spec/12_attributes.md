@@ -57,10 +57,10 @@ let debug_probe: bit[32];  // 削除されない
 let critical_signal: bit;  // 最適化対象外
 
 #[synthesis(flatten)]
-mod SmallHelper { ... }  // 親モジュールに展開
+mod SmallHelper(...) { ... }  // 親モジュールに展開
 
 #[synthesis(keep_hierarchy)]
-mod ImportantBlock { ... }  // 階層を維持
+mod ImportantBlock(...) { ... }  // 階層を維持
 ```
 
 ### 12.2.2 リソース制御
@@ -106,10 +106,10 @@ let distributed_enable: bit;
 ```rust
 // リタイミング
 #[synthesis(retiming = true)]
-mod PipelinedUnit { ... }
+mod PipelinedUnit(...) { ... }
 
 #[synthesis(retiming = false)]
-mod NoRetiming { ... }
+mod NoRetiming(...) { ... }
 
 // リソース共有
 #[synthesis(resource_sharing = false)]
@@ -162,15 +162,16 @@ let hold_critical: bit;
 ```rust
 // 非同期クロック
 #[timing(async_clocks)]
-mod CdcBridge {
+mod CdcBridge(
     in clk_a: clock,
     in clk_b: clock,
+) {
     // clk_a と clk_b は非同期
 }
 
 // 排他的クロック
 #[timing(exclusive_clocks = ["clk_fast", "clk_slow"])]
-mod MuxedClock { ... }
+mod MuxedClock(...) { ... }
 ```
 
 ---
@@ -180,14 +181,15 @@ mod MuxedClock { ... }
 ```rust
 // クロックドメイン指定
 #[clock_domain("core_clk")]
-mod CpuCore {
+mod CpuCore(
     in clk: clock,
+) {
     // このモジュール全体がcore_clkドメイン
 }
 
 // 複数ドメイン
 #[clock_domain(read = "clk_a", write = "clk_b")]
-mod AsyncFifo { ... }
+mod AsyncFifo(...) { ... }
 
 // CDC警告抑制
 #[allow(cdc_crossing)]
@@ -216,7 +218,7 @@ let placed_reg: bit;
 
 // 領域制約
 #[synthesis(pblock = "pblock_cpu")]
-mod CpuCluster { ... }
+mod CpuCluster(...) { ... }
 ```
 
 ### 12.5.2 I/O制約
@@ -266,7 +268,7 @@ let debug_signal: bit[16];
 
 // デバッグ専用（合成時に削除）
 #[debug_only]
-mod DebugMonitor { ... }
+mod DebugMonitor(...) { ... }
 ```
 
 ### 12.6.2 ILA詳細設定
@@ -332,10 +334,10 @@ let debug_register: bit[8];
 ```rust
 // フィーチャーフラグ
 #[cfg(feature = "debug")]
-mod DebugLogic { ... }
+mod DebugLogic(...) { ... }
 
 #[cfg(not(feature = "debug"))]
-mod ReleaseLogic { ... }
+mod ReleaseLogic(...) { ... }
 
 // ターゲットデバイス
 #[cfg(target = "xilinx")]
@@ -355,10 +357,10 @@ const DELAY: uint = 10;
 
 // 複合条件
 #[cfg(all(feature = "uart", target = "xilinx"))]
-mod XilinxUart { ... }
+mod XilinxUart(...) { ... }
 
 #[cfg(any(feature = "spi", feature = "i2c"))]
-mod SerialInterface { ... }
+mod SerialInterface(...) { ... }
 ```
 
 ---
@@ -430,7 +432,7 @@ fsm VeryCompactFsm { ... }
 // エラー例：矛盾するアトリビュート
 #[synthesis(flatten)]
 #[synthesis(keep_hierarchy)]  // エラー: flattenとkeep_hierarchyは排他的
-mod Conflicting { ... }
+mod Conflicting(...) { ... }
 ```
 
 ---

@@ -23,14 +23,14 @@ SystemVerilogは強力なハードウェア記述言語ですが、以下の問�
 
 IRISは以下の言語・仕様を参考にしています：
 
+- **SystemVerilog**: 構文
 - **Rust**: 所有権モデル、型安全性、明示的な構文
-- **Veryl**: SystemVerilog互換のモダンHDL
 
 ---
 
-## 0.2 設計哲学
+## 0.2 設計思想
 
-### 0.2.1 核心原則
+### 0.2.1 原則
 
 | 原則 | 説明 |
 |------|------|
@@ -154,12 +154,12 @@ IRISでの最小限のカウンタモジュール：
 
 ```rust
 /// 8ビットカウンタ
-mod Counter {
+mod Counter(
     in  clk: clock,
     in  rst: reset,
     in  enable: bit,
     out count: bit[8],
-
+) {
     // 可変信号（レジスタ）
     var counter: bit[8] = 0;
 

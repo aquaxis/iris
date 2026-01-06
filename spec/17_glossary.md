@@ -1,6 +1,6 @@
 # 第17章 用語集
 
-[<< サンプルコード集](./16_examples.md) | [目次](./iris_spec_0.1.0.md)
+[<< サンプルコード集](./16_examples.md) | [目次](./iris_spec_0.1.0.md) | [FAQ >>](./18_faq.md)
 
 ---
 
@@ -18,9 +18,18 @@
 ### attribute（アトリビュート）
 コード要素に付加するメタデータ。`#[...]`形式で記述。合成ツールへの指示やコンパイラ制御に使用。
 
+### AXI（Advanced eXtensible Interface）
+ARM社が策定したオンチップバスプロトコル。AXI4、AXI4-Lite、AXI4-Streamなどのバリエーションがある。
+
 ---
 
 ## B
+
+### barrel shifter
+バレルシフタ。任意のビット数のシフトを1クロックで実行できる回路。
+
+### bit slice
+ビットスライス。信号の一部ビットを抽出する操作。`signal[7:0]`形式。
 
 ### bit
 IRISの基本ビット型。`bit[N]`でNビット幅を表す。例：`bit[8]`は8ビット。
@@ -41,12 +50,21 @@ FPGAに内蔵された専用メモリリソース。大容量メモリの実装�
 ### comb
 組み合わせ論理ブロック。クロックに依存しない論理を記述。SystemVerilogの`always_comb`に相当。
 
+### concatenation
+連結。複数の信号を結合する操作。`{a, b, c}`形式。
+
 ### const
 定数宣言。コンパイル時に値が確定する不変の値。
+
+### context-based synthesis
+コンテキストベース合成。IRISの特徴で、信号の使用場所（comb/sync/fsm）により組み合わせ回路か順序回路かを自動判定する仕組み。
 
 ---
 
 ## D
+
+### driver
+ドライバ。信号に値を供給する回路。IRISでは一つの信号に対して一つのドライバのみ許可（multi drive禁止）。
 
 ### distributed RAM
 FPGAのLUT（Look-Up Table）を使用して実装されるメモリ。小容量・高速アクセス向け。
@@ -67,9 +85,18 @@ Digital Signal Processor。FPGAに内蔵された乗算・加算専用ハード�
 ### extend
 ビット幅拡張。`.extend[N]()`でNビットに拡張。ゼロ拡張または符号拡張。
 
+### extern mod
+外部モジュール宣言。既存のVerilog/SystemVerilogモジュールをIRISから使用するための宣言。
+
 ---
 
 ## F
+
+### fanout
+ファンアウト。一つの出力が駆動する入力の数。高ファンアウトはタイミング問題の原因になりうる。
+
+### flip-flop
+フリップフロップ。クロックエッジで値を保持する基本的な順序回路素子。
 
 ### FIFO（First-In First-Out）
 先入れ先出しバッファ。データを格納順に取り出すキュー構造。
@@ -87,9 +114,15 @@ Digital Signal Processor。FPGAに内蔵された乗算・加算専用ハード�
 ### goto
 FSM内での状態遷移命令。`goto State;`で指定状態に遷移。
 
+### gray code
+グレイコード。隣接する値が1ビットのみ異なるエンコーディング。CDCやFSMで使用。
+
 ---
 
 ## H
+
+### handshake
+ハンドシェイク。valid/ready信号によるデータ転送プロトコル。
 
 ### HDL（Hardware Description Language）
 ハードウェア記述言語。デジタル回路を記述するための言語。
@@ -118,11 +151,23 @@ FSM内での状態遷移命令。`goto State;`で指定状態に遷移。
 ラッチ。意図しないラッチはバグの原因。IRISでは組み合わせ論理の不完全な代入を検出してエラー報告。
 
 ### let
-信号宣言。`let x: bit[8];`で不変信号を宣言。`let mut`で可変信号。
+信号宣言。`let x: bit[8];`で信号を宣言。直接代入（`let x = expr;`）は組み合わせ回路。sync/fsm内で代入すると順序回路。
+
+### let mut
+可変信号宣言。初期値を指定してsync/fsmで使用すると、初期値がリセット値となる。
+
+### literal
+リテラル。ソースコード中の定数値。`8'hFF`（8ビット16進数）、`4'b1010`（4ビット2進数）など。
 
 ---
 
 ## M
+
+### metastability
+メタステーブル状態。フリップフロップのセットアップ/ホールド時間違反により発生する不安定状態。CDC対策が必要。
+
+### multi drive
+マルチドライブ。同一信号への複数箇所からの駆動。IRISではコンパイルエラーとして検出。
 
 ### match
 パターンマッチ式。複数の条件分岐を記述。SystemVerilogの`case`に相当。
@@ -198,12 +243,24 @@ FSM内での状態遷移命令。`goto State;`で指定状態に遷移。
 ### synchronizer
 同期化器。CDCで使用される複数段フリップフロップ回路。
 
+### struct
+構造体。複数のフィールドをグループ化した複合型。
+
+### sync_ff
+同期化フリップフロップ。CDC対策のための複数段FFシンクロナイザ。`sync_ff(signal, stages: 2)`形式。
+
 ### SystemVerilog
 IEEE 1800規格のハードウェア記述言語。IRISのトランスパイル先。
 
 ---
 
 ## T
+
+### timing constraint
+タイミング制約。クロック周期やセットアップ/ホールド時間の要件を定義。
+
+### transpile
+トランスパイル。あるプログラミング言語から別の言語への変換。IRISはSystemVerilogにトランスパイルされる。
 
 ### target
 インターフェースのビュー。トランザクションに応答する側（スレーブ）。
@@ -228,8 +285,11 @@ Xilinx UltraScale+デバイスの大容量内蔵メモリ。
 
 ## V
 
+### union
+ユニオン型。複数のバリアントのいずれかを保持する型。タグ付きunionはenumに類似。
+
 ### var
-可変信号宣言。`let mut`と同義のシンタックスシュガー。
+順序回路専用の信号宣言。sync/fsmブロック内でのみ使用可能。comb/直接代入で使用するとコンパイルエラー。
 
 ### view
 インターフェースのビュー定義。信号の方向を指定。`initiator`、`target`、`monitor`など。
@@ -262,4 +322,4 @@ FSM遷移条件。`when condition { goto State; }`形式。
 
 ---
 
-[<< サンプルコード集](./16_examples.md) | [目次](./iris_spec_0.1.0.md)
+[<< サンプルコード集](./16_examples.md) | [目次](./iris_spec_0.1.0.md) | [FAQ >>](./18_faq.md)

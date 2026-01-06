@@ -19,20 +19,26 @@ visibility_modifier = [ "pub" ] ;
 ### 15.1.2 モジュール定義
 
 ```ebnf
-mod_def = [ attribute ] "mod" identifier [ generic_params ] "{"
-          { port_decl | mod_item }
-          "}" ;
+mod_def = [ attribute ] "mod" identifier [ generic_params ] [ where_clause ]
+          "(" port_list ")" "{" { mod_item } "}" ;
 
 generic_params = "[" generic_param { "," generic_param } "]" ;
 generic_param = identifier ":" generic_bound [ "=" default_value ] ;
 generic_bound = "type" | "uint" | "int" | "bool" | type_expr ;
+where_clause = "where" constraint { "," constraint } ;
 
+port_list = { port_decl } ;
 port_decl = port_direction identifier ":" type_expr [ "," ] ;
-port_direction = "in" | "out" | "inout" ;
+port_direction = "in" | "out" | "inout" | "initiator" | "target" | "monitor" ;
 
 mod_item = signal_decl | const_decl | type_alias | logic_block
          | inst_decl | mem_decl | fsm_block ;
 ```
+
+**構文の特徴:**
+- ポート宣言は`()`内に記述（Rust関数の引数リストに類似）
+- モジュール本体は`{}`内に記述
+- ポート宣言とモジュール本体が明確に分離される
 
 ### 15.1.3 信号・変数宣言
 
@@ -45,17 +51,20 @@ type_alias = "type" identifier [ generic_params ] "=" type_expr ";" ;
 ```
 
 **宣言形式:**
-- `let 名前: 型;` - 不変信号（型のみ指定）
-- `let 名前 = 初期値;` - 不変信号（型推論）
-- `let 名前: 型 = 初期値;` - 不変信号（型と初期値）
+- `let 名前: 型;` - 信号（型のみ指定、コンテキスト依存）
+- `let 名前 = 初期値;` - 組み合わせ信号（直接代入、型推論）
+- `let 名前: 型 = 初期値;` - 組み合わせ信号（直接代入、型指定）
 - `let mut 名前: 型;` - 可変信号（型のみ指定）
-- `let mut 名前 = 初期値;` - 可変信号（型推論）
-- `let mut 名前: 型 = 初期値;` - 可変信号（型と初期値）
-- `var 名前: 型;` - 可変信号（`let mut`と同義）
-- `var 名前 = 初期値;` - 可変信号（`let mut`と同義）
-- `var 名前: 型 = 初期値;` - 可変信号（`let mut`と同義）
+- `let mut 名前 = 初期値;` - 可変信号（型推論、初期値がリセット値）
+- `let mut 名前: 型 = 初期値;` - 可変信号（型指定、初期値がリセット値）
+- `var 名前: 型;` - 順序回路専用（**sync/fsmでのみ使用可能**）
+- `var 名前 = 初期値;` - 順序回路専用（初期値がリセット値）
+- `var 名前: 型 = 初期値;` - 順序回路専用（型指定、初期値がリセット値）
 
-※ `var`は`let mut`のシンタックスシュガー（同義）。
+**使用制限:**
+- `let`直接代入（`let x = expr;`）は組み合わせ回路
+- `let`宣言のみで`sync`/`fsm`内で代入すると順序回路
+- `var`は`sync`または`fsm`ブロック内でのみ使用可能（順序回路専用）
 
 ### 15.1.4 型式
 
@@ -266,6 +275,11 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 | port_decl | ポート宣言（in/out/inout） | No |
 | mod_item | 内部宣言（信号、ロジック等） | No |
 
+**ポート宣言と信号宣言の同等性:**
+- `out`および`inout`ポートは`let`宣言と**同等**として扱われる
+- ポート宣言自体が信号宣言として機能するため、追加の`let`宣言は不要
+- `out`ポートは`comb`で代入すると組み合わせ回路、`sync`/`fsm`で代入すると順序回路として合成
+
 ### 15.12.2 組み合わせ論理（comb）
 
 全ての出力信号に対して全パスで値が割り当てられることを保証。
@@ -285,6 +299,9 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 2. クロックエッジ指定は必須
 3. リセットは省略可能（省略時はリセットなし）
 4. 同一信号への複数代入は最後の代入が有効
+5. `let`、`let mut`、`var`のいずれで宣言した信号も`sync`ブロック内で代入可能
+6. `sync`ブロック内で代入された信号は順序回路（レジスタ）として合成される
+7. **`var`宣言は`sync`または`fsm`ブロック内でのみ使用可能**（`comb`や直接代入で使用不可）
 
 ### 15.12.4 FSM
 

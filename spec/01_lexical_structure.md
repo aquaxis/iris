@@ -100,7 +100,7 @@ digit           = "0"..."9" ;
   { name: "awvalid", wave: "01..0..." },
   { name: "awready", wave: "0.10...." }
 ]}
-```
+```end
 
 ## 状態遷移図
 
@@ -110,12 +110,16 @@ stateDiagram-v2
     Idle --> Write : awvalid
     Write --> Response : wvalid
     Response --> Idle : bready
-```
+```end
 */
-mod AxiLiteSlave {
+mod AxiLiteSlave(
+    // ポート宣言
+) {
     // ...
 }
 ```
+
+上記の"```end"の"end"はこのドキュメントがMarkdownであり、検出してしまうので付けているだけ、本来は必要ありません。
 
 **コンパイラオプション:**
 
@@ -138,7 +142,7 @@ const   type    import  export  pub
 
 | 予約語 | 説明 | SystemVerilog相当 | 使用例 |
 |--------|------|-------------------|--------|
-| `mod` | モジュール定義 | `module ... endmodule` | `mod Counter { ... }` |
+| `mod` | モジュール定義 | `module ... endmodule` | `mod Counter(...) { ... }` |
 | `extern` | 外部モジュール宣言 | `(* black_box *)` | `extern mod LegacyIP;` |
 | `inst` | モジュールインスタンス化 | モジュールインスタンス | `inst u_counter: Counter;` |
 | `in` | 入力ポート宣言 | `input` | `in clk: clock` |
@@ -148,7 +152,7 @@ const   type    import  export  pub
 | `type` | 型エイリアス定義 | `typedef` | `type Byte = bit[8];` |
 | `import` | 他パッケージからの取り込み | `import` | `import math::*;` |
 | `export` | 外部への公開 | - | `export const PI;` |
-| `pub` | 公開可視性修飾子 | - | `pub mod SubModule { ... }` |
+| `pub` | 公開可視性修飾子 | - | `pub mod SubModule(...) { ... }` |
 
 ### 1.4.2 制御構造（8語）
 
