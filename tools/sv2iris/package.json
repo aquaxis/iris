@@ -1,0 +1,61 @@
+{
+  "name": "@aquaxis/sv2iris",
+  "version": "0.1.0",
+  "description": "SystemVerilog to IRIS transpiler",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "sv2iris": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint 'src/**/*.ts' --no-warn-ignored",
+    "lint:fix": "eslint 'src/**/*.ts' --no-warn-ignored --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "systemverilog",
+    "iris",
+    "hdl",
+    "transpiler",
+    "hardware"
+  ],
+  "author": "Hidemi Ishihara",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^9.0.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "homepage": "https://github.com/aquaxis/iris/iris2sv#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aquaxis/iris.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aquaxis/iris/issues"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

@@ -1,0 +1,62 @@
+{
+  "name": "@aquaxis/iris2sv",
+  "version": "0.1.0",
+  "description": "IRIS to SystemVerilog transpiler",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "Hidemi Ishihara",
+  "homepage": "https://github.com/aquaxis/iris/iris2sv#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aquaxis/iris.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aquaxis/iris/issues"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "iris",
+    "systemverilog",
+    "hdl",
+    "hardware",
+    "transpiler",
+    "compiler",
+    "verilog",
+    "fpga",
+    "asic"
+  ],
+    "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint 'packages/*/src/**/*.ts' --no-warn-ignored",
+    "lint:fix": "eslint 'packages/*/src/**/*.ts' --no-warn-ignored --fix",
+    "format": "prettier --write \"packages/**/*.ts\"",
+    "format:check": "prettier --check \"packages/**/*.ts\"",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "typecheck": "tsc --build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^9.0.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
