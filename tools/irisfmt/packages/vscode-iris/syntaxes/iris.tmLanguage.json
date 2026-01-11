@@ -1,0 +1,165 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "IRIS",
+  "scopeName": "source.iris",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.iris",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.iris",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.iris",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.iris",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.iris",
+          "match": "\\b0x[0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.iris",
+          "match": "\\b0b[01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.iris",
+          "match": "\\b0o[0-7_]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.iris",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.iris",
+          "match": "\\b(if|else|match|for|while|return|when|goto)\\b"
+        },
+        {
+          "name": "keyword.declaration.iris",
+          "match": "\\b(mod|fn|let|var|const|type|struct|enum|interface|package|import)\\b"
+        },
+        {
+          "name": "keyword.hardware.iris",
+          "match": "\\b(comb|sync|fsm|state|transitions|mem|inst)\\b"
+        },
+        {
+          "name": "keyword.direction.iris",
+          "match": "\\b(in|out|inout)\\b"
+        },
+        {
+          "name": "keyword.modifier.iris",
+          "match": "\\b(pub|mut|async)\\b"
+        },
+        {
+          "name": "keyword.other.iris",
+          "match": "\\b(as|where|view|output|test|assert|wait|sample|timeout|should_fail)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.iris",
+          "match": "\\b(bit|int|uint|bool|clock|reset|string|logic)\\b"
+        },
+        {
+          "name": "storage.type.edge.iris",
+          "match": "\\b(posedge|negedge|sync_reset)\\b"
+        },
+        {
+          "name": "entity.name.type.iris",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.iris",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.iris",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.iris",
+          "match": "(\\+|-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.logical.iris",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.bitwise.iris",
+          "match": "(&|\\||\\^|~|<<|>>)"
+        },
+        {
+          "name": "keyword.operator.assignment.iris",
+          "match": "(=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=)"
+        },
+        {
+          "name": "keyword.operator.path.iris",
+          "match": "::"
+        },
+        {
+          "name": "keyword.operator.range.iris",
+          "match": "\\.\\."
+        },
+        {
+          "name": "keyword.operator.arrow.iris",
+          "match": "->"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.iris",
+          "match": "[,;]"
+        },
+        {
+          "name": "punctuation.accessor.iris",
+          "match": "\\."
+        }
+      ]
+    }
+  }
+}

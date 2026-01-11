@@ -1,0 +1,33 @@
+{
+  "name": "@irisfmt/ls",
+  "version": "0.1.0",
+  "description": "IRIS Language Server - LSP implementation for IRIS language",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "irisfmt-ls": "./dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@irisfmt/core": "workspace:*",
+    "@irisfmt/format": "workspace:*",
+    "@irisfmt/lint": "workspace:*",
+    "vscode-languageserver": "^9.0.0",
+    "vscode-languageserver-textdocument": "^1.0.0"
+  },
+  "keywords": [
+    "iris",
+    "lsp",
+    "language-server",
+    "vscode"
+  ],
+  "license": "MIT"
+}

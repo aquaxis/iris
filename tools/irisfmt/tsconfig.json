@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/syntax" },
+    { "path": "packages/lint" },
+    { "path": "packages/format" },
+    { "path": "packages/ls" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@iris2sv/sv-backend",
+  "version": "0.1.0",
+  "description": "SystemVerilog backend - AST, Code generation",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "files": ["dist"],
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}

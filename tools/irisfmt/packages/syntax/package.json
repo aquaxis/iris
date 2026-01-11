@@ -1,0 +1,28 @@
+{
+  "name": "@irisfmt/syntax",
+  "version": "0.1.0",
+  "description": "IRIS syntax analysis tool - Parse and export AST as JSON",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "irisfmt-syntax": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@irisfmt/core": "workspace:*"
+  },
+  "keywords": [
+    "iris",
+    "syntax",
+    "parser",
+    "ast"
+  ],
+  "license": "MIT"
+}

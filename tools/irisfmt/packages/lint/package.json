@@ -1,0 +1,30 @@
+{
+  "name": "@irisfmt/lint",
+  "version": "0.1.0",
+  "description": "IRIS style linter - Detect code patterns and provide diagnostics",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "irisfmt-lint": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@irisfmt/core": "workspace:*",
+    "glob": "^13.0.0",
+    "minimatch": "^10.0.0"
+  },
+  "keywords": [
+    "iris",
+    "lint",
+    "linter",
+    "style"
+  ],
+  "license": "MIT"
+}

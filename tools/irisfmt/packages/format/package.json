@@ -1,0 +1,29 @@
+{
+  "name": "@irisfmt/format",
+  "version": "0.1.0",
+  "description": "IRIS code formatter - Format source code according to style guide",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "irisfmt-format": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@irisfmt/core": "workspace:*",
+    "glob": "^13.0.0"
+  },
+  "keywords": [
+    "iris",
+    "format",
+    "formatter",
+    "pretty-print"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,91 @@
+{
+  "name": "vscode-iris",
+  "displayName": "IRIS Language Support",
+  "description": "Language support for IRIS hardware description language",
+  "version": "0.1.0",
+  "publisher": "irisfmt",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:iris"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "iris",
+        "aliases": [
+          "IRIS",
+          "iris"
+        ],
+        "extensions": [
+          ".iris"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "iris",
+        "scopeName": "source.iris",
+        "path": "./syntaxes/iris.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "IRIS",
+      "properties": {
+        "iris.format.indentWidth": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of spaces per indentation level"
+        },
+        "iris.format.useTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use tabs instead of spaces for indentation"
+        },
+        "iris.format.maxLineLength": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum line length"
+        },
+        "iris.lint.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable linting"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "iris.restartServer",
+        "title": "IRIS: Restart Language Server"
+      }
+    ]
+  },
+  "files": [
+    "out",
+    "syntaxes",
+    "language-configuration.json"
+  ],
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

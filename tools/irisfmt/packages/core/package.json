@@ -1,0 +1,41 @@
+{
+  "name": "@irisfmt/core",
+  "version": "0.1.0",
+  "description": "Core library for IRIS language tools - Lexer, Parser, AST",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./lexer": {
+      "import": "./dist/lexer/index.js",
+      "types": "./dist/lexer/index.d.ts"
+    },
+    "./parser": {
+      "import": "./dist/parser/index.js",
+      "types": "./dist/parser/index.d.ts"
+    },
+    "./ast": {
+      "import": "./dist/ast/index.js",
+      "types": "./dist/ast/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "keywords": [
+    "iris",
+    "hdl",
+    "parser",
+    "lexer",
+    "ast"
+  ],
+  "license": "MIT"
+}
