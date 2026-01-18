@@ -1,0 +1,271 @@
+(* ===================================================================== *)
+(* SystemVerilog EBNF Grammar                                            *)
+(* IEEE 1800-2017 Compliant                                              *)
+(* ===================================================================== *)
+(* EBNF Notation: ISO/IEC 14977:1996                                     *)
+(* ===================================================================== *)
+(* Lexical Policy:                                                       *)
+(*   - Keywords take precedence over identifiers                         *)
+(*   - Longest match rule applies                                        *)
+(*   - White space and comments are implicitly ignored between tokens    *)
+(* ===================================================================== *)
+
+(* ===================================================================== *)
+(* Section 1: Source Text                                                *)
+(* ===================================================================== *)
+
+(* TODO: source_text, description, module_declaration, etc. *)
+
+(* ===================================================================== *)
+(* Section 2: Declarations                                               *)
+(* ===================================================================== *)
+
+(* TODO: declaration, data_type, variable_declaration, etc. *)
+
+(* ===================================================================== *)
+(* Section 3: Primitive Instances                                        *)
+(* ===================================================================== *)
+
+(* TODO: gate_instantiation, primitive_instance, etc. *)
+
+(* ===================================================================== *)
+(* Section 4: Module and Generated Instantiation                         *)
+(* ===================================================================== *)
+
+(* TODO: module_instantiation, parameter_value_assignment, etc. *)
+
+(* ===================================================================== *)
+(* Section 5: UDP Declaration and Instantiation                          *)
+(* ===================================================================== *)
+
+(* TODO: udp_declaration, udp_body, udp_instantiation, etc. *)
+
+(* ===================================================================== *)
+(* Section 6: Behavioral Statements                                      *)
+(* ===================================================================== *)
+
+(* TODO: statement, procedural_statement, always_construct, etc. *)
+
+(* ===================================================================== *)
+(* Section 7: Specify Section                                            *)
+(* ===================================================================== *)
+
+(* TODO: specify_block, path_declaration, timing_check, etc. *)
+
+(* ===================================================================== *)
+(* Section 8: Expressions                                                *)
+(* ===================================================================== *)
+
+(* TODO: expression, primary, operator, etc. *)
+
+(* ===================================================================== *)
+(* Section 9: General                                                    *)
+(* ===================================================================== *)
+
+(* TODO: attribute_instance, identifier, etc. *)
+
+(* ===================================================================== *)
+(* Section 10: Preprocessor                                              *)
+(* ===================================================================== *)
+
+(* TODO: compiler_directive, etc. *)
+
+(* ===================================================================== *)
+(* Appendix: Lexical Elements                                            *)
+(* ===================================================================== *)
+
+(* --------------------------------------------------------------------- *)
+(* A.1 White Space and Comments (implicitly ignored between tokens)      *)
+(* --------------------------------------------------------------------- *)
+
+white_space = " " | "\t" | "\n" | "\r" ;
+
+comment = one_line_comment | block_comment ;
+
+one_line_comment = "//" , { any_character - newline } , newline ;
+
+block_comment = "/*" , { any_character - "*/" } , "*/" ;
+
+newline = "\n" | "\r\n" | "\r" ;
+
+(* --------------------------------------------------------------------- *)
+(* A.2 Identifiers                                                       *)
+(* --------------------------------------------------------------------- *)
+
+identifier = simple_identifier | escaped_identifier ;
+
+simple_identifier = ( letter | "_" ) , { letter | digit | "_" | "$" } ;
+
+escaped_identifier = "\" , { any_character - newline } , white_space ;
+
+system_tf_identifier = "$" , ( letter | "_" ) , { letter | digit | "_" | "$" } ;
+
+(* --------------------------------------------------------------------- *)
+(* A.3 Numbers                                                           *)
+(* --------------------------------------------------------------------- *)
+
+number = integral_number | real_number ;
+
+integral_number = decimal_number
+                | octal_number
+                | binary_number
+                | hex_number ;
+
+decimal_number = unsigned_number
+               | [ size ] , decimal_base , unsigned_number
+               | [ size ] , decimal_base , x_digit , { "_" }
+               | [ size ] , decimal_base , z_digit , { "_" } ;
+
+binary_number = [ size ] , binary_base , binary_value ;
+
+octal_number = [ size ] , octal_base , octal_value ;
+
+hex_number = [ size ] , hex_base , hex_value ;
+
+size = non_zero_unsigned_number ;
+
+non_zero_unsigned_number = non_zero_decimal_digit , { "_" | decimal_digit } ;
+
+unsigned_number = decimal_digit , { "_" | decimal_digit } ;
+
+binary_value = binary_digit , { "_" | binary_digit } ;
+
+octal_value = octal_digit , { "_" | octal_digit } ;
+
+hex_value = hex_digit , { "_" | hex_digit } ;
+
+decimal_base = "'" , [ "s" | "S" ] , ( "d" | "D" ) ;
+
+binary_base = "'" , [ "s" | "S" ] , ( "b" | "B" ) ;
+
+octal_base = "'" , [ "s" | "S" ] , ( "o" | "O" ) ;
+
+hex_base = "'" , [ "s" | "S" ] , ( "h" | "H" ) ;
+
+decimal_digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+non_zero_decimal_digit = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+binary_digit = x_digit | z_digit | "0" | "1" ;
+
+octal_digit = x_digit | z_digit | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+
+hex_digit = x_digit | z_digit | decimal_digit | "a" | "b" | "c" | "d" | "e" | "f"
+          | "A" | "B" | "C" | "D" | "E" | "F" ;
+
+x_digit = "x" | "X" ;
+
+z_digit = "z" | "Z" | "?" ;
+
+real_number = fixed_point_number | unsigned_number , [ "." , unsigned_number ] , exp , [ sign ] , unsigned_number ;
+
+fixed_point_number = unsigned_number , "." , unsigned_number ;
+
+exp = "e" | "E" ;
+
+sign = "+" | "-" ;
+
+(* --------------------------------------------------------------------- *)
+(* A.4 String Literals                                                   *)
+(* --------------------------------------------------------------------- *)
+
+string_literal = '"' , { string_character } , '"' ;
+
+string_character = any_character - ( '"' | "\" | newline )
+                 | escape_sequence ;
+
+escape_sequence = "\\" | "\"" | "\n" | "\t" | "\r" | "\f" | "\v" | "\a"
+                | "\0" | "\x" , hex_digit , hex_digit
+                | octal_escape ;
+
+octal_escape = "\" , octal_digit , [ octal_digit , [ octal_digit ] ] ;
+
+(* --------------------------------------------------------------------- *)
+(* A.5 Character Classes                                                 *)
+(* --------------------------------------------------------------------- *)
+
+letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m"
+       | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
+       | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M"
+       | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+any_character = ? any ASCII character ? ;
+
+any_printable_character = ? any printable ASCII character (0x21-0x7E) ? ;
+
+(* --------------------------------------------------------------------- *)
+(* A.6 Keywords (IEEE 1800-2017 Annex B)                                 *)
+(* --------------------------------------------------------------------- *)
+
+keyword = "accept_on" | "alias" | "always" | "always_comb" | "always_ff" | "always_latch"
+        | "and" | "assert" | "assign" | "assume" | "automatic"
+        | "before" | "begin" | "bind" | "bins" | "binsof" | "bit" | "break" | "buf"
+        | "bufif0" | "bufif1" | "byte"
+        | "case" | "casex" | "casez" | "cell" | "chandle" | "checker" | "class" | "clocking"
+        | "cmos" | "config" | "const" | "constraint" | "context" | "continue" | "cover"
+        | "covergroup" | "coverpoint" | "cross"
+        | "deassign" | "default" | "defparam" | "design" | "disable" | "dist" | "do"
+        | "edge" | "else" | "end" | "endcase" | "endchecker" | "endclass" | "endclocking"
+        | "endconfig" | "endfunction" | "endgenerate" | "endgroup" | "endinterface"
+        | "endmodule" | "endpackage" | "endprimitive" | "endprogram" | "endproperty"
+        | "endsequence" | "endspecify" | "endtable" | "endtask" | "enum" | "event"
+        | "eventually" | "expect" | "export" | "extends" | "extern"
+        | "final" | "first_match" | "for" | "force" | "foreach" | "forever" | "fork"
+        | "forkjoin" | "function"
+        | "generate" | "genvar" | "global"
+        | "highz0" | "highz1"
+        | "if" | "iff" | "ifnone" | "ignore_bins" | "illegal_bins" | "implements" | "implies"
+        | "import" | "incdir" | "include" | "initial" | "inout" | "input" | "inside"
+        | "instance" | "int" | "integer" | "interconnect" | "interface" | "intersect"
+        | "join" | "join_any" | "join_none"
+        | "large" | "let" | "liblist" | "library" | "local" | "localparam" | "logic"
+        | "longint"
+        | "macromodule" | "matches" | "medium" | "modport" | "module"
+        | "nand" | "negedge" | "nettype" | "new" | "nexttime" | "nmos" | "nor"
+        | "noshowcancelled" | "not" | "notif0" | "notif1" | "null"
+        | "or" | "output"
+        | "package" | "packed" | "parameter" | "pmos" | "posedge" | "primitive" | "priority"
+        | "program" | "property" | "protected" | "pull0" | "pull1" | "pulldown" | "pullup"
+        | "pulsestyle_ondetect" | "pulsestyle_onevent" | "pure"
+        | "rand" | "randc" | "randcase" | "randsequence" | "rcmos" | "real" | "realtime"
+        | "ref" | "reg" | "reject_on" | "release" | "repeat" | "restrict" | "return"
+        | "rnmos" | "rpmos" | "rtran" | "rtranif0" | "rtranif1"
+        | "s_always" | "s_eventually" | "s_nexttime" | "s_until" | "s_until_with"
+        | "scalared" | "sequence" | "shortint" | "shortreal" | "showcancelled" | "signed"
+        | "small" | "soft" | "solve" | "specify" | "specparam" | "static" | "string"
+        | "strong" | "strong0" | "strong1" | "struct" | "super" | "supply0" | "supply1"
+        | "sync_accept_on" | "sync_reject_on"
+        | "table" | "tagged" | "task" | "this" | "throughout" | "time" | "timeprecision"
+        | "timeunit" | "tran" | "tranif0" | "tranif1" | "tri" | "tri0" | "tri1" | "triand"
+        | "trior" | "trireg" | "type" | "typedef"
+        | "union" | "unique" | "unique0" | "unsigned" | "until" | "until_with" | "untyped"
+        | "use" | "uwire"
+        | "var" | "vectored" | "virtual" | "void"
+        | "wait" | "wait_order" | "wand" | "weak" | "weak0" | "weak1" | "while" | "wildcard"
+        | "wire" | "with" | "within" | "wor"
+        | "xnor" | "xor" ;
+
+(* --------------------------------------------------------------------- *)
+(* A.7 Operators and Punctuation                                         *)
+(* --------------------------------------------------------------------- *)
+
+(* Unary operators *)
+unary_operator = "+" | "-" | "!" | "~" | "&" | "~&" | "|" | "~|" | "^" | "~^" | "^~" ;
+
+(* Binary operators *)
+binary_operator = "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "===" | "!==" | "==?" | "!=?"
+                | "&&" | "||" | "**" | "<" | "<=" | ">" | ">=" | "&" | "|" | "^" | "^~" | "~^"
+                | ">>" | "<<" | ">>>" | "<<<" | "->" | "<->" ;
+
+(* Increment/decrement operators *)
+inc_or_dec_operator = "++" | "--" ;
+
+(* Assignment operators *)
+assignment_operator = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^="
+                    | "<<=" | ">>=" | "<<<=" | ">>>=" ;
+
+(* ===================================================================== *)
+(* End of SystemVerilog EBNF Grammar                                     *)
+(* ===================================================================== *)
