@@ -1,0 +1,116 @@
+// IRIS Language Grammar (PEG)
+// This file defines the grammar for the IRIS hardware description language
+
+// Entry point - supports both mod and test declarations
+file = { SOI ~ (module_decl | test_mod_decl)* ~ EOI }
+
+// Module definition (with ports)
+module_decl = { "mod" ~ identifier ~ generics? ~ "(" ~ port_list ~ ")" ~ "{" ~ module_body ~ "}" }
+
+// Test module definition (without ports, for testbenches)
+test_mod_decl = { "test" ~ identifier ~ "{" ~ test_body ~ "}" }
+test_body = { (signal_decl | logic_block | instance)* }
+
+// Generics
+generics = { "[" ~ generic_param ~ ("," ~ generic_param)* ~ "]" }
+generic_param = { identifier ~ ":" ~ type_expr ~ ("=" ~ expr)? }
+
+// Port list
+port_list = { (port_decl ~ ("," ~ port_decl)*)? ~ ","? }
+port_decl = { port_dir ~ identifier ~ ":" ~ type_expr }
+port_dir = { "in" | "out" | "inout" }
+
+// Module body
+module_body = { (signal_decl | logic_block | instance)* }
+
+// Signal declaration
+signal_decl = { (let_decl | var_decl) ~ ";" }
+let_decl = { "let" ~ "mut"? ~ identifier ~ (":" ~ type_expr)? ~ ("=" ~ expr)? }
+var_decl = { "var" ~ identifier ~ (":" ~ type_expr)? ~ ("=" ~ expr)? }
+
+// Logic blocks
+logic_block = { comb_block | sync_block }
+comb_block = { "comb" ~ "{" ~ statement* ~ "}" }
+sync_block = { "sync" ~ "(" ~ clock_spec ~ ("," ~ reset_spec)? ~ ")" ~ "{" ~ statement* ~ "}" }
+
+// Clock and reset specifications
+clock_spec = { identifier ~ "." ~ clock_edge }
+clock_edge = { "posedge" | "negedge" }
+reset_spec = { identifier ~ "." ~ reset_mode }
+reset_mode = { "sync" | "async" }
+
+// Instance
+instance = { "inst" ~ identifier ~ array_size? ~ "=" ~ identifier ~ generic_args? ~ "{" ~ port_connections ~ "}" ~ ";" }
+array_size = { "[" ~ integer ~ "]" }
+generic_args = { "[" ~ generic_arg ~ ("," ~ generic_arg)* ~ "]" }
+generic_arg = { identifier ~ ":" ~ expr }
+port_connections = { port_connection ~ ("," ~ port_connection)* ~ ","? }
+port_connection = { identifier ~ ":" ~ expr }
+
+// Types
+type_expr = { base_type ~ array_suffix* }
+base_type = { bit_type | clock_type | reset_type | identifier }
+bit_type = { "bit" ~ ("[" ~ width_expr ~ "]")? }
+clock_type = { "clock" }
+reset_type = { "reset" ~ ("(" ~ "active_low" ~ ")")? }
+width_expr = { expr ~ (":" ~ expr)? }
+array_suffix = { "[" ~ integer ~ "]" }
+
+// Statements
+statement = { assign_stmt | if_stmt | match_stmt }
+assign_stmt = { identifier ~ "=" ~ expr ~ ";" }
+if_stmt = { "if" ~ expr ~ "{" ~ statement* ~ "}" ~ ("else" ~ "{" ~ statement* ~ "}")? }
+match_stmt = { "match" ~ expr ~ "{" ~ match_arm* ~ "}" }
+match_arm = { pattern ~ "=>" ~ (expr | "{" ~ statement* ~ "}") ~ ","? }
+pattern = { "_" | literal | identifier }
+
+// Expressions
+expr = { unary_expr ~ (bin_op ~ unary_expr)* }
+unary_expr = { unary_op* ~ primary_expr ~ postfix* }
+primary_expr = { literal | identifier | paren_expr | concat_expr | if_expr }
+paren_expr = { "(" ~ expr ~ ")" }
+concat_expr = { "{" ~ expr ~ ("," ~ expr)* ~ "}" }
+if_expr = { "if" ~ expr ~ "{" ~ expr ~ "}" ~ "else" ~ "{" ~ expr ~ "}" }
+
+// Postfix operators
+postfix = { index | slice | method_call | field_access }
+index = { "[" ~ expr ~ "]" }
+slice = { "[" ~ expr ~ ":" ~ expr ~ "]" }
+method_call = { "." ~ identifier ~ ("[" ~ expr ~ "]")? }
+field_access = { "." ~ identifier }
+
+// Operators
+bin_op = {
+    "&&" | "||" |
+    "==" | "!=" | "<=" | ">=" | "<" | ">" |
+    "<<" | ">>" |
+    "+" | "-" | "*" | "/" | "%" |
+    "&" | "|" | "^"
+}
+unary_op = { "!" | "~" | "-" }
+
+// Literals
+literal = { sized_literal | integer }
+sized_literal = { integer ~ "'" ~ (bin_literal | hex_literal | dec_literal) }
+bin_literal = { "b" ~ bin_digits }
+hex_literal = { "h" ~ hex_digits }
+dec_literal = { "d" ~ integer }
+bin_digits = @{ ('0'..'1' | "_")+ }
+hex_digits = @{ ('0'..'9' | 'a'..'f' | 'A'..'F' | "_")+ }
+
+// Basic tokens
+identifier = @{ !keyword ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+integer = @{ ASCII_DIGIT+ }
+
+// Keywords - must be followed by non-identifier character
+keyword = @{
+    ("mod" | "test" | "let" | "mut" | "var" | "comb" | "sync" | "if" | "else" | "match" |
+    "in" | "out" | "inout" | "bit" | "clock" | "reset" | "inst" |
+    "posedge" | "negedge" | "async" | "active_low") ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
+// Whitespace and comments
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ line_comment | block_comment }
+line_comment = { "//" ~ (!"\n" ~ ANY)* }
+block_comment = { "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
