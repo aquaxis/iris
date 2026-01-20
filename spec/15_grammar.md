@@ -10,7 +10,7 @@
 
 ```ebnf
 source_file = { item } ;
-item = visibility_modifier ( mod_def | type_def | const_def | fn_def
+item = visibility_modifier ( mod_def | test_mod_def | type_def | const_def | fn_def
      | interface_def | package_decl | import_decl | test_def ) ;
 
 visibility_modifier = [ "pub" ] ;
@@ -176,6 +176,27 @@ view_direction = "in" | "out" | "inout" ;
 ---
 
 ## 15.6 テスト
+
+### 15.6.1 テストモジュール
+
+テストベンチ専用のモジュール定義。ポート宣言を持たない（ポートレス）。
+
+```ebnf
+test_mod_def = "test" identifier "{" { test_item } "}" ;
+test_item    = let_decl | var_decl | const_decl | inst_decl
+             | comb_block | sync_block | initial_block
+             | test_stmt ;
+initial_block = "initial" "{" { statement } "}" ;
+```
+
+**特徴:**
+- ポート宣言なし（SystemVerilogのテストベンチトップ階層と同等）
+- 合成対象外（シミュレーション専用）
+- 他のモジュールからインスタンス化不可（トップレベルのみ）
+
+### 15.6.2 テスト関数
+
+#[test]アトリビュートを使用した単体テスト関数。
 
 ```ebnf
 test_def = "#[" test_attr "]" "fn" identifier "(" ")" "{" { test_stmt } "}" ;

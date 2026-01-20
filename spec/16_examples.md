@@ -1150,4 +1150,176 @@ test counter_various_widths[Width in [4, 8, 16, 32]]() {
 
 ---
 
+## 16.18 testモジュール例
+
+`test`モジュールはテストベンチ専用のモジュール定義である。ポート宣言を持たず、SystemVerilogのテストベンチトップ階層と同等の役割を持つ。
+
+### 16.18.1 基本的なtestモジュール
+
+```rust
+/// 基本的なカウンタテスト
+test CounterTest {
+    // クロック生成
+    let clk = Clock.new(period: 10.ns);
+
+    // リセット信号
+    let rst: bit = 0;
+
+    // DUTインスタンス化
+    let dut = Counter8(
+        clk: clk,
+        rst: rst,
+        enable: 1,
+    );
+
+    // テストシーケンス
+    initial {
+        // リセットアサート
+        rst = 1;
+        await clk.cycles(5);
+        rst = 0;
+
+        // カウント動作を確認
+        await clk.cycles(100);
+
+        assert dut.count == 8'd100
+            else error("Counter mismatch: expected 100, got {dut.count}");
+
+        $display("Test passed!");
+        $finish;
+    }
+}
+```
+
+### 16.18.2 複数DUTの統合テスト
+
+```rust
+/// FIFOを使用した統合テスト
+test FifoIntegrationTest {
+    // クロック生成
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    // テスト用信号
+    let wr_data: bit[8] = 0;
+    let wr_en: bit = 0;
+    let rd_en: bit = 0;
+
+    // DUTインスタンス化
+    let fifo = SyncFifo[Width: 8, Depth: 16](
+        clk: clk,
+        rst: rst,
+        push: wr_en,
+        din: wr_data,
+        pop: rd_en,
+    );
+
+    // テストシーケンス
+    initial {
+        // リセット
+        rst = 1;
+        await clk.cycles(5);
+        rst = 0;
+
+        // FIFOに書き込み
+        for i in 0..10 {
+            wr_data = i as bit[8];
+            wr_en = 1;
+            await clk.cycles(1);
+        }
+        wr_en = 0;
+
+        // FIFOから読み出し
+        for i in 0..10 {
+            rd_en = 1;
+            await clk.cycles(1);
+            assert fifo.dout == i as bit[8]
+                else error("Data mismatch at {i}");
+        }
+        rd_en = 0;
+
+        assert fifo.empty == 1
+            else error("FIFO should be empty");
+
+        $display("Integration test passed!");
+        $finish;
+    }
+}
+```
+
+### 16.18.3 複数クロックドメインのテスト
+
+```rust
+/// 非同期FIFOのテスト（複数クロックドメイン）
+test AsyncFifoTest {
+    // 異なる周波数のクロック生成
+    let clk_wr = Clock.new(period: 10.ns);   // 100MHz
+    let clk_rd = Clock.new(period: 15.ns);   // 約66.7MHz
+    let rst: bit = 0;
+
+    // テスト用信号
+    let wr_data: bit[8] = 0;
+    let wr_en: bit = 0;
+    let rd_en: bit = 0;
+
+    // DUTインスタンス化
+    let dut = AsyncFifo[Width: 8, Depth: 16](
+        clk_wr: clk_wr,
+        clk_rd: clk_rd,
+        rst: rst,
+        push: wr_en,
+        din: wr_data,
+        pop: rd_en,
+    );
+
+    // ライター側の動作
+    initial {
+        await clk_wr.cycles(10);  // リセット待ち
+
+        for i in 0..20 {
+            await until(!dut.full);
+            wr_data = i as bit[8];
+            wr_en = 1;
+            await clk_wr.cycles(1);
+            wr_en = 0;
+        }
+    }
+
+    // リーダー側の動作
+    initial {
+        await clk_rd.cycles(15);  // リセット待ち + データ到着待ち
+
+        for i in 0..20 {
+            await until(!dut.empty);
+            rd_en = 1;
+            await clk_rd.cycles(1);
+            rd_en = 0;
+            assert dut.dout == i as bit[8]
+                else error("Async FIFO data mismatch");
+        }
+
+        $display("Async FIFO test passed!");
+        $finish;
+    }
+
+    // リセットシーケンス
+    initial {
+        rst = 1;
+        await clk_wr.cycles(5);
+        rst = 0;
+    }
+}
+```
+
+### 16.18.4 testモジュールとtest関数の使い分け
+
+| 用途 | 推奨 | 理由 |
+|------|------|------|
+| 単一モジュールの単体テスト | `#[test] test name() { }` | シンプルで簡潔 |
+| 複数モジュールの統合テスト | `test name { }` | 複数DUTの接続が容易 |
+| 複数クロックドメイン | `test name { }` | 複数initialブロックが使用可能 |
+| パラメトリックテスト | `#[test] #[parametric]` | パラメータ展開が容易 |
+
+---
+
 [<< 文法定義](./15_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./17_glossary.md)

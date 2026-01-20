@@ -409,4 +409,172 @@ constraint valid_transaction {
 
 ---
 
+## 10.5 テストモジュール
+
+テストベンチ専用のモジュール定義として`test`キーワードを使用できる。`test`モジュールはSystemVerilogのテストベンチのトップ階層と同等の役割を持つ。
+
+### 10.5.1 testモジュールの特徴
+
+| 項目 | 内容 |
+|------|------|
+| キーワード | `test` |
+| ポート宣言 | なし（ポートレス） |
+| 合成対象 | いいえ（シミュレーション専用） |
+| インスタンス化 | 不可（トップレベルのみ） |
+
+### 10.5.2 modとtestの比較
+
+| 項目 | mod | test |
+|------|-----|------|
+| ポート宣言 | 必須（入出力定義） | なし |
+| インスタンス化 | 可能 | 不可（トップレベルのみ） |
+| 合成 | 可能 | 不可 |
+| 用途 | RTL設計 | テストベンチ |
+
+### 10.5.3 構文
+
+```ebnf
+test_mod_def = "test" identifier "{" { test_item } "}" ;
+test_item    = let_decl | var_decl | const_decl | inst_decl
+             | comb_block | sync_block | initial_block
+             | test_stmt ;
+```
+
+### 10.5.4 基本的なtestモジュール
+
+```rust
+test CounterTest {
+    // クロック生成
+    let clk = Clock.new(period: 10.ns);
+
+    // リセット信号
+    let rst: bit = 0;
+
+    // DUTインスタンス化
+    let dut = Counter8(
+        clk: clk,
+        rst: rst,
+        enable: 1,
+    );
+
+    // テストシーケンス
+    initial {
+        rst = 1;
+        await clk.cycles(5);
+        rst = 0;
+
+        await clk.cycles(100);
+
+        assert dut.count == 8'd100
+            else error("Counter mismatch");
+    }
+}
+```
+
+### 10.5.5 複数DUTを持つtestモジュール
+
+```rust
+test FifoIntegrationTest {
+    // クロック生成
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    // 複数DUTのインスタンス化
+    let producer = DataProducer(clk: clk, rst: rst);
+    let fifo = SyncFifo[Depth: 16, Width: 8](clk: clk, rst: rst);
+    let consumer = DataConsumer(clk: clk, rst: rst);
+
+    // 接続
+    comb {
+        fifo.wr_en = producer.valid;
+        fifo.wr_data = producer.data;
+        producer.ready = !fifo.full;
+
+        consumer.valid = !fifo.empty;
+        consumer.data = fifo.rd_data;
+        fifo.rd_en = consumer.ready && !fifo.empty;
+    }
+
+    // テストシーケンス
+    initial {
+        rst = 1;
+        await clk.cycles(5);
+        rst = 0;
+
+        // テスト実行
+        await until(consumer.done == 1, timeout: 1.ms);
+
+        assert consumer.error_count == 0
+            else error("Data integrity check failed");
+    }
+}
+```
+
+### 10.5.6 testモジュールと#[test]アトリビュートの違い
+
+| 項目 | test モジュール | #[test] アトリビュート |
+|------|----------------|----------------------|
+| 構文 | `test name { }` | `#[test] test name() { }` |
+| スコープ | トップレベルモジュール | テストケース（関数相当） |
+| 複数DUT | 可能 | 単一DUT想定 |
+| 用途 | 統合テスト、大規模テストベンチ | 単体テスト、ユニットテスト |
+
+既存の`#[test]`アトリビュートは単体テスト用途として維持し、新しい`test`モジュールは統合テストや複雑なテストベンチ向けとして使い分ける。
+
+### 10.5.7 SystemVerilog出力
+
+IRISの`test`モジュールは、SystemVerilogのテストベンチトップ階層として出力される。
+
+**IRIS入力**:
+```rust
+test SimpleTest {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    let dut = Counter8(clk: clk, rst: rst, enable: 1);
+
+    initial {
+        rst = 1;
+        #50;
+        rst = 0;
+        #1000;
+        $finish;
+    }
+}
+```
+
+**SystemVerilog出力**:
+```systemverilog
+// Generated from IRIS test module
+module SimpleTest;  // ポート宣言なし
+    // Clock generation
+    logic clk;
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;  // 10ns period
+    end
+
+    // Reset signal
+    logic rst;
+
+    // DUT instantiation
+    Counter8 dut (
+        .clk(clk),
+        .rst(rst),
+        .enable(1'b1)
+    );
+
+    // Test sequence
+    initial begin
+        rst = 1'b1;
+        #50;
+        rst = 1'b0;
+        #1000;
+        $finish;
+    end
+endmodule
+```
+
+---
+
 [<< メモリ](./09_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./11_package_system.md)

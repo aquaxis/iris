@@ -227,7 +227,7 @@ constraint await
 
 | 予約語 | 説明 | SystemVerilog相当 | 使用例 |
 |--------|------|-------------------|--------|
-| `test` | テストブロック定義 | - | `test "counter_test" { ... }` |
+| `test` | テストモジュール定義 | `module`（テストベンチ） | `test CounterTest { ... }` |
 | `assert` | 即時アサーション | `assert` | `assert(valid);` |
 | `expect` | 並行アサーション | `assert property` | `expect(req \|-> ack);` |
 | `cover` | カバレッジポイント | `cover` | `cover(state == Idle);` |
