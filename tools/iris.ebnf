@@ -11,7 +11,7 @@
 
 source_file = { item } ;
 
-item = visibility_modifier ( mod_def | type_def | const_def | fn_def
+item = visibility_modifier ( mod_def | test_mod_def | type_def | const_def | fn_def
      | interface_def | package_decl | import_decl | test_def ) ;
 
 visibility_modifier = [ "pub" ] ;
@@ -242,6 +242,17 @@ view_direction = "in" | "out" | "inout" ;
 
 (* ===== 10. Test Definition ===== *)
 
+(* Test module: testbench-style top-level module without ports *)
+(* Equivalent to SystemVerilog testbench top hierarchy *)
+test_mod_def = "test" identifier "{" { test_item } "}" ;
+
+test_item = let_decl | var_decl | const_decl | inst_decl
+          | comb_block | sync_block | initial_block
+          | test_stmt ;
+
+initial_block = "initial" "{" { statement } "}" ;
+
+(* Test function with #[test] attribute for unit testing *)
 test_def = "#[" test_attr "]" "fn" identifier "(" ")" "{" { test_stmt } "}" ;
 
 test_attr = "test" [ "(" test_params ")" ] ;

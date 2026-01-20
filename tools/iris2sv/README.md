@@ -101,6 +101,26 @@ Options:
 - ESLint v9 (Flat Config)
 - Prettier
 
+## 関連ツール
+
+iris2svはIRIS言語ツールチェーンの一部です：
+
+- **[irisfmt](../irisfmt/)** - IRIS言語のフォーマッター・リンターツールチェーン
+- **[sv2iris](../sv2iris/)** - SystemVerilogからIRIS言語へのトランスパイラ
+
+### 典型的なワークフロー
+
+```bash
+# 1. IRISコードを作成・編集後、フォーマット
+irisfmt-format --write counter.iris
+
+# 2. リントでコード品質をチェック
+irisfmt-lint counter.iris
+
+# 3. IRISからSystemVerilogに変換
+iris2sv counter.iris -o output/
+```
+
 ## ライセンス
 
 MIT

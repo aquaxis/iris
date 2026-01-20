@@ -314,6 +314,27 @@ pnpm format
 - ESLint v9 (Flat Config)
 - Prettier
 
+## 関連ツール
+
+sv2irisはIRIS言語ツールチェーンの一部です：
+
+- **[iris2sv](../iris2sv/)** - IRIS言語からSystemVerilogへのトランスパイラ
+- **[irisfmt](../irisfmt/)** - IRIS言語のフォーマッター・リンターツールチェーン
+
+### 典型的なワークフロー
+
+```bash
+# 1. SystemVerilogからIRISに変換
+sv2iris counter.sv -o counter.iris
+
+# 2. IRISコードをフォーマット・リント
+irisfmt-format --write counter.iris
+irisfmt-lint counter.iris
+
+# 3. 必要に応じてIRISからSystemVerilogに戻す
+iris2sv counter.iris -o output/
+```
+
 ## ライセンス
 
 MIT License

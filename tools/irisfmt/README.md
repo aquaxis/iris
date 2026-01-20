@@ -18,6 +18,33 @@ irisfmtは、IRIS言語のソースコードを解析・整形・検証するた
 
 ## インストール
 
+### CLIツールのインストール（グローバル）
+
+ソースからビルドしてCLIツールをグローバルにインストールする方法：
+
+```bash
+# リポジトリをクローン後、依存関係をインストール
+cd irisfmt
+pnpm install
+pnpm build
+
+# pnpmのグローバル設定（初回のみ）
+pnpm setup
+source ~/.bashrc  # または ~/.zshrc
+
+# 各CLIツールをグローバルにリンク
+cd packages/format && pnpm link --global
+cd ../lint && pnpm link --global
+cd ../syntax && pnpm link --global
+```
+
+これにより以下のコマンドが利用可能になります：
+- `irisfmt-format` - コードフォーマッター
+- `irisfmt-lint` - スタイルリンター
+- `irisfmt-syntax` - 構文解析ツール
+
+### パッケージとしてインストール
+
 ```bash
 # pnpmを使用
 pnpm add @irisfmt/format @irisfmt/lint
@@ -109,6 +136,45 @@ irisfmt-lint "src/**/*.iris"
 irisfmt-lint --fix src/counter.iris
 ```
 
+### irisfmt-syntax
+
+IRISソースコードを解析し、AST（抽象構文木）をJSON形式で出力します。
+
+```bash
+irisfmt-syntax [options] <file>
+
+オプション:
+  --pretty, -p    整形されたJSONを出力
+  --help, -h      ヘルプを表示
+```
+
+#### 使用例
+
+```bash
+# ASTをJSON形式で出力
+irisfmt-syntax src/counter.iris
+
+# 整形されたJSONを出力
+irisfmt-syntax --pretty src/counter.iris
+
+# 出力例
+irisfmt-syntax --pretty src/counter.iris
+```
+
+出力例：
+
+```json
+{
+  "type": "Module",
+  "name": "counter",
+  "ports": [
+    { "name": "clk", "direction": "in", "type": "clock" },
+    { "name": "count", "direction": "out", "type": { "bit": 8 } }
+  ],
+  "body": [...]
+}
+```
+
 ### irisfmt-ls
 
 Language Server Protocol (LSP) を実装した言語サーバーです。エディタ内でリアルタイムの診断、フォーマット、クイックフィックスを提供します。
@@ -123,6 +189,22 @@ Language Server Protocol (LSP) を実装した言語サーバーです。エデ�
 | codeAction | クイックフィックス（自動修正） |
 | hover | キーワードのドキュメント表示 |
 | completion | コンテキスト依存のキーワード・型補完 |
+
+#### VSCode拡張機能のインストール
+
+ソースからVSCode拡張機能をビルドしてインストールする方法：
+
+```bash
+# 拡張機能をビルド
+cd packages/vscode-iris
+pnpm install
+pnpm package  # .vsixファイルを生成
+
+# VSCodeにインストール
+code --install-extension vscode-iris-*.vsix
+```
+
+または、VSCodeの拡張機能パネルから「VSIX からインストール」を選択してインストールすることもできます。
 
 #### VSCodeでの設定
 
@@ -258,6 +340,29 @@ pnpm build
 - Vitest (テスト)
 - ESLint v9 (Flat Config)
 - Prettier
+
+## 関連ツール
+
+irisfmtはIRIS言語ツールチェーンの一部です：
+
+- **[iris2sv](../iris2sv/)** - IRIS言語からSystemVerilogへのトランスパイラ
+- **[sv2iris](../sv2iris/)** - SystemVerilogからIRIS言語へのトランスパイラ
+
+### 典型的なワークフロー
+
+```bash
+# 1. SystemVerilogからIRISに変換
+sv2iris counter.sv -o counter.iris
+
+# 2. IRISコードをフォーマット
+irisfmt-format --write counter.iris
+
+# 3. IRISコードをリント
+irisfmt-lint counter.iris
+
+# 4. IRISからSystemVerilogに変換（必要に応じて）
+iris2sv counter.iris -o output/
+```
 
 ## ライセンス
 
