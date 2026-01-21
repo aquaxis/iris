@@ -193,13 +193,24 @@ project/
 └── build/                  # ビルド出力
 ```
 
-### 11.5.2 モジュール解決規則
+### 11.5.2 ファイル拡張子
+
+IRIS言語ソースファイルには以下の拡張子を使用します：
+
+| 拡張子 | 種別 | 説明 |
+|--------|------|------|
+| `.iris` | 正式拡張子 | **推奨**。プロジェクトでの使用を推奨 |
+| `.irs` | 短縮形 | 便宜のための短縮形。正式拡張子と同等に扱う |
+
+> **注記**: ツールチェーン（iris-sim, irisfmt, iris2sv等）は両方の拡張子を同等に認識します。プロジェクト内では一貫性のため`.iris`拡張子の使用を推奨します。
+
+### 11.5.3 モジュール解決規則
 
 | パターン | ファイルパス |
 |----------|-------------|
-| `mod foo` | `src/foo.iris` または `src/foo/mod.iris` |
-| `mod bar::baz` | `src/bar/baz.iris` または `src/bar/baz/mod.iris` |
-| テスト | `test/**/*.iris` |
+| `mod foo` | `src/foo.iris`（または`.irs`）、`src/foo/mod.iris` |
+| `mod bar::baz` | `src/bar/baz.iris`（または`.irs`）、`src/bar/baz/mod.iris` |
+| テスト | `test/**/*.iris`（または`*.irs`） |
 
 ---
 
@@ -263,6 +274,108 @@ default_timescale = "1ns/1ps"
 default_timeout = "10ms"
 waveform_format = "vcd"
 coverage = ["line", "branch", "toggle", "fsm"]
+```
+
+### 11.6.4 Rust連携設定
+
+テストベンチで外部Rust関数を使用する場合の設定。
+
+```toml
+[rust]
+# Rustソースディレクトリ（デフォルト: "rust/"）
+src = "rust/"
+
+# Rust版指定（最小要求バージョン）
+edition = "2021"
+min_version = "1.70.0"
+
+# Rustクレートの依存関係
+[rust.dependencies]
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+
+# 開発時のみのRust依存関係
+[rust.dev-dependencies]
+criterion = "0.5"
+
+# カスタムCargo.toml設定のオーバーライド
+[rust.cargo]
+# Cargoプロファイル設定
+[rust.cargo.profile.dev]
+opt-level = 0
+debug = true
+
+[rust.cargo.profile.release]
+opt-level = 3
+lto = true
+```
+
+### 11.6.5 テスト設定
+
+```toml
+[test]
+# テストディレクトリ（デフォルト: "test/"）
+dir = "test/"
+
+# Rustテストヘルパーディレクトリ（デフォルト: "rust/"）
+rust_helpers = "rust/"
+
+# テスト実行設定
+parallel = true           # 並列実行
+timeout = "60s"           # テストタイムアウト
+fail_fast = false         # 最初の失敗で中断
+
+# シミュレータ設定
+[test.simulator]
+name = "verilator"        # 使用するシミュレータ
+args = ["--trace", "--coverage"]
+
+# テストカバレッジ設定
+[test.coverage]
+enabled = true
+types = ["line", "branch", "toggle"]
+output_format = "html"
+```
+
+### 11.6.6 Rust連携プロジェクト構造
+
+Rust関数をテストベンチで使用する場合のプロジェクト構造:
+
+```
+project/
+├── iris.toml               # プロジェクト設定
+├── Cargo.toml              # Rust依存関係（自動生成または手動）
+├── src/
+│   └── ...                 # IRISソースファイル
+├── test/
+│   └── ...                 # IRISテストファイル
+├── rust/                   # 外部Rust関数
+│   ├── mod.rs              # ルートモジュール
+│   ├── test_utils.rs       # テストユーティリティ
+│   └── generators/
+│       ├── mod.rs
+│       └── stimulus.rs     # スティミュラス生成
+└── build/
+    └── rust_bridge/        # 自動生成ブリッジコード
+```
+
+**Cargo.toml（自動生成または手動作成）:**
+
+```toml
+[package]
+name = "my_soc_rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+iris_runtime = "0.1"       # IRIS Rust連携ランタイム
+rand = "0.8"               # iris.toml の [rust.dependencies] から
+
+[dev-dependencies]
+# iris.toml の [rust.dev-dependencies] から
 ```
 
 ---

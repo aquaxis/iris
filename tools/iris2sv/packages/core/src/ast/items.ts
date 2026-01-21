@@ -38,7 +38,8 @@ export type Item =
   | InterfaceDef
   | PackageDecl
   | ImportDecl
-  | TestDef;
+  | TestDef
+  | TestModDef;
 
 /**
  * Port direction
@@ -507,6 +508,191 @@ export interface TestDef extends AstNode {
   readonly name: Identifier;
   readonly params: TestParam[] | undefined;
   readonly body: TestStmt[];
+}
+
+/**
+ * Test module definition (testbench-style top-level module without ports)
+ */
+export interface TestModDef extends AstNode {
+  readonly kind: 'TestModDef';
+  readonly visibility: Visibility;
+  readonly name: Identifier;
+  readonly items: TestModItem[];
+}
+
+/**
+ * Test module item
+ */
+export type TestModItem =
+  | SignalDecl
+  | ConstDecl
+  | InstDecl
+  | CombBlock
+  | SyncBlock
+  | InitialBlock
+  | SeqBlock
+  | UseRustDecl
+  | ExternRustBlock
+  | TestStmt;
+
+/**
+ * Initial block (simulation only)
+ */
+export interface InitialBlock extends AstNode {
+  readonly kind: 'InitialBlock';
+  readonly body: Stmt[];
+}
+
+/**
+ * Sequential processing block (Rust code execution in test)
+ */
+export interface SeqBlock extends AstNode {
+  readonly kind: 'SeqBlock';
+  readonly name: Identifier | undefined;
+  readonly body: SeqStatement[];
+}
+
+/**
+ * Seq block statement types
+ */
+export type SeqStatement =
+  | RustStatement
+  | SignalRead
+  | SignalWrite
+  | AwaitStmt
+  | DelayStmt
+  | AssertStmt;
+
+/**
+ * Rust statement (any valid Rust code)
+ */
+export interface RustStatement extends AstNode {
+  readonly kind: 'RustStatement';
+  readonly code: string;
+}
+
+/**
+ * Signal read operation (.value())
+ */
+export interface SignalRead extends AstNode {
+  readonly kind: 'SignalRead';
+  readonly signal: Path;
+}
+
+/**
+ * Signal write operation (.set())
+ */
+export interface SignalWrite extends AstNode {
+  readonly kind: 'SignalWrite';
+  readonly signal: Path;
+  readonly value: Expr;
+}
+
+/**
+ * Await expression types
+ */
+export type AwaitExpr =
+  | ClockEdgeAwait
+  | UntilAwait
+  | EventAwait
+  | AsyncCallAwait;
+
+/**
+ * Clock edge await (await clk.posedge)
+ */
+export interface ClockEdgeAwait extends AstNode {
+  readonly kind: 'ClockEdgeAwait';
+  readonly signal: Expr;
+  readonly edge: 'posedge' | 'negedge';
+  readonly cycles: Expr | undefined;
+}
+
+/**
+ * Until await (await until(condition))
+ */
+export interface UntilAwait extends AstNode {
+  readonly kind: 'UntilAwait';
+  readonly condition: Expr;
+  readonly timeout: Duration | undefined;
+}
+
+/**
+ * Event await (await event(signal))
+ */
+export interface EventAwait extends AstNode {
+  readonly kind: 'EventAwait';
+  readonly signal: Expr;
+}
+
+/**
+ * Async call await (expr.await)
+ */
+export interface AsyncCallAwait extends AstNode {
+  readonly kind: 'AsyncCallAwait';
+  readonly expr: Expr;
+}
+
+/**
+ * Await statement
+ */
+export interface AwaitStmt extends AstNode {
+  readonly kind: 'AwaitStmt';
+  readonly awaitExpr: AwaitExpr;
+}
+
+/**
+ * Duration with time unit
+ */
+export interface Duration extends AstNode {
+  readonly kind: 'Duration';
+  readonly value: number;
+  readonly unit: 'ns' | 'us' | 'ms' | 's';
+}
+
+/**
+ * Delay statement (#time)
+ */
+export interface DelayStmt extends AstNode {
+  readonly kind: 'DelayStmt';
+  readonly delay: number | Duration;
+}
+
+/**
+ * External Rust function import (use rust::...)
+ */
+export interface UseRustDecl extends AstNode {
+  readonly kind: 'UseRustDecl';
+  readonly path: string[];
+  readonly items: string[] | '*' | undefined;
+}
+
+/**
+ * External Rust function block (extern rust "module" { ... })
+ */
+export interface ExternRustBlock extends AstNode {
+  readonly kind: 'ExternRustBlock';
+  readonly moduleName: string;
+  readonly functions: RustFnDecl[];
+}
+
+/**
+ * Rust function declaration
+ */
+export interface RustFnDecl extends AstNode {
+  readonly kind: 'RustFnDecl';
+  readonly isAsync: boolean;
+  readonly name: Identifier;
+  readonly params: RustParam[];
+  readonly returnType: string | undefined;
+}
+
+/**
+ * Rust function parameter
+ */
+export interface RustParam extends AstNode {
+  readonly kind: 'RustParam';
+  readonly name: Identifier;
+  readonly type: string;
 }
 
 // Helper functions

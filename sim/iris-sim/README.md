@@ -122,13 +122,14 @@ mod Counter(
 }
 ```
 
-**counter_tb.iris** - テストベンチ:
+**counter_test.iris** - テストベンチ:
 ```iris
 test CounterTB {
-    let clk: clock;
-    let rst: reset;
+    // クロック・リセットの動作を明示的に設定
+    let clk: clock(period: 10ns);                        // 10ns周期（100MHz）
+    let rst: reset(active_low: false, assert_time: 50ns); // 50ns間リセットアサート
 
-    var enable_sig: bit = 0;
+    var enable_sig: bit = 1;
     var cycle_count: bit[16] = 0;
     var count_out: bit[8] = 0;
 
@@ -138,12 +139,8 @@ test CounterTB {
         enable: enable_sig,
     };
 
-    sync(clk.posedge, rst.async) {
+    sync(clk.posedge, rst.sync) {
         cycle_count = cycle_count + 1;
-
-        if cycle_count == 16'd5 {
-            enable_sig = 1;
-        }
     }
 
     comb {
@@ -156,10 +153,10 @@ test CounterTB {
 
 ```bash
 # インタプリタ型で実行
-iris-sim -i counter.iris -i counter_tb.iris -o output.vcd -c 100 -v
+iris-sim -i counter.iris -i counter_test.iris -o output.vcd -c 100 -v
 
 # または cargo run で実行（ビルド前でも可）
-cargo run -- -i tests/counter.iris -i tests/counter_tb.iris -o output.vcd -c 100 -v
+cargo run -- -i examples/counter.iris -i examples/counter_test.iris -o output.vcd -c 100 -v
 ```
 
 ### ステップ3: 波形の確認
@@ -215,7 +212,7 @@ iris-sim -i counter.iris -o counter.vcd -c 100 -v
 iris-sim -i design.iris -i tb.iris -o sim.vcd -c 500 --top TestBench
 
 # メタステーブル警告を有効化
-iris-sim -i counter.iris -i counter_tb.iris -o out.vcd -c 100 -W
+iris-sim -i counter.iris -i counter_test.iris -o out.vcd -c 100 -W
 ```
 
 ---
@@ -230,13 +227,13 @@ IRISソースからスタンドアロンのRust実行ファイルを生成する
 
 ```bash
 # テストベンチとDUTをコンパイル（必須構成）
-iris-compile -i counter.iris -i counter_tb.iris -o counter_sim --release
+iris-compile -i counter.iris -i counter_test.iris -o counter_sim --release
 
 # Rustソースコードのみ生成
-iris-compile -i counter.iris -i counter_tb.iris -o counter_sim.rs
+iris-compile -i counter.iris -i counter_test.iris -o counter_sim.rs
 
 # ビルドまで実行（デバッグ）
-iris-compile -i counter.iris -i counter_tb.iris -o counter_sim --build
+iris-compile -i counter.iris -i counter_test.iris -o counter_sim --build
 ```
 
 ### コマンドラインオプション
@@ -291,7 +288,7 @@ counter_sim/
 
 ```bash
 # テストベンチとDUTをまとめてコンパイル
-iris-compile -i counter.iris -i counter_tb.iris -o counter_tb_sim --release --runtime-path ./iris-runtime
+iris-compile -i counter.iris -i counter_test.iris -o counter_tb_sim --release --runtime-path ./iris-runtime
 
 # 生成されたテストシミュレータを実行
 ./counter_tb_sim 100 output.vcd
@@ -312,7 +309,7 @@ Final values:
 - DUT内部の信号への階層参照（例: `dut.count`）がサポートされる
 - テスト変数とDUT信号の両方が波形出力に含まれる
 
-**テストベンチ例（counter_tb.iris）:**
+**テストベンチ例（counter_test.iris）:**
 ```iris
 test CounterTB {
     let clk: clock;
@@ -493,10 +490,12 @@ iris-sim/
 │       ├── mod.rs
 │       ├── signal.rs       # SignalValue
 │       └── time.rs         # SimTime
-└── tests/                  # テストファイル
-    ├── counter.iris
-    ├── counter_tb.iris
-    ├── fsm_test.iris
+└── examples/               # サンプルファイル
+    ├── counter.iris        # カウンタモジュール
+    ├── counter_test.iris     # カウンタテストベンチ
+    ├── fsm_test.iris       # FSMテスト
+    ├── mem_test.iris       # メモリテスト
+    ├── loop_test.iris      # ループテスト
     └── ...
 ```
 
@@ -519,6 +518,53 @@ iris-sim/
 - 複数モジュール階層シミュレーション
 - メタステーブル検出警告
 - アサーション（assert文）
+
+### クロック・リセット構文
+
+テストベンチでクロックとリセットの動作を明示的に設定できます。
+
+#### クロック宣言
+
+```iris
+let clk: clock;                    // デフォルト: 10ns周期
+let clk: clock(period: 10ns);      // 明示的に10ns周期を指定
+let clk: clock(period: 100ns);     // 100ns周期（10MHz）
+```
+
+#### リセット宣言
+
+```iris
+// サイクル数で指定
+let rst: reset(active_low: false, assert_cycles: 5);  // 5サイクル間アサート
+
+// 時間で指定
+let rst: reset(active_low: false, assert_time: 50ns); // 50ns間アサート
+
+// リセットなしモード
+let rst: reset(active_low: false, assert_cycles: 0);  // リセットシーケンスをスキップ
+```
+
+| パラメータ | 説明 | デフォルト |
+|-----------|------|-----------|
+| `active_low` | true: Low-activeリセット, false: High-activeリセット | false |
+| `assert_cycles` | リセットアサートサイクル数 | 5 |
+| `assert_time` | リセットアサート時間（ns, us等） | - |
+
+#### リセットなしsyncブロック
+
+リセットを使用しないsyncブロックも記述できます：
+
+```iris
+// リセットなし（クロックのみ）
+sync(clk.posedge) {
+    counter = counter + 1;
+}
+
+// リセットあり
+sync(clk.posedge, rst.sync) {
+    counter = counter + 1;
+}
+```
 
 ---
 
@@ -543,7 +589,7 @@ Error: Module 'Counter' not found
 ```
 → `-i` オプションで全てのソースファイルを指定:
 ```bash
-iris-sim -i counter.iris -i counter_tb.iris -o output.vcd -c 100
+iris-sim -i counter.iris -i counter_test.iris -o output.vcd -c 100
 ```
 
 **エラー: トップモジュールが特定できない**

@@ -159,6 +159,28 @@ export {
   SampleStmt,
   TestDef,
 
+  // Test module (testbench)
+  TestModDef,
+  TestModItem,
+  InitialBlock,
+  SeqBlock,
+  SeqStatement,
+  RustStatement,
+  SignalRead,
+  SignalWrite,
+  AwaitExpr,
+  ClockEdgeAwait,
+  UntilAwait,
+  EventAwait,
+  AsyncCallAwait,
+  AwaitStmt,
+  Duration,
+  DelayStmt,
+  UseRustDecl,
+  ExternRustBlock,
+  RustFnDecl,
+  RustParam,
+
   // Helper functions
   createSourceFile,
   createModDef,

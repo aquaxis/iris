@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Core (@irisfmt/core)
+- Parser support for testbench constructs:
+  - `test mod` definitions (testbench modules without ports)
+  - `initial` blocks for simulation-only initialization
+  - `seq` blocks for sequential test execution
+  - `await` statements (clock edge, until condition, event)
+  - `delay` statements (`#10ns;`)
+  - `use rust::` declarations for external Rust imports
+  - `extern rust` blocks for Rust function declarations
+
+#### Formatter (@irisfmt/format)
+- Formatting support for all new testbench constructs:
+  - `TestModDef`, `InitialBlock`, `SeqBlock`
+  - `AwaitStmt`, `DelayStmt`
+  - `UseRustDecl`, `ExternRustBlock`, `RustFnDecl`
+
+#### Linter (@irisfmt/lint)
+- New lint rule: `seq-missing-timeout`
+  - Warns when `await until(condition)` lacks a timeout parameter
+  - Helps prevent simulation deadlocks
+- Extended `no-empty-block` rule:
+  - Now detects empty `test mod` bodies
+  - Now detects empty `initial` blocks
+  - Now detects empty `seq` blocks
+
 ## [0.1.0] - 2026-01-09
 
 ### Added

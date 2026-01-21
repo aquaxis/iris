@@ -1,7 +1,7 @@
 import { Lexer, Parser } from '@irisfmt/core';
 import type { SourceFile } from '@irisfmt/core';
 import type { LintRule, Diagnostic, LintContext, LintRuleConfig } from './rule.js';
-import { noEmptyBlockRule, namingConventionRule, unusedImportRule, unusedVariableRule, unusedSignalRule, varContextRestrictionRule, duplicateImportRule, importOrderRule, deadCodeRule, complexityRule } from './rules/index.js';
+import { noEmptyBlockRule, namingConventionRule, unusedImportRule, unusedVariableRule, unusedSignalRule, varContextRestrictionRule, duplicateImportRule, importOrderRule, deadCodeRule, complexityRule, seqMissingTimeoutRule } from './rules/index.js';
 import * as fs from 'node:fs/promises';
 
 export type { Diagnostic };
@@ -27,6 +27,7 @@ const defaultRules: LintRule[] = [
   importOrderRule,
   deadCodeRule,
   complexityRule,
+  seqMissingTimeoutRule,
 ];
 
 /**

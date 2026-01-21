@@ -47,6 +47,7 @@ import {
   block,
   varDecl,
   lineComment,
+  type SvStmt,
   // Module
   svModule,
   port,
@@ -483,6 +484,58 @@ describe('SvEmitter', () => {
       const emitter = new SvEmitter();
       const output = emitter.emitExpr(identifier('test'));
       expect(output).toBe('test');
+    });
+  });
+
+  describe('Time Control Statements', () => {
+    it('should emit delay statement', () => {
+      const stmt: SvStmt = { kind: 'SvDelayStmt', delay: 10, unit: 'ns' };
+      const output = emitStmt(stmt);
+      expect(output).toContain('#10ns;');
+    });
+
+    it('should emit delay statement with different units', () => {
+      const stmtUs: SvStmt = { kind: 'SvDelayStmt', delay: 100, unit: 'us' };
+      expect(emitStmt(stmtUs)).toContain('#100us;');
+
+      const stmtMs: SvStmt = { kind: 'SvDelayStmt', delay: 1, unit: 'ms' };
+      expect(emitStmt(stmtMs)).toContain('#1ms;');
+
+      const stmtPs: SvStmt = { kind: 'SvDelayStmt', delay: 50, unit: 'ps' };
+      expect(emitStmt(stmtPs)).toContain('#50ps;');
+    });
+
+    it('should emit event control with posedge', () => {
+      const stmt: SvStmt = { kind: 'SvEventControlStmt', edge: 'posedge', signal: 'clk' };
+      const output = emitStmt(stmt);
+      expect(output).toContain('@(posedge clk);');
+    });
+
+    it('should emit event control with negedge', () => {
+      const stmt: SvStmt = { kind: 'SvEventControlStmt', edge: 'negedge', signal: 'rst_n' };
+      const output = emitStmt(stmt);
+      expect(output).toContain('@(negedge rst_n);');
+    });
+
+    it('should emit event control without edge', () => {
+      const stmt: SvStmt = { kind: 'SvEventControlStmt', edge: undefined, signal: 'event_sig' };
+      const output = emitStmt(stmt);
+      expect(output).toContain('@(event_sig);');
+    });
+
+    it('should emit wait statement', () => {
+      const stmt: SvStmt = { kind: 'SvWaitStmt', condition: identifier('done') };
+      const output = emitStmt(stmt);
+      expect(output).toContain('wait(done);');
+    });
+
+    it('should emit wait statement with complex condition', () => {
+      const stmt: SvStmt = {
+        kind: 'SvWaitStmt',
+        condition: binary(identifier('count'), '==', intLiteral(10)),
+      };
+      const output = emitStmt(stmt);
+      expect(output).toContain('wait(count == 10);');
     });
   });
 });

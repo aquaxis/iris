@@ -139,6 +139,38 @@ impl fmt::Display for Type {
     }
 }
 
+/// Clock configuration for test modules
+#[derive(Clone, Debug, Default)]
+pub struct ClockConfig {
+    /// Clock period (e.g., 10ns)
+    pub period: Option<Duration>,
+    /// Duty cycle in percent (default: 50)
+    pub duty_cycle: Option<u8>,
+    /// Initial value (default: false/0)
+    pub initial_value: Option<bool>,
+}
+
+/// Reset configuration for test modules
+#[derive(Clone, Debug)]
+pub struct ResetConfig {
+    /// Active low reset (default: false, meaning active high)
+    pub active_low: bool,
+    /// Number of cycles to assert reset at start (default: 5)
+    pub assert_cycles: Option<u64>,
+    /// Time duration to assert reset at start (alternative to assert_cycles)
+    pub assert_time: Option<Duration>,
+}
+
+impl Default for ResetConfig {
+    fn default() -> Self {
+        Self {
+            active_low: false,
+            assert_cycles: None,
+            assert_time: None,
+        }
+    }
+}
+
 /// Signal declaration
 #[derive(Clone, Debug)]
 pub struct Signal {
@@ -147,6 +179,10 @@ pub struct Signal {
     pub init_value: Option<Expression>,
     pub is_mutable: bool,
     pub is_var: bool,
+    /// Clock configuration (only for clock type signals in test modules)
+    pub clock_config: Option<ClockConfig>,
+    /// Reset configuration (only for reset type signals in test modules)
+    pub reset_config: Option<ResetConfig>,
 }
 
 /// Logic block

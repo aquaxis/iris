@@ -577,4 +577,444 @@ endmodule
 
 ---
 
+## 10.6 シーケンシャル処理ブロック（seq）
+
+`seq`ブロックは、テストモジュール内でシーケンシャル（順次）処理を記述するための特殊なブロックである。`seq`ブロック内ではRust言語の制御構文を直接使用でき、複雑なテストシーケンスを記述できる。
+
+### 10.6.1 seqブロックの特徴
+
+| 項目 | 内容 |
+|------|------|
+| キーワード | `seq` |
+| 使用可能場所 | `test`モジュール内のみ |
+| 合成対象 | いいえ（シミュレーション専用） |
+| 実行モデル | シーケンシャル（手続き的） |
+| Rust統合 | Rustの制御構文を直接使用可能 |
+
+### 10.6.2 構文定義
+
+```ebnf
+seq_block       = "seq" [ identifier ] "{" seq_content "}" ;
+seq_content     = { seq_statement } ;
+seq_statement   = rust_statement | signal_access | time_control | assert_stmt ;
+signal_access   = signal_read | signal_write ;
+signal_read     = signal_path ".value()" ;
+signal_write    = signal_path ".set(" expr ")" ;
+time_control    = await_stmt | delay_stmt ;
+await_stmt      = "await" await_expr ";" ;
+delay_stmt      = "#" time_literal ";" ;
+```
+
+### 10.6.3 基本的なseqブロック
+
+```rust
+test CounterVerification {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+    let dut = Counter8(clk: clk, rst: rst, enable: 1);
+
+    seq main {
+        // リセットシーケンス
+        rst.set(1);
+        #50;  // 50ns待機
+        rst.set(0);
+
+        // Rustのfor文を使用したテストシーケンス
+        for cycle in 0..100 {
+            await clk.posedge;
+            let count_val = dut.count.value();
+
+            if count_val != (cycle as u8) {
+                panic!("Counter mismatch at cycle {}: expected {}, got {}",
+                       cycle, cycle, count_val);
+            }
+        }
+
+        println!("Counter test passed!");
+    }
+}
+```
+
+### 10.6.4 信号アクセスAPI
+
+seqブロック内では、DUTの信号に対して以下のAPIを使用してアクセスする。
+
+| API | 説明 | 例 |
+|-----|------|-----|
+| `.value()` | 信号の現在値を読み取り | `let v = dut.count.value();` |
+| `.set(val)` | 信号に値を設定 | `dut.data.set(0xFF);` |
+| `.posedge()` | 立ち上がりエッジまで待機 | `await clk.posedge();` |
+| `.negedge()` | 立ち下がりエッジまで待機 | `await clk.negedge();` |
+| `.changed()` | 信号変化まで待機 | `await dut.ready.changed();` |
+
+### 10.6.5 時間制御
+
+```rust
+seq timing_test {
+    // 絶対時間待機
+    #10;          // 10単位時間（デフォルトns）待機
+    #100.ns;      // 100ナノ秒待機
+    #1.us;        // 1マイクロ秒待機
+
+    // クロックサイクル待機
+    await clk.posedge;              // 次の立ち上がりエッジまで
+    await clk.negedge;              // 次の立ち下がりエッジまで
+    await clk.cycles(10);           // 10クロックサイクル待機
+
+    // 条件待機
+    await until(dut.ready.value() == 1);
+    await until(dut.done.value() == 1, timeout: 1.ms);
+
+    // イベント待機
+    await event(dut.interrupt);
+}
+```
+
+### 10.6.6 Rust制御構文の使用
+
+seqブロック内ではRustの全ての制御構文が使用可能。
+
+```rust
+seq complex_test {
+    // for文
+    for i in 0..256 {
+        dut.data_in.set(i as u8);
+        await clk.posedge;
+    }
+
+    // while文
+    let mut timeout_count = 0;
+    while dut.busy.value() == 1 && timeout_count < 1000 {
+        await clk.posedge;
+        timeout_count += 1;
+    }
+
+    // if文
+    if dut.error.value() == 1 {
+        println!("Error detected!");
+        return;
+    }
+
+    // match文
+    match dut.state.value() {
+        0 => println!("Idle"),
+        1 => println!("Running"),
+        2 => println!("Done"),
+        _ => println!("Unknown state"),
+    }
+
+    // loop文
+    loop {
+        await clk.posedge;
+        if dut.done.value() == 1 {
+            break;
+        }
+    }
+}
+```
+
+### 10.6.7 複数seqブロックの並列実行
+
+複数のseqブロックを定義すると並列に実行される。
+
+```rust
+test ParallelTest {
+    let clk = Clock.new(period: 10.ns);
+    let dut = DualPortMemory(clk: clk);
+
+    // 書き込みポートのシーケンス
+    seq writer {
+        for addr in 0..256 {
+            dut.wr_addr.set(addr as u16);
+            dut.wr_data.set((addr * 2) as u8);
+            dut.wr_en.set(1);
+            await clk.posedge;
+        }
+        dut.wr_en.set(0);
+    }
+
+    // 読み出しポートのシーケンス（遅延して開始）
+    seq reader {
+        #100.ns;  // 書き込みが進んでから開始
+        for addr in 0..256 {
+            dut.rd_addr.set(addr as u16);
+            await clk.posedge;
+            let expected = (addr * 2) as u8;
+            let actual = dut.rd_data.value();
+            assert!(actual == expected,
+                    "Read mismatch at addr {}: expected {}, got {}",
+                    addr, expected, actual);
+        }
+    }
+}
+```
+
+### 10.6.8 シミュレーション時間とseqブロックの関係
+
+| 操作 | シミュレーション時間 |
+|------|---------------------|
+| Rustコード実行 | ゼロ時間（進まない） |
+| `#delay` | 指定時間分進む |
+| `await clk.posedge` | 次のエッジまで進む |
+| `await until(...)` | 条件成立まで進む |
+| `.set(val)` | 即座に反映（デルタサイクル） |
+| `.value()` | 現在値を読み取り |
+
+### 10.6.9 seqブロックとinitialブロックの比較
+
+| 項目 | seq | initial |
+|------|-----|---------|
+| Rust構文 | 完全サポート | 限定的 |
+| 並列実行 | 複数定義で並列 | 単一 |
+| 外部Rust関数 | 呼び出し可能 | 不可 |
+| 用途 | 複雑なテストシーケンス | シンプルなテスト |
+
+---
+
+## 10.7 外部Rust関数の直接呼び出し
+
+`seq`ブロック内から外部の`.rs`ファイルで定義されたRust関数を直接呼び出すことができる。これにより、テストヘルパー関数、データ生成、検証ロジックなどをRustで実装し、テストベンチから利用できる。
+
+### 10.7.1 概要
+
+| 項目 | 内容 |
+|------|------|
+| 使用可能場所 | `seq`ブロック内 |
+| インポート方法 | `use rust::` または `extern rust` |
+| Rustファイル | 標準的な`.rs`ファイル |
+| 機能 | Rustの完全な機能を利用可能 |
+
+### 10.7.2 インポート構文
+
+#### use rust:: 宣言
+
+```rust
+// 単一関数のインポート
+use rust::test_utils::expected_count;
+
+// 複数関数のインポート
+use rust::test_utils::{expected_count, verify_counter, generate_stimulus};
+
+// ワイルドカードインポート
+use rust::test_utils::*;
+
+// モジュール全体のインポート（完全修飾名で使用）
+use rust::test_utils;
+```
+
+#### extern rust ブロック
+
+関数シグネチャを明示的に宣言する方法。
+
+```rust
+extern rust "test_utils" {
+    fn expected_count(cycles: u32) -> u8;
+    fn verify_counter(dut_count: u8, expected: u8, cycle: u32);
+    fn generate_random_data(seed: u64) -> Vec<u8>;
+}
+```
+
+### 10.7.3 Rust側の実装
+
+外部Rust関数は、プロジェクトの`rust/`ディレクトリに配置する。
+
+**ファイル構造:**
+```
+project/
+├── iris.toml
+├── src/
+│   └── design.iris
+├── test/
+│   └── counter_test.iris
+└── rust/
+    ├── mod.rs              # ルートモジュール
+    └── test_utils.rs       # テストユーティリティ
+```
+
+**rust/test_utils.rs:**
+```rust
+//! テストユーティリティ関数
+
+/// 期待されるカウンタ値を計算
+pub fn expected_count(cycles: u32) -> u8 {
+    (cycles % 256) as u8
+}
+
+/// カウンタ値を検証
+pub fn verify_counter(dut_count: u8, expected: u8, cycle: u32) {
+    if dut_count != expected {
+        panic!("Counter mismatch at cycle {}: expected {}, got {}",
+               cycle, expected, dut_count);
+    }
+}
+
+/// ランダムデータを生成
+pub fn generate_random_data(seed: u64) -> Vec<u8> {
+    use rand::{SeedableRng, Rng};
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    (0..256).map(|_| rng.gen()).collect()
+}
+```
+
+**rust/mod.rs:**
+```rust
+pub mod test_utils;
+```
+
+### 10.7.4 使用例
+
+```rust
+// test/counter_test.iris
+use rust::test_utils::{expected_count, verify_counter};
+
+test CounterVerification {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+    let dut = Counter8(clk: clk, rst: rst, enable: 1);
+
+    seq main {
+        // リセット
+        rst.set(1);
+        #50;
+        rst.set(0);
+
+        // 外部Rust関数を使用したテスト
+        for cycle in 0..100u32 {
+            await clk.posedge;
+
+            // 期待値を外部関数で計算
+            let expected = expected_count(cycle);
+
+            // 検証も外部関数で実行
+            verify_counter(dut.count.value(), expected, cycle);
+        }
+
+        println!("All {} cycles verified successfully!", 100);
+    }
+}
+```
+
+### 10.7.5 非同期関数のサポート
+
+Rust側で`async fn`として定義した関数は、`seq`ブロック内で`await`を使用して呼び出す。
+
+**rust/async_utils.rs:**
+```rust
+use std::time::Duration;
+
+/// 非同期でタイムアウト付き待機
+pub async fn wait_with_timeout(timeout_ms: u64) -> bool {
+    tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
+    true
+}
+
+/// 非同期でデータをフェッチ
+pub async fn fetch_test_vectors(url: &str) -> Vec<u8> {
+    // 外部リソースからテストベクタを取得
+    // ...
+    vec![]
+}
+```
+
+**IRIS側での使用:**
+```rust
+use rust::async_utils::{wait_with_timeout, fetch_test_vectors};
+
+test AsyncTest {
+    seq main {
+        // 非同期関数の呼び出し
+        let success = wait_with_timeout(1000).await;
+
+        // テストベクタの非同期取得
+        let vectors = fetch_test_vectors("https://example.com/vectors").await;
+
+        for data in vectors {
+            dut.input.set(data);
+            await clk.posedge;
+        }
+    }
+}
+```
+
+### 10.7.6 IRIS-Rust型マッピング
+
+| IRIS型 | Rust型 | 備考 |
+|--------|--------|------|
+| `bit` | `bool` | 単一ビット |
+| `bit[8]` | `u8` | 8ビット符号なし |
+| `bit[16]` | `u16` | 16ビット符号なし |
+| `bit[32]` | `u32` | 32ビット符号なし |
+| `bit[64]` | `u64` | 64ビット符号なし |
+| `bit[N]` (N > 64) | `[u8; (N+7)/8]` | バイト配列 |
+| `i8`, `i16`, `i32`, `i64` | `i8`, `i16`, `i32`, `i64` | 符号付き整数 |
+| `bool` | `bool` | 論理型 |
+| `Signal<T>` | `iris_runtime::Signal<T>` | 信号ハンドル |
+
+### 10.7.7 エラーハンドリング
+
+外部Rust関数でのエラーは、Rustの標準的なエラーハンドリング機構を使用する。
+
+```rust
+// rust/validators.rs
+use std::result::Result;
+
+#[derive(Debug)]
+pub struct ValidationError {
+    pub message: String,
+    pub cycle: u32,
+}
+
+pub fn validate_protocol(
+    valid: bool,
+    ready: bool,
+    data: u8,
+    cycle: u32
+) -> Result<(), ValidationError> {
+    if valid && !ready {
+        return Err(ValidationError {
+            message: format!("Valid asserted without ready at cycle {}", cycle),
+            cycle,
+        });
+    }
+    Ok(())
+}
+```
+
+**IRIS側:**
+```rust
+use rust::validators::validate_protocol;
+
+test ProtocolTest {
+    seq main {
+        for cycle in 0..1000u32 {
+            await clk.posedge;
+
+            // Result型を処理
+            match validate_protocol(
+                dut.valid.value(),
+                dut.ready.value(),
+                dut.data.value(),
+                cycle
+            ) {
+                Ok(()) => {},
+                Err(e) => {
+                    println!("Protocol violation: {:?}", e);
+                    break;
+                }
+            }
+        }
+    }
+}
+```
+
+### 10.7.8 セキュリティに関する注意
+
+外部Rust関数は任意のRustコードを実行できるため、以下の点に注意が必要:
+
+- 信頼できるソースからのコードのみを使用する
+- ファイルI/Oやネットワークアクセスは意図した場合のみ使用する
+- 本番環境のシミュレーション時は外部関数の動作を確認する
+
+---
+
 [<< メモリ](./09_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./11_package_system.md)

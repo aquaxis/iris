@@ -70,6 +70,22 @@ import type {
   Token,
   Trivia,
   AstNode,
+  TestModDef,
+  TestModItem,
+  InitialBlock,
+  SeqBlock,
+  SeqStatement,
+  AwaitStmt,
+  DelayStmt,
+  UseRustDecl,
+  ExternRustBlock,
+  RustFnDecl,
+  RustParam,
+  AwaitExpr,
+  Duration,
+  SignalRead,
+  SignalWrite,
+  RustStatement,
 } from '@irisfmt/core';
 import type { FormatStyle } from './format.js';
 
@@ -312,6 +328,9 @@ export class Printer {
         break;
       case 'ConstDef':
         this.printConstDef(item);
+        break;
+      case 'TestModDef':
+        this.printTestModDef(item);
         break;
     }
   }
@@ -808,6 +827,251 @@ export class Printer {
     this.write(' = ');
     this.printExpr(node.expr);
     this.write(';');
+  }
+
+  // ========================================
+  // Test Module Definition
+  // ========================================
+
+  private printTestModDef(node: TestModDef): void {
+    this.write('test mod ');
+    this.printIdentifier(node.name);
+    this.write(' {');
+    this.newline();
+    if (node.items.length > 0) {
+      this.indent();
+      for (let i = 0; i < node.items.length; i++) {
+        if (i > 0) {
+          this.newline();
+        }
+        this.printTestModItem(node.items[i]!);
+        this.newline();
+      }
+      this.dedent();
+    }
+    this.write('}');
+  }
+
+  private printTestModItem(item: TestModItem): void {
+    switch (item.kind) {
+      case 'LetDecl':
+        this.printLetDecl(item);
+        this.write(';');
+        break;
+      case 'VarDecl':
+        this.printVarDecl(item);
+        this.write(';');
+        break;
+      case 'ConstDecl':
+        this.printConstDecl(item);
+        break;
+      case 'InstDecl':
+        this.printInstDecl(item);
+        break;
+      case 'CombBlock':
+        this.printCombBlock(item);
+        break;
+      case 'SyncBlock':
+        this.printSyncBlock(item);
+        break;
+      case 'InitialBlock':
+        this.printInitialBlock(item);
+        break;
+      case 'SeqBlock':
+        this.printSeqBlock(item);
+        break;
+      case 'UseRustDecl':
+        this.printUseRustDecl(item);
+        break;
+      case 'ExternRustBlock':
+        this.printExternRustBlock(item);
+        break;
+      case 'AssertStmt':
+        this.printAssertStmt(item);
+        break;
+      case 'WaitStmt':
+        this.printWaitStmt(item);
+        break;
+      case 'DriveStmt':
+        this.printDriveStmt(item);
+        break;
+      case 'SampleStmt':
+        this.printSampleStmt(item);
+        break;
+      default:
+        // Handle regular statements
+        this.printStmt(item as Stmt);
+    }
+  }
+
+  private printInitialBlock(node: InitialBlock): void {
+    this.write('initial {');
+    if (node.stmts.length > 0) {
+      this.newline();
+      this.indent();
+      for (const stmt of node.stmts) {
+        this.printStmt(stmt);
+        this.newline();
+      }
+      this.dedent();
+    }
+    this.write('}');
+  }
+
+  private printSeqBlock(node: SeqBlock): void {
+    this.write('seq');
+    if (node.name) {
+      this.write(' ');
+      this.printIdentifier(node.name);
+    }
+    this.write(' {');
+    if (node.body.length > 0) {
+      this.newline();
+      this.indent();
+      for (const stmt of node.body) {
+        this.printSeqStatement(stmt);
+        this.newline();
+      }
+      this.dedent();
+    }
+    this.write('}');
+  }
+
+  private printSeqStatement(stmt: SeqStatement): void {
+    switch (stmt.kind) {
+      case 'AwaitStmt':
+        this.printAwaitStmt(stmt);
+        break;
+      case 'DelayStmt':
+        this.printDelayStmt(stmt);
+        break;
+      case 'AssertStmt':
+        this.printAssertStmt(stmt);
+        break;
+      case 'RustStatement':
+        this.write(stmt.code);
+        break;
+      case 'SignalRead':
+        this.printPath(stmt.signal);
+        this.write('.value()');
+        break;
+      case 'SignalWrite':
+        this.printPath(stmt.signal);
+        this.write('.set(');
+        this.printExpr(stmt.value);
+        this.write(');');
+        break;
+    }
+  }
+
+  private printAwaitStmt(node: AwaitStmt): void {
+    this.write('await ');
+    this.printAwaitExpr(node.awaitExpr);
+    this.write(';');
+  }
+
+  private printAwaitExpr(expr: AwaitExpr): void {
+    switch (expr.kind) {
+      case 'ClockEdgeAwait':
+        this.printExpr(expr.signal);
+        this.write('.');
+        this.write(expr.edge);
+        if (expr.cycles) {
+          this.write('(');
+          this.printExpr(expr.cycles);
+          this.write(')');
+        }
+        break;
+      case 'UntilAwait':
+        this.write('until(');
+        this.printExpr(expr.condition);
+        if (expr.timeout) {
+          this.write(', ');
+          this.printDuration(expr.timeout);
+        }
+        this.write(')');
+        break;
+      case 'EventAwait':
+        this.write('event(');
+        this.printExpr(expr.signal);
+        this.write(')');
+        break;
+      case 'AsyncCallAwait':
+        this.printExpr(expr.expr);
+        this.write('.await');
+        break;
+    }
+  }
+
+  private printDelayStmt(node: DelayStmt): void {
+    this.write('#');
+    if (typeof node.delay === 'number') {
+      this.write(String(node.delay));
+    } else {
+      this.printDuration(node.delay);
+    }
+    this.write(';');
+  }
+
+  private printDuration(duration: Duration): void {
+    this.write(String(duration.value));
+    this.write(duration.unit);
+  }
+
+  private printUseRustDecl(node: UseRustDecl): void {
+    this.write('use rust::');
+    this.write(node.path.join('::'));
+    if (node.items === '*') {
+      this.write('::*');
+    } else if (node.items && node.items.length > 0) {
+      this.write('::{');
+      this.write(node.items.join(', '));
+      this.write('}');
+    }
+    this.write(';');
+  }
+
+  private printExternRustBlock(node: ExternRustBlock): void {
+    this.write('extern rust "');
+    this.write(node.moduleName);
+    this.write('" {');
+    if (node.functions.length > 0) {
+      this.newline();
+      this.indent();
+      for (const fn of node.functions) {
+        this.printRustFnDecl(fn);
+        this.newline();
+      }
+      this.dedent();
+    }
+    this.write('}');
+  }
+
+  private printRustFnDecl(node: RustFnDecl): void {
+    if (node.isAsync) {
+      this.write('async ');
+    }
+    this.write('fn ');
+    this.printIdentifier(node.name);
+    this.write('(');
+    for (let i = 0; i < node.params.length; i++) {
+      if (i > 0) {
+        this.write(', ');
+      }
+      this.printRustParam(node.params[i]!);
+    }
+    this.write(')');
+    if (node.returnType) {
+      this.write(' -> ');
+      this.write(node.returnType);
+    }
+    this.write(';');
+  }
+
+  private printRustParam(node: RustParam): void {
+    this.printIdentifier(node.name);
+    this.write(': ');
+    this.write(node.typeStr);
   }
 
   // ========================================

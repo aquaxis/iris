@@ -41,10 +41,10 @@ PATTERNS:
   Supports glob patterns for matching multiple files.
 
 EXAMPLES:
-  irisfmt-format example.iris          # Print formatted to stdout
-  irisfmt-format -w example.iris       # Format in place
-  irisfmt-format -c "src/**/*.iris"    # Check all .iris files in src/
-  irisfmt-format -w "**/*.iris"        # Format all .iris files recursively
+  irisfmt-format example.iris              # Print formatted to stdout
+  irisfmt-format -w example.iris           # Format in place
+  irisfmt-format -c "src/**/*.{iris,irs}"  # Check all IRIS files in src/
+  irisfmt-format -w "**/*.{iris,irs}"      # Format all IRIS files recursively
 `);
 }
 

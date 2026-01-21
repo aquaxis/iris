@@ -162,6 +162,14 @@ export enum TokenKind {
   Wait = 'Wait',
   /** sample keyword */
   Sample = 'Sample',
+  /** initial keyword */
+  Initial = 'Initial',
+  /** seq keyword (sequential processing block) */
+  Seq = 'Seq',
+  /** await keyword */
+  Await = 'Await',
+  /** extern keyword */
+  Extern = 'Extern',
 
   // === Keywords - Misc ===
   /** as keyword (cast) */
@@ -262,6 +270,8 @@ export enum TokenKind {
   DotDotEq = 'DotDotEq',
   /** #[ */
   HashLBracket = 'HashLBracket',
+  /** # (for delay) */
+  Hash = 'Hash',
   /** ' (for base specifier like 8'h) */
   Quote = 'Quote',
   /** _ (wildcard pattern) */
@@ -366,6 +376,10 @@ export const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
   ['assert', TokenKind.Assert],
   ['wait', TokenKind.Wait],
   ['sample', TokenKind.Sample],
+  ['initial', TokenKind.Initial],
+  ['seq', TokenKind.Seq],
+  ['await', TokenKind.Await],
+  ['extern', TokenKind.Extern],
 
   // Misc
   ['as', TokenKind.As],

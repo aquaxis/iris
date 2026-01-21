@@ -51,6 +51,10 @@ export enum TokenKind {
   Initiator = 'initiator',
   Target = 'target',
   Monitor = 'monitor',
+  Initial = 'initial',
+  Seq = 'seq',
+  Await = 'await',
+  Extern = 'extern',
 
   // Type keywords
   Bit = 'bit',

@@ -101,6 +101,62 @@ export interface HirSeqBlock {
   readonly resetStatements: HirStmt[];  // Statements for reset condition
 }
 
+/**
+ * Initial block (maps to initial begin/end in testbenches)
+ */
+export interface HirInitialBlock {
+  readonly kind: 'HirInitialBlock';
+  readonly statements: HirStmt[];
+}
+
+/**
+ * Testbench sequential block (maps to initial block with time control)
+ */
+export interface HirTestSeqBlock {
+  readonly kind: 'HirTestSeqBlock';
+  readonly name: string | undefined;
+  readonly statements: HirTestSeqStmt[];
+}
+
+/**
+ * Testbench sequential statement
+ */
+export type HirTestSeqStmt =
+  | HirDelayStmt
+  | HirAwaitStmt
+  | HirAssertStmt
+  | HirStmt;
+
+/**
+ * Delay statement (#time)
+ */
+export interface HirDelayStmt {
+  readonly kind: 'HirDelayStmt';
+  readonly delay: number;
+  readonly unit: 'ns' | 'us' | 'ms' | 's';
+}
+
+/**
+ * Await statement (wait for clock edge, condition, etc.)
+ */
+export interface HirAwaitStmt {
+  readonly kind: 'HirAwaitStmt';
+  readonly awaitType: 'clock_edge' | 'until' | 'event';
+  readonly signal: string | undefined;
+  readonly edge: HirClockEdge | undefined;
+  readonly cycles: number | undefined;
+  readonly condition: HirExpr | undefined;
+}
+
+/**
+ * Assert statement
+ */
+export interface HirAssertStmt {
+  readonly kind: 'HirAssertStmt';
+  readonly condition: HirExpr;
+  readonly message: string | undefined;
+}
+
 // ==================== FSM ====================
 
 /**
@@ -246,6 +302,7 @@ export interface HirModule {
   readonly kind: 'HirModule';
   readonly name: string;
   readonly isPublic: boolean;
+  readonly isTestbench: boolean;  // true for test mod (testbench)
   readonly parameters: HirParameter[];
   readonly ports: HirPort[];
   readonly typeDefs: HirTypeDef[];
@@ -253,6 +310,8 @@ export interface HirModule {
   readonly instances: HirInstance[];
   readonly combBlocks: HirCombBlock[];
   readonly seqBlocks: HirSeqBlock[];
+  readonly initialBlocks: HirInitialBlock[];
+  readonly testSeqBlocks: HirTestSeqBlock[];
   readonly fsms: HirFsm[];
   readonly functions: HirFunction[];
 }
@@ -432,13 +491,88 @@ export function createFunction(
 }
 
 /**
+ * Create an initial block
+ */
+export function createInitialBlock(statements: HirStmt[]): HirInitialBlock {
+  return {
+    kind: 'HirInitialBlock',
+    statements,
+  };
+}
+
+/**
+ * Create a testbench sequential block
+ */
+export function createTestSeqBlock(
+  name: string | undefined,
+  statements: HirTestSeqStmt[]
+): HirTestSeqBlock {
+  return {
+    kind: 'HirTestSeqBlock',
+    name,
+    statements,
+  };
+}
+
+/**
+ * Create a delay statement
+ */
+export function createDelayStmt(
+  delay: number,
+  unit: 'ns' | 'us' | 'ms' | 's' = 'ns'
+): HirDelayStmt {
+  return {
+    kind: 'HirDelayStmt',
+    delay,
+    unit,
+  };
+}
+
+/**
+ * Create an await statement
+ */
+export function createAwaitStmt(
+  awaitType: 'clock_edge' | 'until' | 'event',
+  options: {
+    signal?: string;
+    edge?: HirClockEdge;
+    cycles?: number;
+    condition?: HirExpr;
+  } = {}
+): HirAwaitStmt {
+  return {
+    kind: 'HirAwaitStmt',
+    awaitType,
+    signal: options.signal,
+    edge: options.edge,
+    cycles: options.cycles,
+    condition: options.condition,
+  };
+}
+
+/**
+ * Create an assert statement
+ */
+export function createAssertStmt(
+  condition: HirExpr,
+  message?: string
+): HirAssertStmt {
+  return {
+    kind: 'HirAssertStmt',
+    condition,
+    message,
+  };
+}
+
+/**
  * Create an empty module
  */
-export function createModule(name: string, isPublic = false): HirModule {
+export function createModule(name: string, isPublic = false, isTestbench = false): HirModule {
   return {
     kind: 'HirModule',
     name,
     isPublic,
+    isTestbench,
     parameters: [],
     ports: [],
     typeDefs: [],
@@ -446,6 +580,8 @@ export function createModule(name: string, isPublic = false): HirModule {
     instances: [],
     combBlocks: [],
     seqBlocks: [],
+    initialBlocks: [],
+    testSeqBlocks: [],
     fsms: [],
     functions: [],
   };

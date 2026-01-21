@@ -29,7 +29,8 @@ export type Item =
   | InterfaceDef
   | PackageDecl
   | ImportDecl
-  | TestDef;
+  | TestDef
+  | TestModDef;
 
 export type Visibility = 'pub' | 'private';
 
@@ -772,4 +773,197 @@ export interface ConstDef extends AstNode {
   name: Identifier;
   typeExpr: TypeExpr;
   init: Expr;
+}
+
+// ============================================================================
+// Test Module (Testbench)
+// ============================================================================
+
+/**
+ * Test module definition (testbench-style top-level module without ports)
+ */
+export interface TestModDef extends AstNode {
+  kind: 'TestModDef';
+  visibility: Visibility;
+  name: Identifier;
+  items: TestModItem[];
+}
+
+/**
+ * Test module item
+ */
+export type TestModItem =
+  | SignalDecl
+  | ConstDecl
+  | InstDecl
+  | CombBlock
+  | SyncBlock
+  | InitialBlock
+  | SeqBlock
+  | UseRustDecl
+  | ExternRustBlock
+  | TestStmt;
+
+/**
+ * Initial block (simulation only)
+ */
+export interface InitialBlock extends AstNode {
+  kind: 'InitialBlock';
+  stmts: Stmt[];
+}
+
+/**
+ * Sequential processing block (Rust code execution in test)
+ */
+export interface SeqBlock extends AstNode {
+  kind: 'SeqBlock';
+  name?: Identifier | undefined;
+  body: SeqStatement[];
+}
+
+/**
+ * Seq block statement types
+ */
+export type SeqStatement =
+  | RustStatement
+  | SignalAccess
+  | AwaitStmt
+  | DelayStmt
+  | AssertStmt;
+
+/**
+ * Rust statement (any valid Rust code)
+ */
+export interface RustStatement extends AstNode {
+  kind: 'RustStatement';
+  code: string;
+}
+
+/**
+ * Signal access operations
+ */
+export type SignalAccess = SignalRead | SignalWrite;
+
+/**
+ * Signal read operation (.value())
+ */
+export interface SignalRead extends AstNode {
+  kind: 'SignalRead';
+  signal: Path;
+}
+
+/**
+ * Signal write operation (.set())
+ */
+export interface SignalWrite extends AstNode {
+  kind: 'SignalWrite';
+  signal: Path;
+  value: Expr;
+}
+
+/**
+ * Await statement
+ */
+export interface AwaitStmt extends AstNode {
+  kind: 'AwaitStmt';
+  awaitExpr: AwaitExpr;
+}
+
+/**
+ * Await expression types
+ */
+export type AwaitExpr =
+  | ClockEdgeAwait
+  | UntilAwait
+  | EventAwait
+  | AsyncCallAwait;
+
+/**
+ * Clock edge await (await clk.posedge)
+ */
+export interface ClockEdgeAwait extends AstNode {
+  kind: 'ClockEdgeAwait';
+  signal: Expr;
+  edge: 'posedge' | 'negedge';
+  cycles?: Expr | undefined;
+}
+
+/**
+ * Until await (await until(condition))
+ */
+export interface UntilAwait extends AstNode {
+  kind: 'UntilAwait';
+  condition: Expr;
+  timeout?: Duration | undefined;
+}
+
+/**
+ * Event await (await event(signal))
+ */
+export interface EventAwait extends AstNode {
+  kind: 'EventAwait';
+  signal: Expr;
+}
+
+/**
+ * Async call await (expr.await)
+ */
+export interface AsyncCallAwait extends AstNode {
+  kind: 'AsyncCallAwait';
+  expr: Expr;
+}
+
+/**
+ * Duration with time unit
+ */
+export interface Duration extends AstNode {
+  kind: 'Duration';
+  value: number;
+  unit: 'ns' | 'us' | 'ms' | 's';
+}
+
+/**
+ * Delay statement (#time)
+ */
+export interface DelayStmt extends AstNode {
+  kind: 'DelayStmt';
+  delay: number | Duration;
+}
+
+/**
+ * External Rust function import (use rust::...)
+ */
+export interface UseRustDecl extends AstNode {
+  kind: 'UseRustDecl';
+  path: string[];
+  items: string[] | '*' | undefined;
+}
+
+/**
+ * External Rust function block (extern rust "module" { ... })
+ */
+export interface ExternRustBlock extends AstNode {
+  kind: 'ExternRustBlock';
+  moduleName: string;
+  functions: RustFnDecl[];
+}
+
+/**
+ * Rust function declaration
+ */
+export interface RustFnDecl extends AstNode {
+  kind: 'RustFnDecl';
+  isAsync: boolean;
+  name: Identifier;
+  params: RustParam[];
+  returnType?: string | undefined;
+}
+
+/**
+ * Rust function parameter
+ */
+export interface RustParam extends AstNode {
+  kind: 'RustParam';
+  name: Identifier;
+  typeStr: string;
 }

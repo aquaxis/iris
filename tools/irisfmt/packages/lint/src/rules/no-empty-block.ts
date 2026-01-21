@@ -15,6 +15,10 @@ import type {
   BlockStmt,
   MatchArm,
   TestDef,
+  TestModDef,
+  TestModItem,
+  InitialBlock,
+  SeqBlock,
   SourceSpan,
 } from '@irisfmt/core';
 
@@ -49,6 +53,9 @@ function visitItem(ctx: LintContext, item: Item): void {
       break;
     case 'TestDef':
       visitTestDef(ctx, item);
+      break;
+    case 'TestModDef':
+      visitTestModDef(ctx, item);
       break;
     case 'EnumDef':
     case 'StructDef':
@@ -126,6 +133,50 @@ function visitFnDef(ctx: LintContext, fn: FnDef): void {
 function visitTestDef(ctx: LintContext, test: TestDef): void {
   if (test.body.length === 0) {
     reportEmptyBlock(ctx, test.span, 'test body');
+  }
+}
+
+function visitTestModDef(ctx: LintContext, testMod: TestModDef): void {
+  if (testMod.items.length === 0) {
+    reportEmptyBlock(ctx, testMod.span, 'test module body');
+  } else {
+    for (const item of testMod.items) {
+      visitTestModItem(ctx, item);
+    }
+  }
+}
+
+function visitTestModItem(ctx: LintContext, item: TestModItem): void {
+  switch (item.kind) {
+    case 'CombBlock':
+      visitCombBlock(ctx, item);
+      break;
+    case 'SyncBlock':
+      visitSyncBlock(ctx, item);
+      break;
+    case 'InitialBlock':
+      visitInitialBlock(ctx, item);
+      break;
+    case 'SeqBlock':
+      visitSeqBlock(ctx, item);
+      break;
+    default:
+      // Other items don't have blocks to check
+      break;
+  }
+}
+
+function visitInitialBlock(ctx: LintContext, block: InitialBlock): void {
+  if (block.stmts.length === 0) {
+    reportEmptyBlock(ctx, block.span, 'initial block');
+  } else {
+    visitStmts(ctx, block.stmts);
+  }
+}
+
+function visitSeqBlock(ctx: LintContext, block: SeqBlock): void {
+  if (block.body.length === 0) {
+    reportEmptyBlock(ctx, block.span, 'seq block');
   }
 }
 

@@ -299,4 +299,159 @@ describe('ModuleTransformer', () => {
       expect(svModule.ports[2].name).toBe('c');
     });
   });
+
+  describe('Testbench features', () => {
+    it('should transform initial blocks', () => {
+      const transformer = createModuleTransformer();
+      const hirModule: HirModule = {
+        kind: 'HirModule',
+        name: 'test_tb',
+        isPublic: false,
+        isTestbench: true,
+        parameters: [],
+        ports: [],
+        typeDefs: [],
+        signals: [],
+        instances: [],
+        combBlocks: [],
+        seqBlocks: [],
+        initialBlocks: [
+          {
+            kind: 'HirInitialBlock',
+            statements: [
+              createAssignStmt(
+                createIdentifierLValue('data'),
+                createIntegerLiteral(0n)
+              ),
+            ],
+          },
+        ],
+        testSeqBlocks: [],
+        fsms: [],
+        functions: [],
+      };
+
+      const svModule = transformer.transform(hirModule);
+
+      expect(svModule.items).toHaveLength(1);
+      expect(svModule.items[0]?.kind).toBe('SvInitialBlock');
+    });
+
+    it('should transform test seq blocks', () => {
+      const transformer = createModuleTransformer();
+      const hirModule: HirModule = {
+        kind: 'HirModule',
+        name: 'test_tb',
+        isPublic: false,
+        isTestbench: true,
+        parameters: [],
+        ports: [],
+        typeDefs: [],
+        signals: [],
+        instances: [],
+        combBlocks: [],
+        seqBlocks: [],
+        initialBlocks: [],
+        testSeqBlocks: [
+          {
+            kind: 'HirTestSeqBlock',
+            name: 'test_sequence',
+            statements: [
+              {
+                kind: 'HirDelayStmt',
+                delay: 10,
+                unit: 'ns',
+              },
+            ],
+          },
+        ],
+        fsms: [],
+        functions: [],
+      };
+
+      const svModule = transformer.transform(hirModule);
+
+      expect(svModule.items).toHaveLength(1);
+      expect(svModule.items[0]?.kind).toBe('SvInitialBlock');
+    });
+
+    it('should transform await clock edge', () => {
+      const transformer = createModuleTransformer();
+      const hirModule: HirModule = {
+        kind: 'HirModule',
+        name: 'test_tb',
+        isPublic: false,
+        isTestbench: true,
+        parameters: [],
+        ports: [],
+        typeDefs: [],
+        signals: [],
+        instances: [],
+        combBlocks: [],
+        seqBlocks: [],
+        initialBlocks: [],
+        testSeqBlocks: [
+          {
+            kind: 'HirTestSeqBlock',
+            name: undefined,
+            statements: [
+              {
+                kind: 'HirAwaitStmt',
+                awaitType: 'clock_edge',
+                signal: 'clk',
+                edge: 'posedge',
+                cycles: undefined,
+                condition: undefined,
+              },
+            ],
+          },
+        ],
+        fsms: [],
+        functions: [],
+      };
+
+      const svModule = transformer.transform(hirModule);
+
+      expect(svModule.items).toHaveLength(1);
+      expect(svModule.items[0]?.kind).toBe('SvInitialBlock');
+    });
+
+    it('should transform assert statement', () => {
+      const transformer = createModuleTransformer();
+      const hirModule: HirModule = {
+        kind: 'HirModule',
+        name: 'test_tb',
+        isPublic: false,
+        isTestbench: true,
+        parameters: [],
+        ports: [],
+        typeDefs: [],
+        signals: [],
+        instances: [],
+        combBlocks: [],
+        seqBlocks: [],
+        initialBlocks: [],
+        testSeqBlocks: [
+          {
+            kind: 'HirTestSeqBlock',
+            name: undefined,
+            statements: [
+              {
+                kind: 'HirAssertStmt',
+                condition: createBinaryExpr('eq', createHirIdentifier('data'), createIntegerLiteral(0n)),
+                message: 'data should be zero',
+              },
+            ],
+          },
+        ],
+        fsms: [],
+        functions: [],
+      };
+
+      const svModule = transformer.transform(hirModule);
+
+      expect(svModule.items).toHaveLength(1);
+      expect(svModule.items[0]?.kind).toBe('SvInitialBlock');
+    });
+  });
 });

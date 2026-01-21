@@ -463,6 +463,149 @@ describe('Parser', () => {
     });
   });
 
+  describe('Test Module (Testbench)', () => {
+    it('parses empty test module', () => {
+      const ast = parseSource('test counter_tb {}');
+      expect(ast.items.length).toBe(1);
+      const testMod = ast.items[0];
+      expect(testMod.kind).toBe('TestModDef');
+      if (testMod.kind === 'TestModDef') {
+        expect(testMod.name.name).toBe('counter_tb');
+        expect(testMod.items.length).toBe(0);
+      }
+    });
+
+    it('parses test module with signal declarations', () => {
+      const ast = parseSource(`
+        test counter_tb {
+          let clk: clock;
+          var counter: bit[8] = 0;
+        }
+      `);
+      const testMod = ast.items[0];
+      if (testMod.kind === 'TestModDef') {
+        expect(testMod.items.length).toBe(2);
+        expect(testMod.items[0].kind).toBe('SignalDecl');
+        expect(testMod.items[1].kind).toBe('SignalDecl');
+      }
+    });
+
+    it('parses test module with initial block', () => {
+      const ast = parseSource(`
+        test counter_tb {
+          initial {
+            clk = 0;
+          }
+        }
+      `);
+      const testMod = ast.items[0];
+      if (testMod.kind === 'TestModDef') {
+        expect(testMod.items.length).toBe(1);
+        expect(testMod.items[0].kind).toBe('InitialBlock');
+      }
+    });
+
+    it('parses test module with seq block', () => {
+      const ast = parseSource(`
+        test counter_tb {
+          seq main_test {
+            #10;
+          }
+        }
+      `);
+      const testMod = ast.items[0];
+      if (testMod.kind === 'TestModDef') {
+        expect(testMod.items.length).toBe(1);
+        const seqBlock = testMod.items[0];
+        expect(seqBlock.kind).toBe('SeqBlock');
+        if (seqBlock.kind === 'SeqBlock') {
+          expect(seqBlock.name?.name).toBe('main_test');
+          expect(seqBlock.body.length).toBe(1);
+        }
+      }
+    });
+
+    it('parses seq block with await statement', () => {
+      const ast = parseSource(`
+        test counter_tb {
+          seq {
+            await clk.posedge;
+          }
+        }
+      `);
+      const testMod = ast.items[0];
+      if (testMod.kind === 'TestModDef') {
+        const seqBlock = testMod.items[0];
+        if (seqBlock.kind === 'SeqBlock') {
+          expect(seqBlock.body.length).toBe(1);
+          const awaitStmt = seqBlock.body[0];
+          expect(awaitStmt.kind).toBe('AwaitStmt');
+        }
+      }
+    });
+
+    it('parses seq block with delay statement', () => {
+      const ast = parseSource(`
+        test counter_tb {
+          seq {
+            #100 ns;
+          }
+        }
+      `);
+      const testMod = ast.items[0];
+      if (testMod.kind === 'TestModDef') {
+        const seqBlock = testMod.items[0];
+        if (seqBlock.kind === 'SeqBlock') {
+          expect(seqBlock.body.length).toBe(1);
+          const delayStmt = seqBlock.body[0];
+          expect(delayStmt.kind).toBe('DelayStmt');
+        }
+      }
+    });
+
+    it('parses test module with assert statement', () => {
+      const ast = parseSource(`
+        test counter_tb {
+          seq {
+            assert counter == 10;
+          }
+        }
+      `);
+      const testMod = ast.items[0];
+      if (testMod.kind === 'TestModDef') {
+        const seqBlock = testMod.items[0];
+        if (seqBlock.kind === 'SeqBlock') {
+          expect(seqBlock.body.length).toBe(1);
+          const assertStmt = seqBlock.body[0];
+          expect(assertStmt.kind).toBe('AssertStmt');
+        }
+      }
+    });
+
+    it('parses extern rust block', () => {
+      const ast = parseSource(`
+        test counter_tb {
+          extern rust "test_utils" {
+            fn reset_all();
+            fn check_value(expected: u32) -> bool;
+          }
+        }
+      `);
+      const testMod = ast.items[0];
+      if (testMod.kind === 'TestModDef') {
+        expect(testMod.items.length).toBe(1);
+        const externBlock = testMod.items[0];
+        expect(externBlock.kind).toBe('ExternRustBlock');
+        if (externBlock.kind === 'ExternRustBlock') {
+          expect(externBlock.moduleName).toBe('test_utils');
+          expect(externBlock.functions.length).toBe(2);
+          expect(externBlock.functions[0].name.name).toBe('reset_all');
+          expect(externBlock.functions[1].name.name).toBe('check_value');
+        }
+      }
+    });
+  });
+
   describe('Error Handling', () => {
     it('reports error on missing closing brace', () => {
       expectParseError('mod test() {');

@@ -70,22 +70,61 @@ let flag: bool;  // true または false
 
 | 型 | 説明 | 属性 |
 |----|------|------|
-| `clock` | クロック信号 | `.posedge`, `.negedge` |
-| `reset` | リセット信号 | `.sync`, `.async`, 極性指定 |
+| `clock` | クロック信号 | `.posedge`, `.negedge`, `period` |
+| `reset` | リセット信号 | `.sync`, `.async`, `active_low`, `assert_cycles`, `assert_time` |
+
+#### クロック型
 
 ```rust
-in clk: clock,
-in rst: reset,              // デフォルト: active high
-in rst_n: reset(active_low), // active low
+in clk: clock,                    // デフォルト: 10ns周期
+let clk: clock(period: 10ns),     // 10ns周期を明示指定
+let clk: clock(period: 100ns),    // 100ns周期（10MHz）
 
 // クロックエッジアクセス
 sync(clk.posedge) { ... }
 sync(clk.negedge) { ... }
+```
+
+**クロック属性:**
+
+| 属性 | 説明 | デフォルト |
+|------|------|-----------|
+| `period` | クロック周期（時間単位: ps, ns, us, ms, s） | 10ns |
+
+#### リセット型
+
+```rust
+in rst: reset,                                      // デフォルト: active high
+in rst_n: reset(active_low: true),                  // active low
+let rst: reset(active_low: false, assert_cycles: 5), // 5サイクルアサート
+let rst: reset(active_low: false, assert_time: 50ns), // 50nsアサート
+let rst: reset(assert_cycles: 0),                    // リセットスキップ
 
 // リセットモード
 sync(clk.posedge, rst.sync) { ... }   // 同期リセット
 sync(clk.posedge, rst.async) { ... }  // 非同期リセット
+
+// リセットなしsyncブロック
+sync(clk.posedge) { ... }             // リセットなし
 ```
+
+**リセット属性:**
+
+| 属性 | 説明 | デフォルト |
+|------|------|-----------|
+| `active_low` | true: Low-active, false: High-active | false |
+| `assert_cycles` | リセットアサートサイクル数（0でスキップ） | 5 |
+| `assert_time` | リセットアサート時間（ns, us等） | - |
+
+**時間単位:**
+
+| 単位 | 説明 |
+|------|------|
+| `ps` | ピコ秒 |
+| `ns` | ナノ秒 |
+| `us` | マイクロ秒 |
+| `ms` | ミリ秒 |
+| `s` | 秒 |
 
 ---
 

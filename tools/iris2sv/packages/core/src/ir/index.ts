@@ -142,6 +142,12 @@ export {
   // Logic blocks
   HirCombBlock,
   HirSeqBlock,
+  HirInitialBlock,
+  HirTestSeqBlock,
+  HirTestSeqStmt,
+  HirDelayStmt,
+  HirAwaitStmt,
+  HirAssertStmt,
 
   // FSM
   HirFsmState,
@@ -179,6 +185,11 @@ export {
   createResetSpec,
   createCombBlock,
   createSeqBlock,
+  createInitialBlock,
+  createTestSeqBlock,
+  createDelayStmt,
+  createAwaitStmt,
+  createAssertStmt,
   createFsm,
   createInstance,
   createFunction,

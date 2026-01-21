@@ -260,8 +260,22 @@ code --install-extension vscode-iris-*.vsix
 | `duplicate-import` | warning | 重複インポートの検出 |
 | `dead-code` | warning | デッドコードの検出 |
 | `complexity` | warning | 関数の複雑度チェック |
+| `seq-outside-test` | error | seqブロックのtestモジュール外での使用（開発中） |
 
 詳細は[リントルールリファレンス](docs/lint-rules.md)を参照してください。
+
+## 開発中の機能
+
+以下の新しい言語機能のサポートを開発中です：
+
+| 機能 | 説明 | 状態 |
+|------|------|------|
+| `seq`ブロック | テストモジュール内でのシーケンシャル処理 | 基盤実装済 |
+| `initial`ブロック | シミュレーション専用の初期化ブロック | 基盤実装済 |
+| `use rust::`宣言 | 外部Rust関数のインポート | 基盤実装済 |
+| `extern rust`ブロック | 外部Rust関数の明示的宣言 | 基盤実装済 |
+| `await`構文 | 時間制御・非同期待機 | 基盤実装済 |
+| `#delay`構文 | 遅延構文 | 基盤実装済 |
 
 ## プログラムからの使用
 

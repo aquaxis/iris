@@ -270,7 +270,8 @@ export class Lexer {
         if (this.match('[')) {
           this.addTokenAt(TokenKind.HashLBracket, '#[', startPos, startLine, startColumn);
         } else {
-          this.addError('Unexpected character: #', startPos, startLine, startColumn);
+          // Hash for delay syntax: #10ns;
+          this.addTokenAt(TokenKind.Hash, '#', startPos, startLine, startColumn);
         }
         break;
 

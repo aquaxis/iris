@@ -9,3 +9,4 @@ export { duplicateImportRule } from './duplicate-import.js';
 export { importOrderRule } from './import-order.js';
 export { deadCodeRule } from './dead-code.js';
 export { complexityRule } from './complexity.js';
+export { seqMissingTimeoutRule } from './seq-missing-timeout.js';

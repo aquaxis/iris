@@ -336,16 +336,56 @@ impl HierarchicalSimulator {
                 match &signal.ty {
                     crate::parser::Type::Clock => {
                         self.clock_signal = Some(signal.name.clone());
+
+                        // Apply clock configuration if present
+                        if let Some(ref config) = signal.clock_config {
+                            if let Some(ref period) = config.period {
+                                // Convert period to picoseconds
+                                self.clock_period = period.to_picoseconds();
+                            }
+                        }
+
                         // Initialize clock to 0
                         self.signals.insert(signal.name.clone(), SignalValue::from_u64(0, 1));
                         self.trace.record(&signal.name, 0, SignalValue::from_u64(0, 1));
                     }
-                    crate::parser::Type::Reset { .. } => {
+                    crate::parser::Type::Reset { active_low } => {
                         self.reset_signal = Some(signal.name.clone());
-                        // Initialize reset to active (1)
-                        self.signals.insert(signal.name.clone(), SignalValue::from_u64(1, 1));
-                        self.trace.record(&signal.name, 0, SignalValue::from_u64(1, 1));
-                        self.reset_active = true;
+
+                        // Apply reset configuration if present
+                        let mut is_active_low = *active_low;
+                        let mut should_assert_reset = true;  // Default: assert reset
+                        if let Some(ref config) = signal.reset_config {
+                            is_active_low = config.active_low;
+                            // assert_time takes priority over assert_cycles
+                            if let Some(ref duration) = config.assert_time {
+                                // Convert time to cycles (ceiling division)
+                                let time_ps = duration.to_picoseconds();
+                                let cycles = (time_ps + self.clock_period - 1) / self.clock_period;
+                                self.reset_duration = cycles;
+                                if cycles == 0 {
+                                    should_assert_reset = false;
+                                }
+                            } else if let Some(cycles) = config.assert_cycles {
+                                self.reset_duration = cycles;
+                                // assert_cycles: 0 means skip reset sequence
+                                if cycles == 0 {
+                                    should_assert_reset = false;
+                                }
+                            }
+                        }
+
+                        // Initialize reset value based on should_assert_reset
+                        // For active_high: asserted = 1, deasserted = 0
+                        // For active_low: asserted = 0, deasserted = 1
+                        let reset_value = if should_assert_reset {
+                            if is_active_low { 0 } else { 1 }
+                        } else {
+                            if is_active_low { 1 } else { 0 }
+                        };
+                        self.signals.insert(signal.name.clone(), SignalValue::from_u64(reset_value, 1));
+                        self.trace.record(&signal.name, 0, SignalValue::from_u64(reset_value, 1));
+                        self.reset_active = should_assert_reset;
                     }
                     _ => {}
                 }
@@ -753,18 +793,16 @@ impl HierarchicalSimulator {
         // Propagate port connections (inputs to instances)
         self.propagate_port_connections();
 
-        // Check async reset
-        let has_async_reset = self.has_async_reset() && self.reset_active;
+        // Execute sync blocks for all modules
+        // Each module's sync block handles its own reset logic (sync or async)
+        self.execute_all_sync_blocks();
 
-        if has_async_reset {
-            self.apply_reset();
-            // Reset FSMs to initial state
-            self.reset_fsms();
-        } else {
-            // Execute sync blocks for all modules
-            self.execute_all_sync_blocks();
-            // Execute FSM transitions
+        // Execute FSM transitions (only when not in reset)
+        if !self.reset_active {
             self.execute_fsms();
+        } else {
+            // Reset FSMs to initial state when reset is active
+            self.reset_fsms();
         }
 
         // Execute comb blocks for all modules
@@ -858,9 +896,10 @@ impl HierarchicalSimulator {
 
         for block in &module.logic_blocks {
             if let LogicBlock::Sync(sync) = block {
-                // Check sync reset
+                // Check reset mode (sync or async)
                 if let Some(ref reset) = sync.reset {
-                    if matches!(reset.mode, ResetMode::Sync) && self.reset_active {
+                    if self.reset_active {
+                        // Both sync and async reset: apply reset values when reset is active
                         for signal in &module.signals {
                             if signal.is_var || signal.is_mutable {
                                 if let Some(ref init) = signal.init_value {
@@ -876,7 +915,7 @@ impl HierarchicalSimulator {
                     }
                 }
 
-                // Execute statements
+                // Execute statements (only when not in reset)
                 for stmt in &sync.statements {
                     if let Some((name, value)) = self.execute_statement(stmt, prefix) {
                         updates.push((name, value));

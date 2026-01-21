@@ -17,6 +17,7 @@
 | O4001-O4999 | インターフェースエラー | インターフェース接続エラー |
 | O5001-O5999 | 合成エラー | 合成不可能な構文 |
 | O6001-O6999 | リンクエラー | モジュール解決エラー |
+| O7001-O7999 | テスト・シミュレーションエラー | seq/外部Rust関連エラー |
 
 ---
 
@@ -440,7 +441,168 @@ error[O6001]: module not found
 
 ---
 
-## 13.9 警告一覧
+## 13.9 テスト・シミュレーションエラー（O7001-O7999）
+
+### O7001: seqブロックのtestモジュール外での使用
+
+```
+error[O7001]: seq block used outside test module
+  --> src/counter.iris:15:5
+   |
+15 |     seq main {
+   |     ^^^ seq blocks are only allowed in test modules
+   |
+   = help: move seq block inside a 'test' module or use 'initial' for synthesis
+   = note: seq blocks are simulation-only constructs
+```
+
+**原因:** `seq`ブロックを`test`モジュール以外で使用している
+
+**修正方法:**
+1. `seq`ブロックを`test`モジュール内に移動
+2. 合成可能なコードの場合は`initial`または`sync`ブロックを使用
+
+### O7002: 外部Rust関数が見つからない
+
+```
+error[O7002]: external Rust function not found
+  --> test/counter_test.iris:3:5
+   |
+3  | use rust::test_utils::verify_count;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function 'verify_count' not found in module 'test_utils'
+   |
+   = help: check function name spelling and ensure it is 'pub'
+   = note: looking in: rust/test_utils.rs
+```
+
+**原因:** インポートしようとしたRust関数が見つからない
+
+**修正方法:**
+1. 関数名のスペルを確認
+2. Rust側で関数が`pub`で宣言されていることを確認
+3. `rust/`ディレクトリのパスを確認
+
+### O7003: Rustモジュールが見つからない
+
+```
+error[O7003]: Rust module not found
+  --> test/axi_test.iris:2:5
+   |
+2  | use rust::generators::AxiGenerator;
+   |     ^^^^^^^^^^^^^^^ module 'generators' not found
+   |
+   = help: ensure 'rust/generators.rs' exists and is declared in 'rust/mod.rs'
+   = note: expected file: rust/generators.rs
+```
+
+**原因:** 指定されたRustモジュールが見つからない
+
+**修正方法:**
+1. `rust/`ディレクトリに該当ファイルが存在することを確認
+2. `rust/mod.rs`で`pub mod モジュール名;`が宣言されていることを確認
+
+### O7004: Rust関数の型シグネチャ不一致
+
+```
+error[O7004]: Rust function signature mismatch
+  --> test/verify_test.iris:8:20
+   |
+8  |         verify_count(actual, expected);
+   |                      ^^^^^^ expected `u64`, found `bit[8]`
+   |
+   = help: add explicit cast: `actual as u64`
+   = note: Rust function signature: fn verify_count(actual: u64, expected: u64)
+```
+
+**原因:** Rust関数の引数型とIRISから渡す値の型が一致しない
+
+**修正方法:**
+1. 明示的なキャストを追加
+2. Rust関数のシグネチャを確認
+3. IRIS-Rust型マッピングを参照
+
+### O7005: seqブロック内での合成可能な信号操作
+
+```
+error[O7005]: synthesizable signal operation in seq block
+  --> test/counter_test.iris:12:9
+   |
+12 |         counter = counter + 1;
+   |         ^^^^^^^^ direct signal assignment in seq block
+   |
+   = help: use signal API: counter.set(counter.value() + 1)
+   = note: seq blocks use .value() and .set() for signal access
+```
+
+**原因:** `seq`ブロック内で通常の代入構文を使用している
+
+**修正方法:**
+1. `.value()`で信号値を読み取り
+2. `.set()`で信号値を設定
+3. 信号アクセスAPIを使用
+
+### O7006: Rustコンパイルエラー
+
+```
+error[O7006]: Rust compilation failed
+  --> rust/test_utils.rs:15:5
+   |
+   | Error from rustc:
+   | error[E0599]: no method named `unwrap_or` found for type `u8`
+   |
+   = help: check Rust code in rust/test_utils.rs:15
+   = note: run 'cargo check --manifest-path build/rust/Cargo.toml' for details
+```
+
+**原因:** 外部Rustコードのコンパイルに失敗した
+
+**修正方法:**
+1. 該当のRustファイルを確認
+2. `cargo check`でRustコードをデバッグ
+3. Rustの標準エラーメッセージに従って修正
+
+### O7007: 非同期関数のawait欠落
+
+```
+error[O7007]: missing await for async function
+  --> test/async_test.iris:10:20
+   |
+10 |         let data = load_test_vectors("test.bin");
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ async function called without await
+   |
+   = help: add .await: load_test_vectors("test.bin").await
+   = note: async functions must be awaited to execute
+```
+
+**原因:** 非同期関数を`await`なしで呼び出している
+
+**修正方法:**
+1. `.await`を追加
+2. Rust側で`async fn`として宣言されているか確認
+
+### O7008: iris.toml Rust設定エラー
+
+```
+error[O7008]: invalid Rust configuration in iris.toml
+  --> iris.toml:15:1
+   |
+15 | [rust]
+16 | src = "nonexistent/"
+   |       ^^^^^^^^^^^^^ directory not found
+   |
+   = help: create directory 'nonexistent/' or update path in iris.toml
+   = note: default Rust source directory is 'rust/'
+```
+
+**原因:** `iris.toml`のRust設定が不正
+
+**修正方法:**
+1. 指定されたディレクトリが存在することを確認
+2. `iris.toml`の`[rust]`セクションを確認
+
+---
+
+## 13.10 警告一覧
 
 | コード | 説明 | デフォルト |
 |--------|------|-----------|
@@ -451,10 +613,13 @@ error[O6001]: module not found
 | W0005 | 大規模なバレルシフタ生成 | 有効 |
 | W0006 | クロックドメイン交差の可能性 | 有効 |
 | W0007 | 高ファンアウト信号 | 有効 |
+| W0008 | 未使用のseqブロック | 有効 |
+| W0009 | 外部Rust関数の未使用インポート | 有効 |
+| W0010 | seqブロック内の非効率なループ | 無効 |
 
 ---
 
-## 13.10 警告の制御
+## 13.11 警告の制御
 
 ```rust
 // ファイルレベルで警告を抑制

@@ -129,9 +129,9 @@ mod AxiLiteSlave(
 
 ---
 
-## 1.4 予約語（54語）
+## 1.4 予約語（55語）
 
-IRISは54個の予約語を持ち、SystemVerilogの約220語と比較して大幅に削減されている。
+IRISは55個の予約語を持ち、SystemVerilogの約220語と比較して大幅に削減されている。
 
 ### 1.4.1 モジュール構造（11語）
 
@@ -143,7 +143,7 @@ const   type    import  export  pub
 | 予約語 | 説明 | SystemVerilog相当 | 使用例 |
 |--------|------|-------------------|--------|
 | `mod` | モジュール定義 | `module ... endmodule` | `mod Counter(...) { ... }` |
-| `extern` | 外部モジュール宣言 | `(* black_box *)` | `extern mod LegacyIP;` |
+| `extern` | 外部モジュール/Rust関数宣言 | `(* black_box *)`, DPI | `extern mod LegacyIP;`, `extern rust "module" { ... }` |
 | `inst` | モジュールインスタンス化 | モジュールインスタンス | `inst u_counter: Counter;` |
 | `in` | 入力ポート宣言 | `input` | `in clk: clock` |
 | `out` | 出力ポート宣言 | `output` | `out data: bit[8]` |
@@ -218,11 +218,11 @@ goto    initial transitions default
 | `transitions` | FSM遷移ブロック | - | `transitions { ... }` |
 | `default` | match/FSMのデフォルト分岐 | `default` | `default => { ... }` |
 
-### 1.4.5 検証（7語）
+### 1.4.5 検証（8語）
 
 ```
 test    assert  expect  cover   assume
-constraint await
+constraint await  seq
 ```
 
 | 予約語 | 説明 | SystemVerilog相当 | 使用例 |
@@ -234,6 +234,7 @@ constraint await
 | `assume` | 仮定（フォーマル検証用） | `assume` | `assume(input_valid);` |
 | `constraint` | 制約定義 | `constraint` | `constraint c { ... }` |
 | `await` | シミュレーション待機 | `@`, `wait` | `await clk.posedge;` |
+| `seq` | シーケンシャル処理ブロック | `initial`（手続き的） | `seq { for i in 0..10 { ... } }` |
 
 ### 1.4.6 インターフェース（4語）
 
@@ -267,10 +268,21 @@ where   fn
 | 制御構造 | `if`, `else`, `match`, `for`, `while`, `break`, `continue`, `return` | 8 |
 | 型関連 | `bit`, `int`, `uint`, `bool`, `enum`, `struct`, `union`, `clock`, `reset`, `let`, `var`, `mut`, `mem` | 13 |
 | 論理ブロック | `comb`, `sync`, `fsm`, `state`, `when`, `goto`, `initial`, `transitions`, `default` | 9 |
-| 検証 | `test`, `assert`, `expect`, `cover`, `assume`, `constraint`, `await` | 7 |
+| 検証 | `test`, `assert`, `expect`, `cover`, `assume`, `constraint`, `await`, `seq` | 8 |
 | インターフェース | `interface`, `initiator`, `target`, `view` | 4 |
 | その他 | `where`, `fn` | 2 |
-| **合計** | | **54** |
+| **合計** | | **55** |
+
+### 1.4.9 コンテキストキーワード
+
+以下の識別子は特定のコンテキストでのみキーワードとして機能する。通常の識別子としても使用可能。
+
+| 識別子 | コンテキスト | 説明 | 使用例 |
+|--------|--------------|------|--------|
+| `rust` | `extern rust`, `use rust::` | 外部Rust関数との連携 | `extern rust "module" { fn name(); }`, `use rust::module::func;` |
+| `async` | `seq`ブロック内 | 非同期関数の呼び出し | `let result = func().await;` |
+
+※ コンテキストキーワードは予約語数（55語）には含まれない。
 
 ---
 

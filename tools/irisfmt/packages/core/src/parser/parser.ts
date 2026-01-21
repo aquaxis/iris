@@ -87,6 +87,23 @@ import type {
   TransitionAction,
   OutputBlock,
   OutputCase,
+  TestModDef,
+  TestModItem,
+  InitialBlock,
+  SeqBlock,
+  SeqStatement,
+  AwaitStmt,
+  AwaitExpr,
+  ClockEdgeAwait,
+  UntilAwait,
+  EventAwait,
+  AsyncCallAwait,
+  DelayStmt,
+  Duration,
+  UseRustDecl,
+  ExternRustBlock,
+  RustFnDecl,
+  RustParam,
 } from '../ast/types.js';
 
 /**
@@ -260,6 +277,10 @@ export class Parser {
     const visibility = this.parseVisibility();
 
     // Parse item based on keyword
+    if (this.check(TokenKind.Test) && this.peek().kind === TokenKind.Mod) {
+      // test mod definition
+      return this.parseTestModDef(start, visibility);
+    }
     if (this.check(TokenKind.Mod)) {
       return this.parseModDef(start, visibility, attributes);
     }
@@ -3332,5 +3353,585 @@ export class Parser {
    */
   private getCommentTrivia(trivia: Trivia[]): Trivia[] {
     return trivia.filter(t => t.kind === 'line_comment' || t.kind === 'block_comment');
+  }
+
+  // ========================================
+  // Test Module Definition (test mod)
+  // ========================================
+
+  private parseTestModDef(start: SourceLocation, visibility: Visibility): TestModDef | null {
+    this.expect(TokenKind.Test, 'Expected test');
+    this.expect(TokenKind.Mod, 'Expected mod');
+
+    const nameToken = this.expect(TokenKind.Ident, 'Expected module name');
+    if (!nameToken) {
+      return null;
+    }
+    const name = this.makeIdentifier(nameToken);
+
+    if (!this.expect(TokenKind.LBrace, 'Expected {')) {
+      return null;
+    }
+    const items = this.parseTestModItems();
+    this.expect(TokenKind.RBrace, 'Expected }');
+
+    return {
+      kind: 'TestModDef',
+      visibility,
+      name,
+      items,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  private parseTestModItems(): TestModItem[] {
+    const items: TestModItem[] = [];
+    while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const item = this.parseTestModItem();
+      if (item) {
+        items.push(item);
+      } else {
+        // Skip unknown token
+        if (!this.check(TokenKind.RBrace) && !this.isEof()) {
+          this.advance();
+        }
+      }
+    }
+    return items;
+  }
+
+  private parseTestModItem(): TestModItem | null {
+    const start = this.current().span.start;
+
+    // Signal declarations (let/var)
+    if (this.check(TokenKind.Let)) {
+      return this.parseLetDecl(start);
+    }
+    if (this.check(TokenKind.Var)) {
+      return this.parseVarDecl(start);
+    }
+
+    // Constant declarations
+    if (this.check(TokenKind.Const)) {
+      return this.parseConstDecl(start, 'private');
+    }
+
+    // Instance declarations
+    if (this.check(TokenKind.Ident) && this.peek().kind === TokenKind.ColonColon) {
+      return this.parseInstDecl(start);
+    }
+
+    // Combinational blocks
+    if (this.check(TokenKind.Comb)) {
+      return this.parseCombBlock(start);
+    }
+
+    // Sequential blocks (sync)
+    if (this.check(TokenKind.Sync)) {
+      return this.parseSyncBlock(start);
+    }
+
+    // Initial blocks
+    if (this.check(TokenKind.Initial)) {
+      return this.parseInitialBlock(start);
+    }
+
+    // Seq blocks
+    if (this.check(TokenKind.Seq)) {
+      return this.parseSeqBlock(start);
+    }
+
+    // Use rust:: declarations
+    if (this.check(TokenKind.Import) && this.peek().kind === TokenKind.Ident) {
+      const nextToken = this.tokens[this.pos + 1];
+      if (nextToken && nextToken.text === 'rust') {
+        return this.parseUseRustDecl(start);
+      }
+    }
+
+    // Extern rust blocks
+    if (this.check(TokenKind.Extern)) {
+      return this.parseExternRustBlock(start);
+    }
+
+    // Assert statements (for backward compatibility)
+    if (this.check(TokenKind.Assert)) {
+      return this.parseAssertStmt(start);
+    }
+
+    return null;
+  }
+
+  // ========================================
+  // Initial Block
+  // ========================================
+
+  private parseInitialBlock(start: SourceLocation): InitialBlock | null {
+    this.expect(TokenKind.Initial, 'Expected initial');
+
+    if (!this.expect(TokenKind.LBrace, 'Expected {')) {
+      return null;
+    }
+
+    const stmts: Stmt[] = [];
+    while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const stmt = this.parseStatement();
+      if (stmt) {
+        stmts.push(stmt);
+      } else {
+        // Skip unknown token
+        if (!this.check(TokenKind.RBrace) && !this.isEof()) {
+          this.advance();
+        }
+      }
+    }
+
+    this.expect(TokenKind.RBrace, 'Expected }');
+
+    return {
+      kind: 'InitialBlock',
+      stmts,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  // ========================================
+  // Seq Block
+  // ========================================
+
+  private parseSeqBlock(start: SourceLocation): SeqBlock | null {
+    this.expect(TokenKind.Seq, 'Expected seq');
+
+    // Optional name
+    let name: Identifier | undefined;
+    if (this.check(TokenKind.Ident)) {
+      const nameToken = this.advance();
+      name = this.makeIdentifier(nameToken);
+    }
+
+    if (!this.expect(TokenKind.LBrace, 'Expected {')) {
+      return null;
+    }
+
+    const body: SeqStatement[] = [];
+    while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const stmt = this.parseSeqStatement();
+      if (stmt) {
+        body.push(stmt);
+      } else {
+        // Skip unknown token
+        if (!this.check(TokenKind.RBrace) && !this.isEof()) {
+          this.advance();
+        }
+      }
+    }
+
+    this.expect(TokenKind.RBrace, 'Expected }');
+
+    return {
+      kind: 'SeqBlock',
+      name,
+      body,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  private parseSeqStatement(): SeqStatement | null {
+    const start = this.current().span.start;
+
+    // Await statement
+    if (this.check(TokenKind.Await)) {
+      return this.parseAwaitStmt(start);
+    }
+
+    // Delay statement (#10ns;)
+    if (this.check(TokenKind.Hash)) {
+      return this.parseDelayStmt(start);
+    }
+
+    // Assert statement
+    if (this.check(TokenKind.Assert)) {
+      return this.parseAssertStmt(start);
+    }
+
+    // Try to parse as a general statement (for Rust-like code)
+    // Skip to the next statement boundary (semicolon or closing brace)
+    const stmtStart = this.pos;
+    let code = '';
+    while (!this.check(TokenKind.Semicolon) && !this.check(TokenKind.RBrace) && !this.isEof()) {
+      code += this.current().text;
+      this.advance();
+    }
+    if (this.match(TokenKind.Semicolon)) {
+      code += ';';
+    }
+
+    // If we consumed any tokens, return as RustStatement
+    if (this.pos > stmtStart) {
+      return {
+        kind: 'RustStatement',
+        code: code.trim(),
+        span: this.makeSpan(start, this.previous().span.end),
+      };
+    }
+
+    return null;
+  }
+
+  // ========================================
+  // Await Statement
+  // ========================================
+
+  private parseAwaitStmt(start: SourceLocation): AwaitStmt | null {
+    this.expect(TokenKind.Await, 'Expected await');
+
+    const awaitExpr = this.parseAwaitExpr(start);
+    if (!awaitExpr) {
+      return null;
+    }
+
+    this.expect(TokenKind.Semicolon, 'Expected ;');
+
+    return {
+      kind: 'AwaitStmt',
+      awaitExpr,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  private parseAwaitExpr(start: SourceLocation): AwaitExpr | null {
+    // await until(condition) or await until(condition, timeout)
+    if (this.check(TokenKind.Ident) && this.current().text === 'until') {
+      this.advance();
+      if (!this.expect(TokenKind.LParen, 'Expected (')) {
+        return null;
+      }
+      const condition = this.parseExpr();
+      if (!condition) {
+        return null;
+      }
+
+      // Check for optional timeout
+      let timeout: Duration | undefined;
+      if (this.match(TokenKind.Comma)) {
+        // Parse duration: number followed by unit (ns, us, ms, s)
+        const timeoutStart = this.current().span.start;
+        const valueToken = this.expect(TokenKind.IntLiteral, 'Expected timeout value');
+        if (valueToken) {
+          const value = parseInt(valueToken.text, 10);
+          // Expect time unit identifier
+          const unitToken = this.current();
+          if (unitToken.kind === TokenKind.Ident) {
+            const unit = unitToken.text as 'ns' | 'us' | 'ms' | 's';
+            if (unit === 'ns' || unit === 'us' || unit === 'ms' || unit === 's') {
+              this.advance();
+              timeout = {
+                kind: 'Duration',
+                value,
+                unit,
+                span: this.makeSpan(timeoutStart, this.previous().span.end),
+              };
+            }
+          }
+        }
+      }
+
+      this.expect(TokenKind.RParen, 'Expected )');
+
+      return {
+        kind: 'UntilAwait',
+        condition,
+        timeout,
+        span: this.makeSpan(start, this.previous().span.end),
+      };
+    }
+
+    // await event(signal)
+    if (this.check(TokenKind.Ident) && this.current().text === 'event') {
+      this.advance();
+      if (!this.expect(TokenKind.LParen, 'Expected (')) {
+        return null;
+      }
+      const signal = this.parseExpr();
+      if (!signal) {
+        return null;
+      }
+      this.expect(TokenKind.RParen, 'Expected )');
+
+      return {
+        kind: 'EventAwait',
+        signal,
+        span: this.makeSpan(start, this.previous().span.end),
+      };
+    }
+
+    // await clk.posedge or await clk.posedge(5)
+    const signal = this.parseExpr();
+    if (!signal) {
+      return null;
+    }
+
+    // Check for .posedge or .negedge
+    if (this.check(TokenKind.Dot)) {
+      this.advance();
+      const edgeToken = this.current();
+      if (edgeToken.kind !== TokenKind.Posedge && edgeToken.kind !== TokenKind.Negedge) {
+        this.reportError('Expected posedge or negedge');
+        return null;
+      }
+      const edge: 'posedge' | 'negedge' = edgeToken.kind === TokenKind.Posedge ? 'posedge' : 'negedge';
+      this.advance();
+
+      // Optional cycle count
+      let cycles: Expr | undefined;
+      if (this.match(TokenKind.LParen)) {
+        cycles = this.parseExpr() ?? undefined;
+        this.expect(TokenKind.RParen, 'Expected )');
+      }
+
+      return {
+        kind: 'ClockEdgeAwait',
+        signal,
+        edge,
+        cycles,
+        span: this.makeSpan(start, this.previous().span.end),
+      };
+    }
+
+    // expr.await (async call await)
+    return {
+      kind: 'AsyncCallAwait',
+      expr: signal,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  // ========================================
+  // Delay Statement
+  // ========================================
+
+  private parseDelayStmt(start: SourceLocation): DelayStmt | null {
+    this.expect(TokenKind.Hash, 'Expected #');
+
+    // Parse number and optional unit
+    const numToken = this.expect(TokenKind.IntLiteral, 'Expected delay value');
+    if (!numToken) {
+      return null;
+    }
+
+    const value = parseInt(numToken.text, 10);
+
+    // Check for time unit identifier
+    let unit: 'ns' | 'us' | 'ms' | 's' = 'ns';
+    if (this.check(TokenKind.Ident)) {
+      const unitText = this.current().text;
+      if (unitText === 'ns' || unitText === 'us' || unitText === 'ms' || unitText === 's') {
+        unit = unitText as 'ns' | 'us' | 'ms' | 's';
+        this.advance();
+      }
+    }
+
+    this.expect(TokenKind.Semicolon, 'Expected ;');
+
+    return {
+      kind: 'DelayStmt',
+      delay: {
+        kind: 'Duration',
+        value,
+        unit,
+        span: this.makeSpan(start, this.previous().span.end),
+      },
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  // ========================================
+  // Use Rust Declaration
+  // ========================================
+
+  private parseUseRustDecl(start: SourceLocation): UseRustDecl | null {
+    this.expect(TokenKind.Import, 'Expected use');
+
+    // Expect 'rust'
+    if (!this.check(TokenKind.Ident) || this.current().text !== 'rust') {
+      this.reportError('Expected rust');
+      return null;
+    }
+    this.advance();
+
+    this.expect(TokenKind.ColonColon, 'Expected ::');
+
+    // Parse path
+    const path: string[] = [];
+    while (this.check(TokenKind.Ident)) {
+      path.push(this.current().text);
+      this.advance();
+      if (!this.match(TokenKind.ColonColon)) {
+        break;
+      }
+    }
+
+    // Optional import items { item1, item2 } or *
+    let items: string[] | '*' | undefined;
+    if (this.match(TokenKind.LBrace)) {
+      if (this.match(TokenKind.Star)) {
+        items = '*';
+      } else {
+        items = [];
+        while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+          if (this.check(TokenKind.Ident)) {
+            items.push(this.current().text);
+            this.advance();
+          }
+          if (!this.match(TokenKind.Comma)) {
+            break;
+          }
+        }
+      }
+      this.expect(TokenKind.RBrace, 'Expected }');
+    }
+
+    this.expect(TokenKind.Semicolon, 'Expected ;');
+
+    return {
+      kind: 'UseRustDecl',
+      path,
+      items,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  // ========================================
+  // Extern Rust Block
+  // ========================================
+
+  private parseExternRustBlock(start: SourceLocation): ExternRustBlock | null {
+    this.expect(TokenKind.Extern, 'Expected extern');
+
+    // Expect 'rust'
+    if (!this.check(TokenKind.Ident) || this.current().text !== 'rust') {
+      this.reportError('Expected rust');
+      return null;
+    }
+    this.advance();
+
+    // Module name string
+    const moduleNameToken = this.expect(TokenKind.StringLiteral, 'Expected module name string');
+    if (!moduleNameToken) {
+      return null;
+    }
+    const moduleName = moduleNameToken.text.slice(1, -1); // Remove quotes
+
+    if (!this.expect(TokenKind.LBrace, 'Expected {')) {
+      return null;
+    }
+
+    const functions: RustFnDecl[] = [];
+    while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const fn = this.parseRustFnDecl();
+      if (fn) {
+        functions.push(fn);
+      } else {
+        // Skip unknown token
+        if (!this.check(TokenKind.RBrace) && !this.isEof()) {
+          this.advance();
+        }
+      }
+    }
+
+    this.expect(TokenKind.RBrace, 'Expected }');
+
+    return {
+      kind: 'ExternRustBlock',
+      moduleName,
+      functions,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  private parseRustFnDecl(): RustFnDecl | null {
+    const start = this.current().span.start;
+
+    // Optional async
+    const isAsync = this.match(TokenKind.Async);
+
+    // Expect fn
+    if (!this.expect(TokenKind.Fn, 'Expected fn')) {
+      return null;
+    }
+
+    // Function name
+    const nameToken = this.expect(TokenKind.Ident, 'Expected function name');
+    if (!nameToken) {
+      return null;
+    }
+    const name = this.makeIdentifier(nameToken);
+
+    // Parameters
+    if (!this.expect(TokenKind.LParen, 'Expected (')) {
+      return null;
+    }
+
+    const params: RustParam[] = [];
+    while (!this.check(TokenKind.RParen) && !this.isEof()) {
+      const param = this.parseRustParam();
+      if (param) {
+        params.push(param);
+      }
+      if (!this.match(TokenKind.Comma)) {
+        break;
+      }
+    }
+
+    this.expect(TokenKind.RParen, 'Expected )');
+
+    // Optional return type
+    let returnType: string | undefined;
+    if (this.match(TokenKind.Arrow)) {
+      // Collect return type as string until semicolon
+      let typeStr = '';
+      while (!this.check(TokenKind.Semicolon) && !this.check(TokenKind.RBrace) && !this.isEof()) {
+        typeStr += this.current().text;
+        this.advance();
+      }
+      returnType = typeStr.trim() || undefined;
+    }
+
+    this.expect(TokenKind.Semicolon, 'Expected ;');
+
+    return {
+      kind: 'RustFnDecl',
+      isAsync,
+      name,
+      params,
+      returnType,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  private parseRustParam(): RustParam | null {
+    const start = this.current().span.start;
+
+    const nameToken = this.expect(TokenKind.Ident, 'Expected parameter name');
+    if (!nameToken) {
+      return null;
+    }
+    const name = this.makeIdentifier(nameToken);
+
+    this.expect(TokenKind.Colon, 'Expected :');
+
+    // Collect type as string until comma or )
+    let typeStr = '';
+    while (!this.check(TokenKind.Comma) && !this.check(TokenKind.RParen) && !this.isEof()) {
+      typeStr += this.current().text;
+      this.advance();
+    }
+
+    return {
+      kind: 'RustParam',
+      name,
+      typeStr: typeStr.trim(),
+      span: this.makeSpan(start, this.previous().span.end),
+    };
   }
 }

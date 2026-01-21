@@ -273,9 +273,18 @@ impl Parser {
     }
 
     fn parse_type(&self, pair: pest::iterators::Pair<Rule>) -> Result<Type, ParseError> {
+        let (ty, _, _) = self.parse_type_with_config(pair)?;
+        Ok(ty)
+    }
+
+    /// Parse type with optional clock/reset configuration
+    fn parse_type_with_config(
+        &self,
+        pair: pest::iterators::Pair<Rule>,
+    ) -> Result<(Type, Option<ClockConfig>, Option<ResetConfig>), ParseError> {
         let inner = pair.into_inner().next();
         if inner.is_none() {
-            return Ok(Type::Bit);
+            return Ok((Type::Bit, None, None));
         }
         let inner = inner.unwrap();
 
@@ -283,7 +292,7 @@ impl Parser {
             Rule::base_type => {
                 let base = inner.into_inner().next();
                 if base.is_none() {
-                    return Ok(Type::Bit);
+                    return Ok((Type::Bit, None, None));
                 }
                 let base = base.unwrap();
                 match base.as_rule() {
@@ -295,24 +304,110 @@ impl Parser {
                                 let width: usize = we.as_str().parse().map_err(|_| {
                                     ParseError::InvalidLiteral("Invalid bit width".to_string())
                                 })?;
-                                Ok(Type::BitVec { width })
+                                Ok((Type::BitVec { width }, None, None))
                             } else {
-                                Ok(Type::Bit)
+                                Ok((Type::Bit, None, None))
                             }
                         } else {
-                            Ok(Type::Bit)
+                            Ok((Type::Bit, None, None))
                         }
                     }
-                    Rule::clock_type => Ok(Type::Clock),
-                    Rule::reset_type => {
-                        let active_low = base.as_str().contains("active_low");
-                        Ok(Type::Reset { active_low })
+                    Rule::clock_type => {
+                        // Parse clock configuration if present
+                        let clock_config = self.parse_clock_type_config(base)?;
+                        Ok((Type::Clock, clock_config, None))
                     }
-                    Rule::identifier => Ok(Type::Named(base.as_str().to_string())),
-                    _ => Ok(Type::Bit),
+                    Rule::reset_type => {
+                        // Parse reset configuration
+                        let reset_config = self.parse_reset_type_config(base)?;
+                        let active_low = reset_config.as_ref().map(|c| c.active_low).unwrap_or(false);
+                        Ok((Type::Reset { active_low }, None, reset_config))
+                    }
+                    Rule::identifier => Ok((Type::Named(base.as_str().to_string()), None, None)),
+                    _ => Ok((Type::Bit, None, None)),
                 }
             }
-            _ => Ok(Type::Bit),
+            _ => Ok((Type::Bit, None, None)),
+        }
+    }
+
+    /// Parse clock type configuration: clock(period: 10ns)
+    fn parse_clock_type_config(
+        &self,
+        pair: pest::iterators::Pair<Rule>,
+    ) -> Result<Option<ClockConfig>, ParseError> {
+        let mut config = ClockConfig::default();
+        let mut has_config = false;
+
+        for inner in pair.into_inner() {
+            if inner.as_rule() == Rule::clock_config {
+                has_config = true;
+                for config_inner in inner.into_inner() {
+                    if config_inner.as_rule() == Rule::duration {
+                        let duration = self.parse_duration(config_inner)?;
+                        config.period = Some(duration);
+                    }
+                }
+            }
+        }
+
+        if has_config {
+            Ok(Some(config))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Parse reset type configuration: reset(active_low: true, assert_cycles: 5)
+    fn parse_reset_type_config(
+        &self,
+        pair: pest::iterators::Pair<Rule>,
+    ) -> Result<Option<ResetConfig>, ParseError> {
+        let mut config = ResetConfig::default();
+        let mut has_config = false;
+
+        for inner in pair.into_inner() {
+            if inner.as_rule() == Rule::reset_config {
+                has_config = true;
+                for param in inner.into_inner() {
+                    match param.as_rule() {
+                        Rule::reset_active_low => {
+                            // Parse active_low: true/false
+                            for p in param.into_inner() {
+                                if p.as_rule() == Rule::bool_literal {
+                                    config.active_low = p.as_str() == "true";
+                                }
+                            }
+                        }
+                        Rule::reset_assert_cycles => {
+                            // Parse assert_cycles: N
+                            for p in param.into_inner() {
+                                if p.as_rule() == Rule::integer {
+                                    let cycles: u64 = p.as_str().parse().unwrap_or(5);
+                                    config.assert_cycles = Some(cycles);
+                                }
+                            }
+                        }
+                        Rule::reset_assert_time => {
+                            // Parse assert_time: duration (e.g., 50ns)
+                            for p in param.into_inner() {
+                                if p.as_rule() == Rule::duration {
+                                    if let Ok(duration) = self.parse_duration(p) {
+                                        config.assert_time = Some(duration);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        if has_config {
+            Ok(Some(config))
+        } else {
+            Ok(None)
         }
     }
 
@@ -339,11 +434,16 @@ impl Parser {
 
         let mut ty = Type::Bit;
         let mut init_value = None;
+        let mut clock_config = None;
+        let mut reset_config = None;
 
         for part in parts {
             match part.as_rule() {
                 Rule::type_expr => {
-                    ty = self.parse_type(part)?;
+                    let (parsed_ty, clk_cfg, rst_cfg) = self.parse_type_with_config(part)?;
+                    ty = parsed_ty;
+                    clock_config = clk_cfg;
+                    reset_config = rst_cfg;
                 }
                 Rule::expr => {
                     init_value = Some(self.parse_expr(part)?);
@@ -358,6 +458,8 @@ impl Parser {
             init_value,
             is_mutable,
             is_var,
+            clock_config,
+            reset_config,
         })
     }
 

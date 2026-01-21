@@ -18,6 +18,9 @@
 ### attribute（アトリビュート）
 コード要素に付加するメタデータ。`#[...]`形式で記述。合成ツールへの指示やコンパイラ制御に使用。
 
+### await
+テストモジュールのseqブロック内で使用する時間制御構文。クロックエッジ待機（`await clk.posedge`）、条件待機（`await until(expr)`）、サイクル待機（`await clk.cycles(n)`）などの形式がある。
+
 ### AXI（Advanced eXtensible Interface）
 ARM社が策定したオンチップバスプロトコル。AXI4、AXI4-Lite、AXI4-Streamなどのバリエーションがある。
 
@@ -63,6 +66,9 @@ FPGAに内蔵された専用メモリリソース。大容量メモリの実装�
 
 ## D
 
+### delay
+遅延。seqブロック内でシミュレーション時間を進める構文。`#10ns;`（10ナノ秒遅延）、`#100;`（100タイムユニット遅延）の形式。
+
 ### driver
 ドライバ。信号に値を供給する回路。IRISでは一つの信号に対して一つのドライバのみ許可（multi drive禁止）。
 
@@ -87,6 +93,9 @@ Digital Signal Processor。FPGAに内蔵された乗算・加算専用ハード�
 
 ### extern mod
 外部モジュール宣言。既存のVerilog/SystemVerilogモジュールをIRISから使用するための宣言。
+
+### extern rust
+外部Rust関数宣言ブロック。testモジュールのseqブロックから呼び出す外部Rust関数のシグネチャを明示的に宣言する。`extern rust "module" { fn name(); }`形式。
 
 ---
 
@@ -133,6 +142,9 @@ FSM内での状態遷移命令。`goto State;`で指定状態に遷移。
 
 ### ILA（Integrated Logic Analyzer）
 統合ロジックアナライザ。FPGA内部信号をリアルタイムで観測するデバッグツール。
+
+### initial
+初期化ブロック。testモジュール内でシミュレーション開始時に一度だけ実行される処理を記述。`initial { ... }`形式。
 
 ### initiator
 インターフェースのビュー。トランザクションを開始する側（マスター）。
@@ -237,6 +249,12 @@ FSM内での状態遷移命令。`goto State;`で指定状態に遷移。
 
 ## S
 
+### seq
+シーケンシャル処理ブロック。testモジュール内でのみ使用可能な手続き的記述ブロック。Rustの制御構文（for、while、if等）を直接使用でき、信号アクセスAPIと時間制御構文でDUTと連携する。複数のseqブロックを定義すると並列実行される。
+
+### signal access API
+信号アクセスAPI。seqブロック内でDUTの信号を読み書きするためのメソッド。`.value()`で信号値を読み取り、`.set(value)`で信号に値を設定する。
+
 ### sync
 順序論理ブロック。クロック同期の回路を記述。SystemVerilogの`always_ff`に相当。
 
@@ -268,6 +286,12 @@ IEEE 1800規格のハードウェア記述言語。IRISのトランスパイル�
 ### test
 テストブロック。検証コードを記述。`#[test]`アトリビュートで宣言。
 
+### test module
+テストモジュール。`test identifier { ... }`形式で宣言されるテストベンチ専用のモジュール。ポートを持たず、シミュレーション専用（合成対象外）。seqブロック、initial、inst等を含む。
+
+### time control
+時間制御。seqブロック内でシミュレーション時間を制御する構文の総称。`await clk.posedge`（クロックエッジ待機）、`#10ns;`（遅延）、`await until(condition)`（条件待機）などがある。
+
 ### transitions
 FSMの遷移定義ブロック。各状態からの遷移条件と遷移先を記述。
 
@@ -280,6 +304,9 @@ FSMの遷移定義ブロック。各状態からの遷移条件と遷移先を�
 
 ### UltraRAM
 Xilinx UltraScale+デバイスの大容量内蔵メモリ。
+
+### use rust::
+Rust関数インポート構文。testモジュールのseqブロックで使用する外部Rust関数をインポートする。`use rust::module::func;`（単一関数）、`use rust::module::{f1, f2};`（複数関数）、`use rust::module::*;`（ワイルドカード）の形式がある。
 
 ---
 
@@ -319,6 +346,9 @@ FSM遷移条件。`when condition { goto State; }`形式。
 
 ### `::`
 スコープ解決演算子。パッケージパスやジェネリクス引数で使用。
+
+### `#`
+遅延演算子（seqブロック内）。シミュレーション時間を進める。`#10ns;`（10ナノ秒遅延）。
 
 ---
 

@@ -127,8 +127,15 @@ port_connection = { identifier ~ ":" ~ expr }
 type_expr = { base_type ~ array_suffix* }
 base_type = { bit_type | clock_type | reset_type | identifier }
 bit_type = { "bit" ~ ("[" ~ width_expr ~ "]")? }
-clock_type = { "clock" }
-reset_type = { "reset" ~ ("(" ~ "active_low" ~ ")")? }
+clock_type = { "clock" ~ clock_config? }
+clock_config = { "(" ~ "period" ~ ":" ~ duration ~ ")" }
+reset_type = { "reset" ~ reset_config? }
+reset_config = { "(" ~ reset_param ~ ("," ~ reset_param)* ~ ")" }
+reset_param = { reset_active_low | reset_assert_cycles | reset_assert_time }
+reset_active_low = { "active_low" ~ ":" ~ bool_literal }
+reset_assert_cycles = { "assert_cycles" ~ ":" ~ integer }
+reset_assert_time = { "assert_time" ~ ":" ~ duration }
+bool_literal = { "true" | "false" }
 width_expr = { expr ~ (":" ~ expr)? }
 array_suffix = { "[" ~ integer ~ "]" }
 
@@ -188,7 +195,7 @@ integer = @{ ASCII_DIGIT+ }
 keyword = @{
     ("mod" | "test" | "let" | "mut" | "var" | "comb" | "sync" | "if" | "else" | "match" |
     "in" | "out" | "inout" | "initiator" | "target" | "monitor" | "bit" | "clock" | "reset" | "inst" |
-    "posedge" | "negedge" | "async" | "active_low" |
+    "posedge" | "negedge" | "async" | "active_low" | "period" | "assert_cycles" | "assert_time" | "true" | "false" |
     "seq" | "initial" | "await" | "until" | "assert" | "cycles" | "set" | "value" | "timeout" |
     "fsm" | "state" | "enum" | "transitions" | "when" | "goto" | "output" |
     "mem" | "ports" | "type" | "read_mode" | "write_mode" | "init_file" | "ram" | "rom" |

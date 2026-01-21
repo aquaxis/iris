@@ -213,17 +213,20 @@ fn main() -> Result<()> {
         // Use hierarchical simulator
         let mut simulator = HierarchicalSimulator::with_options(project.clone(), args.warn_metastability);
 
-        // Reset sequence
-        simulator.assert_reset();
-        simulator.run_cycles(5);
-        simulator.deassert_reset();
+        // Reset sequence - only for non-test modules
+        // Test modules handle reset automatically based on their reset signal configuration
+        if !module.is_test {
+            simulator.assert_reset();
+            simulator.run_cycles(5);
+            simulator.deassert_reset();
 
-        // Set enable signal if it exists
-        if simulator.get_signal("enable").is_some() {
-            simulator.set_signal("enable", iris_sim::types::SignalValue::from_u64(1, 1));
-        }
-        if simulator.get_signal("enable_sig").is_some() {
-            simulator.set_signal("enable_sig", iris_sim::types::SignalValue::from_u64(1, 1));
+            // Set enable signal if it exists
+            if simulator.get_signal("enable").is_some() {
+                simulator.set_signal("enable", iris_sim::types::SignalValue::from_u64(1, 1));
+            }
+            if simulator.get_signal("enable_sig").is_some() {
+                simulator.set_signal("enable_sig", iris_sim::types::SignalValue::from_u64(1, 1));
+            }
         }
 
         // Run simulation

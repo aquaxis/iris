@@ -30,7 +30,10 @@ export type SvStmt =
   | SvAssertStmt
   | SvDisplayStmt
   | SvEmptyStmt
-  | SvCommentStmt;
+  | SvCommentStmt
+  | SvDelayStmt
+  | SvEventControlStmt
+  | SvWaitStmt;
 
 // ==================== Assignment Statements ====================
 
@@ -231,6 +234,34 @@ export interface SvCommentStmt {
   readonly isBlock: boolean;  // /* */ vs //
 }
 
+// ==================== Time Control Statements ====================
+
+/**
+ * Delay statement (#time)
+ */
+export interface SvDelayStmt {
+  readonly kind: 'SvDelayStmt';
+  readonly delay: number;
+  readonly unit: 's' | 'ms' | 'us' | 'ns' | 'ps' | 'fs';
+}
+
+/**
+ * Event control statement (@(posedge clk) or @(negedge rst) etc.)
+ */
+export interface SvEventControlStmt {
+  readonly kind: 'SvEventControlStmt';
+  readonly edge: 'posedge' | 'negedge' | undefined;
+  readonly signal: string;
+}
+
+/**
+ * Wait statement (wait(condition))
+ */
+export interface SvWaitStmt {
+  readonly kind: 'SvWaitStmt';
+  readonly condition: SvExpr;
+}
+
 // ==================== Helper Functions ====================
 
 /**
@@ -407,4 +438,31 @@ export function lineComment(text: string): SvCommentStmt {
  */
 export function blockComment(text: string): SvCommentStmt {
   return { kind: 'SvCommentStmt', text, isBlock: true };
+}
+
+/**
+ * Create a delay statement
+ */
+export function delayStmt(
+  delay: number,
+  unit: 's' | 'ms' | 'us' | 'ns' | 'ps' | 'fs' = 'ns'
+): SvDelayStmt {
+  return { kind: 'SvDelayStmt', delay, unit };
+}
+
+/**
+ * Create an event control statement
+ */
+export function eventControlStmt(
+  signal: string,
+  edge?: 'posedge' | 'negedge'
+): SvEventControlStmt {
+  return { kind: 'SvEventControlStmt', edge, signal };
+}
+
+/**
+ * Create a wait statement
+ */
+export function waitStmt(condition: SvExpr): SvWaitStmt {
+  return { kind: 'SvWaitStmt', condition };
 }

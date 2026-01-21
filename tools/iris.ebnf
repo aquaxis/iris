@@ -1,8 +1,8 @@
 (* ============================================================================ *)
 (* IRIS Language Grammar - Extended Backus-Naur Form (EBNF)                     *)
 (* ============================================================================ *)
-(* Version: 0.1.0                                                               *)
-(* Date: 2026-01-06                                                             *)
+(* Version: 0.2.1                                                               *)
+(* Date: 2026-01-21                                                             *)
 (* Specification: ISO/IEC 14977 compliant                                       *)
 (* Reference: spec/15_grammar.md                                                *)
 (* ============================================================================ *)
@@ -72,9 +72,18 @@ primitive_type = "bit" [ "[" const_expr "]" ]
                | "int" "[" const_expr "]"
                | "uint" "[" const_expr "]"
                | "bool"
-               | "clock"
-               | "reset"
+               | "clock" [ clock_config ]
+               | "reset" [ reset_config ]
                | "string" ;
+
+(* Clock configuration: period specification *)
+clock_config = "(" "period" ":" duration ")" ;
+
+(* Reset configuration: active_low, assert_cycles, assert_time *)
+reset_config = "(" reset_param { "," reset_param } ")" ;
+reset_param = "active_low" ":" bool_literal
+            | "assert_cycles" ":" integer_literal
+            | "assert_time" ":" duration ;
 
 array_type = type_expr "[" const_expr "]" ;
 
@@ -247,10 +256,62 @@ view_direction = "in" | "out" | "inout" ;
 test_mod_def = "test" identifier "{" { test_item } "}" ;
 
 test_item = let_decl | var_decl | const_decl | inst_decl
-          | comb_block | sync_block | initial_block
-          | test_stmt ;
+          | comb_block | sync_block | initial_block | seq_block
+          | use_rust_decl | extern_rust_block | test_stmt ;
 
 initial_block = "initial" "{" { statement } "}" ;
+
+(* Sequential processing block: allows direct Rust code execution *)
+seq_block = "seq" [ identifier ] "{" { seq_statement } "}" ;
+
+seq_statement = rust_statement | signal_access | time_control | assert_stmt ;
+
+signal_access = signal_read | signal_write ;
+
+signal_read = signal_path ".value()" ;
+
+signal_write = signal_path ".set(" expr ")" ;
+
+signal_path = identifier { "." identifier } ;
+
+time_control = await_stmt | delay_stmt ;
+
+await_stmt = "await" await_expr ";" ;
+
+await_expr = clock_edge | until_expr | event_expr | async_call ;
+
+clock_edge = expr "." ( "posedge" | "negedge" | "cycles" "(" expr ")" ) ;
+
+until_expr = "until" "(" expr [ "," "timeout" ":" duration ] ")" ;
+
+event_expr = "event" "(" expr ")" ;
+
+async_call = expr ".await" ;
+
+delay_stmt = "#" ( number | duration ) ";" ;
+
+number = decimal_digits ;
+
+rust_statement = ? any valid Rust statement ? ;
+
+(* External Rust function import *)
+use_rust_decl = "use" "rust" "::" rust_path ";" ;
+
+rust_path = identifier { "::" identifier } [ "::" "{" rust_import_list "}" ]
+          | identifier { "::" identifier } "::" "*" ;
+
+rust_import_list = identifier { "," identifier } ;
+
+(* External Rust function declaration block *)
+extern_rust_block = "extern" "rust" string_literal "{" { rust_fn_decl } "}" ;
+
+rust_fn_decl = [ "async" ] "fn" identifier "(" [ rust_param_list ] ")" [ "->" rust_type ] ";" ;
+
+rust_param_list = rust_param { "," rust_param } ;
+
+rust_param = identifier ":" rust_type ;
+
+rust_type = identifier | generic_type | "&" rust_type | "&" "mut" rust_type ;
 
 (* Test function with #[test] attribute for unit testing *)
 test_def = "#[" test_attr "]" "fn" identifier "(" ")" "{" { test_stmt } "}" ;
@@ -266,7 +327,7 @@ test_param = "timeout" "=" duration
 
 duration = integer_literal time_unit ;
 
-time_unit = "ns" | "us" | "ms" | "s" ;
+time_unit = "ps" | "ns" | "us" | "ms" | "s" ;
 
 param_values = "[" const_expr { "," const_expr } "]" ;
 

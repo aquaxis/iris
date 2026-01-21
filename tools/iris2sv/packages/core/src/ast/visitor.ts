@@ -139,6 +139,13 @@ import type {
   WaitStmt,
   DriveStmt,
   SampleStmt,
+
+  // Test module (testbench)
+  TestModDef,
+  InitialBlock,
+  SeqBlock,
+  UseRustDecl,
+  ExternRustBlock,
 } from './items.js';
 
 /**
@@ -214,6 +221,13 @@ export interface AstVisitor<R = void> {
   visitWaitStmt?(node: WaitStmt): R;
   visitDriveStmt?(node: DriveStmt): R;
   visitSampleStmt?(node: SampleStmt): R;
+
+  // ==================== Test Module (Testbench) ====================
+  visitTestModDef?(node: TestModDef): R;
+  visitInitialBlock?(node: InitialBlock): R;
+  visitSeqBlock?(node: SeqBlock): R;
+  visitUseRustDecl?(node: UseRustDecl): R;
+  visitExternRustBlock?(node: ExternRustBlock): R;
 
   // ==================== Type Expressions ====================
   visitTypeExpr?(node: TypeExpr): R;
@@ -320,6 +334,8 @@ export abstract class BaseVisitor<R = void> implements AstVisitor<R> {
         return this.visitImportDecl(node);
       case 'TestDef':
         return this.visitTestDef(node);
+      case 'TestModDef':
+        return this.visitTestModDef(node);
     }
   }
 
@@ -745,6 +761,78 @@ export abstract class BaseVisitor<R = void> implements AstVisitor<R> {
   visitSampleStmt(node: SampleStmt): R {
     this.visitIdentifier(node.variable);
     this.visitExpr(node.signal);
+    return undefined as R;
+  }
+
+  // ==================== Test Module (Testbench) ====================
+
+  visitTestModDef(node: TestModDef): R {
+    this.visitIdentifier(node.name);
+    for (const item of node.items) {
+      this.visitTestModItem(item);
+    }
+    return undefined as R;
+  }
+
+  private visitTestModItem(node: TestModDef['items'][number]): void {
+    switch (node.kind) {
+      case 'SignalDecl':
+        this.visitSignalDecl(node);
+        break;
+      case 'ConstDecl':
+        this.visitConstDecl(node);
+        break;
+      case 'InstDecl':
+        this.visitInstDecl(node);
+        break;
+      case 'CombBlock':
+        this.visitCombBlock(node);
+        break;
+      case 'SyncBlock':
+        this.visitSyncBlock(node);
+        break;
+      case 'InitialBlock':
+        this.visitInitialBlock(node);
+        break;
+      case 'SeqBlock':
+        this.visitSeqBlock(node);
+        break;
+      case 'UseRustDecl':
+        this.visitUseRustDecl(node);
+        break;
+      case 'ExternRustBlock':
+        this.visitExternRustBlock(node);
+        break;
+      default:
+        // TestStmt variants
+        this.visitTestStmt(node);
+    }
+  }
+
+  visitInitialBlock(node: InitialBlock): R {
+    for (const stmt of node.body) {
+      this.visitStmt(stmt);
+    }
+    return undefined as R;
+  }
+
+  visitSeqBlock(node: SeqBlock): R {
+    if (node.name) {
+      this.visitIdentifier(node.name);
+    }
+    // SeqStatement types are not fully walked here as they may contain Rust code
+    return undefined as R;
+  }
+
+  visitUseRustDecl(_node: UseRustDecl): R {
+    // path and items are strings, no AST nodes to visit
+    return undefined as R;
+  }
+
+  visitExternRustBlock(node: ExternRustBlock): R {
+    for (const fn of node.functions) {
+      this.visitIdentifier(fn.name);
+    }
     return undefined as R;
   }
 
@@ -1359,6 +1447,18 @@ export function walkAst<R>(node: AstNode, visitor: AstVisitor<R>): R | undefined
       return visitor.visitDriveStmt?.(node as DriveStmt);
     case 'SampleStmt':
       return visitor.visitSampleStmt?.(node as SampleStmt);
+
+    // Test module (testbench)
+    case 'TestModDef':
+      return visitor.visitTestModDef?.(node as TestModDef);
+    case 'InitialBlock':
+      return visitor.visitInitialBlock?.(node as InitialBlock);
+    case 'SeqBlock':
+      return visitor.visitSeqBlock?.(node as SeqBlock);
+    case 'UseRustDecl':
+      return visitor.visitUseRustDecl?.(node as UseRustDecl);
+    case 'ExternRustBlock':
+      return visitor.visitExternRustBlock?.(node as ExternRustBlock);
 
     // Type expressions
     case 'PrimitiveType':

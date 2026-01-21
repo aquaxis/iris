@@ -94,6 +94,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Core Package (@iris2sv/core)
+- Parser support for testbench constructs:
+  - `test mod` definitions (testbench modules without ports)
+  - `initial` blocks for simulation-only initialization
+  - `seq` blocks for sequential test execution
+  - `await` statements (clock edge, until condition, event)
+  - `delay` statements (`#10ns;`)
+  - `use rust::` declarations for external Rust imports
+  - `extern rust` blocks for Rust function declarations
+- New AST types: TestModDef, SeqBlock, InitialBlock, AwaitStmt, DelayStmt, etc.
+- Visitor pattern support for all new node types
+
+#### HIR Package
+- HirInitialBlock type for initial blocks
+- HirTestSeqBlock type for seq blocks
+- HirDelayStmt, HirAwaitStmt, HirAssertStmt for time control
+
+#### Transform Package (@iris2sv/transform)
+- Transform support for initial blocks → SV initial blocks
+- Transform support for seq blocks → SV initial blocks with time control
+- await/delay statement transformation:
+  - `await clk.posedge` → `@(posedge clk)`
+  - `await until(cond)` → `wait(cond)`
+  - `#10ns;` → `#10ns;`
+
+#### SV Backend Package (@iris2sv/sv-backend)
+- New statement types: SvDelayStmt, SvEventControlStmt, SvWaitStmt
+- Emitter support for time control statements
+
 ### Planned
 - FSM block support
 - Watch mode (--watch)
@@ -101,3 +132,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interface definitions
 - Memory declarations
 - Improved error messages with suggestions
+- External Rust function DPI-C conversion
+- Signal access API conversion

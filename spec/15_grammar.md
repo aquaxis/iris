@@ -184,8 +184,8 @@ view_direction = "in" | "out" | "inout" ;
 ```ebnf
 test_mod_def = "test" identifier "{" { test_item } "}" ;
 test_item    = let_decl | var_decl | const_decl | inst_decl
-             | comb_block | sync_block | initial_block
-             | test_stmt ;
+             | comb_block | sync_block | initial_block | seq_block
+             | use_rust_decl | extern_rust_block | test_stmt ;
 initial_block = "initial" "{" { statement } "}" ;
 ```
 
@@ -194,7 +194,58 @@ initial_block = "initial" "{" { statement } "}" ;
 - 合成対象外（シミュレーション専用）
 - 他のモジュールからインスタンス化不可（トップレベルのみ）
 
-### 15.6.2 テスト関数
+### 15.6.2 シーケンシャル処理ブロック（seq）
+
+Rustコードを直接実行できるシーケンシャル処理ブロック。
+
+```ebnf
+seq_block       = "seq" [ identifier ] "{" { seq_statement } "}" ;
+seq_statement   = rust_statement | signal_access | time_control | assert_stmt ;
+signal_access   = signal_read | signal_write ;
+signal_read     = signal_path ".value()" ;
+signal_write    = signal_path ".set(" expr ")" ;
+time_control    = await_stmt | delay_stmt ;
+await_stmt      = "await" await_expr ";" ;
+await_expr      = clock_edge | until_expr | event_expr | async_call ;
+clock_edge      = expr "." ( "posedge" | "negedge" | "cycles" "(" expr ")" ) ;
+until_expr      = "until" "(" expr [ "," "timeout" ":" duration ] ")" ;
+event_expr      = "event" "(" expr ")" ;
+async_call      = expr ".await" ;
+delay_stmt      = "#" ( number | duration ) ";" ;
+duration        = number "." time_unit ;
+time_unit       = "ns" | "us" | "ms" | "s" ;
+```
+
+**特徴:**
+- `test`モジュール内でのみ使用可能
+- Rustの全ての制御構文（for, while, loop, if, match等）を使用可能
+- 信号アクセスAPI（.value(), .set()）でDUTと連携
+- 複数seqブロック定義で並列実行
+
+### 15.6.3 外部Rust関数呼び出し
+
+外部`.rs`ファイルのRust関数を呼び出すための構文。
+
+```ebnf
+use_rust_decl   = "use" "rust" "::" rust_path ";" ;
+rust_path       = identifier { "::" identifier } [ "::" "{" rust_import_list "}" ]
+                | identifier { "::" identifier } "::" "*" ;
+rust_import_list = identifier { "," identifier } ;
+
+extern_rust_block = "extern" "rust" string_literal "{" { rust_fn_decl } "}" ;
+rust_fn_decl    = [ "async" ] "fn" identifier "(" [ rust_param_list ] ")" [ "->" rust_type ] ";" ;
+rust_param_list = rust_param { "," rust_param } ;
+rust_param      = identifier ":" rust_type ;
+rust_type       = identifier | generic_type | "&" rust_type | "&" "mut" rust_type ;
+```
+
+**インポート方法:**
+- `use rust::module::func;` - 単一関数のインポート
+- `use rust::module::{func1, func2};` - 複数関数のインポート
+- `use rust::module::*;` - ワイルドカードインポート
+- `extern rust "module" { fn name(); }` - 明示的シグネチャ宣言
+
+### 15.6.4 テスト関数
 
 #[test]アトリビュートを使用した単体テスト関数。
 

@@ -221,6 +221,7 @@ export function lowerModule(mod: ModDef, ctx: LoweringContext): HirModule {
     kind: 'HirModule',
     name: mod.name.name,
     isPublic: mod.visibility === 'public',
+    isTestbench: false,
     parameters: [],
     ports,
     typeDefs: [],
@@ -228,6 +229,8 @@ export function lowerModule(mod: ModDef, ctx: LoweringContext): HirModule {
     instances,
     combBlocks,
     seqBlocks,
+    initialBlocks: [],
+    testSeqBlocks: [],
     fsms: [],
     functions: [],
   };

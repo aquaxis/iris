@@ -219,8 +219,8 @@ async function resolveFiles(patterns: string[]): Promise<string[]> {
         if (stat.isFile()) {
           files.push(pattern);
         } else if (stat.isDirectory()) {
-          // Find all .iris files in directory
-          const dirFiles = await glob(path.join(pattern, '**/*.iris'), { nodir: true });
+          // Find all .iris and .irs files in directory
+          const dirFiles = await glob(path.join(pattern, '**/*.{iris,irs}'), { nodir: true });
           files.push(...dirFiles);
         }
       } catch {

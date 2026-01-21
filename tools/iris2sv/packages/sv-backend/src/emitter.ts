@@ -1163,6 +1163,32 @@ export class SvEmitter {
         }
         break;
 
+      case 'SvDelayStmt':
+        this.writeIndent();
+        this.write('#');
+        this.write(String(stmt.delay));
+        this.write(stmt.unit);
+        this.writeLine(';');
+        break;
+
+      case 'SvEventControlStmt':
+        this.writeIndent();
+        this.write('@(');
+        if (stmt.edge) {
+          this.write(stmt.edge);
+          this.write(' ');
+        }
+        this.write(stmt.signal);
+        this.writeLine(');');
+        break;
+
+      case 'SvWaitStmt':
+        this.writeIndent();
+        this.write('wait(');
+        this.write(this.emitExprInternal(stmt.condition));
+        this.writeLine(');');
+        break;
+
       default: {
         const _exhaustive: never = stmt;
         throw new Error(`Unknown statement: ${(_exhaustive as SvStmt).kind}`);

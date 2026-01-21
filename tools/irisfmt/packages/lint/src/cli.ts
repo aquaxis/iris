@@ -48,8 +48,8 @@ PATTERNS:
 
 EXAMPLES:
   irisfmt-lint example.iris
-  irisfmt-lint "src/**/*.iris"
-  irisfmt-lint --ignore "**/test/**" "src/**/*.iris"
+  irisfmt-lint "src/**/*.{iris,irs}"
+  irisfmt-lint --ignore "**/test/**" "src/**/*.{iris,irs}"
   irisfmt-lint --fix example.iris
 `);
 }

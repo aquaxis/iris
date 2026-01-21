@@ -1322,4 +1322,471 @@ test AsyncFifoTest {
 
 ---
 
+## 16.19 seqブロック例
+
+### 16.19.1 基本的なseqブロック
+
+```rust
+/// seqブロックを使用したカウンタテスト
+test CounterSeqTest {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+    let enable: bit = 0;
+
+    let dut = Counter8(clk: clk, rst: rst, enable: enable);
+
+    seq main {
+        // リセットシーケンス
+        rst.set(1);
+        #50;
+        rst.set(0);
+
+        // Rustのfor文を使用したテスト
+        enable.set(1);
+        for cycle in 0u32..256 {
+            await clk.posedge;
+            let expected = (cycle % 256) as u8;
+            let actual = dut.count.value();
+
+            if actual != expected {
+                panic!("Counter mismatch at cycle {}: expected {}, got {}",
+                       cycle, expected, actual);
+            }
+        }
+
+        println!("Counter verification passed: 256 cycles");
+    }
+}
+```
+
+### 16.19.2 複数seqブロックの並列実行
+
+```rust
+/// 並列seqブロックを使用したプロデューサー・コンシューマーテスト
+test FifoParallelTest {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    let dut = SyncFifo[Width: 8, Depth: 16](clk: clk, rst: rst);
+
+    // 共有カウンタ（Rust変数）
+    static WRITE_COUNT: AtomicU32 = AtomicU32::new(0);
+    static READ_COUNT: AtomicU32 = AtomicU32::new(0);
+
+    // リセットシーケンス
+    seq reset_seq {
+        rst.set(1);
+        #100;
+        rst.set(0);
+    }
+
+    // プロデューサー（書き込み側）
+    seq producer {
+        #150;  // リセット完了待ち
+
+        for i in 0u8..100 {
+            // FIFOがフルでなくなるまで待機
+            while dut.full.value() == 1 {
+                await clk.posedge;
+            }
+
+            dut.din.set(i);
+            dut.push.set(1);
+            await clk.posedge;
+            dut.push.set(0);
+
+            WRITE_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+
+        println!("Producer finished: {} items written", 100);
+    }
+
+    // コンシューマー（読み出し側）
+    seq consumer {
+        #200;  // データが溜まるまで待機
+
+        let mut errors = 0u32;
+        for expected in 0u8..100 {
+            // FIFOが空でなくなるまで待機
+            while dut.empty.value() == 1 {
+                await clk.posedge;
+            }
+
+            dut.pop.set(1);
+            await clk.posedge;
+            dut.pop.set(0);
+
+            let actual = dut.dout.value();
+            if actual != expected {
+                println!("Error: expected {}, got {}", expected, actual);
+                errors += 1;
+            }
+
+            READ_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+
+        if errors == 0 {
+            println!("Consumer finished: {} items verified successfully", 100);
+        } else {
+            panic!("{} errors detected", errors);
+        }
+    }
+}
+```
+
+### 16.19.3 条件待機とタイムアウト
+
+```rust
+/// 条件待機とタイムアウトを使用したテスト
+test ProtocolTest {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    let dut = ProtocolHandler(clk: clk, rst: rst);
+
+    seq main {
+        // リセット
+        rst.set(1);
+        #100;
+        rst.set(0);
+
+        // リクエスト送信
+        dut.req.set(1);
+        await clk.posedge;
+        dut.req.set(0);
+
+        // ACK待機（タイムアウト付き）
+        let start_time = std::time::Instant::now();
+
+        match await until(dut.ack.value() == 1, timeout: 1.us) {
+            Ok(()) => {
+                println!("ACK received in {:?}", start_time.elapsed());
+            }
+            Err(Timeout) => {
+                panic!("ACK timeout: no response within 1us");
+            }
+        }
+
+        // データ転送
+        for i in 0..16u8 {
+            dut.data.set(i);
+            dut.valid.set(1);
+            await clk.posedge;
+
+            // ready待機
+            await until(dut.ready.value() == 1);
+            dut.valid.set(0);
+            await clk.posedge;
+        }
+
+        // 完了待機
+        await until(dut.done.value() == 1, timeout: 10.us);
+        println!("Transfer complete");
+    }
+}
+```
+
+---
+
+## 16.20 外部Rust関数呼び出し例
+
+### 16.20.1 基本的な外部Rust関数の使用
+
+**rust/test_utils.rs:**
+```rust
+//! テストユーティリティ関数
+
+/// 期待されるカウンタ値を計算
+pub fn expected_count(cycles: u32, width: u32) -> u64 {
+    cycles as u64 % (1u64 << width)
+}
+
+/// カウンタ値を検証し、エラーがあればパニック
+pub fn verify_count(actual: u64, expected: u64, cycle: u32) {
+    if actual != expected {
+        panic!("Counter mismatch at cycle {}: expected {}, got {}",
+               cycle, expected, actual);
+    }
+}
+
+/// ランダムテストベクタを生成
+pub fn generate_test_vectors(seed: u64, count: usize) -> Vec<u8> {
+    use rand::{SeedableRng, Rng};
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    (0..count).map(|_| rng.gen()).collect()
+}
+```
+
+**test/counter_test.iris:**
+```rust
+use rust::test_utils::{expected_count, verify_count};
+
+test CounterWithRust {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    let dut = Counter[Width: 16](clk: clk, rst: rst, enable: 1);
+
+    seq main {
+        rst.set(1);
+        #50;
+        rst.set(0);
+
+        for cycle in 0u32..1000 {
+            await clk.posedge;
+
+            // 外部Rust関数で期待値を計算
+            let expected = expected_count(cycle, 16);
+            let actual = dut.count.value() as u64;
+
+            // 外部Rust関数で検証
+            verify_count(actual, expected, cycle);
+        }
+
+        println!("1000 cycles verified using external Rust functions");
+    }
+}
+```
+
+### 16.20.2 テストデータ生成器の使用
+
+**rust/generators.rs:**
+```rust
+//! スティミュラス生成器
+
+use rand::{SeedableRng, Rng, distributions::Standard};
+
+/// AXIトランザクション
+#[derive(Debug, Clone)]
+pub struct AxiTransaction {
+    pub addr: u32,
+    pub data: Vec<u8>,
+    pub burst_len: u8,
+    pub is_write: bool,
+}
+
+/// AXIトランザクション生成器
+pub struct AxiGenerator {
+    rng: rand::rngs::StdRng,
+}
+
+impl AxiGenerator {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            rng: rand::rngs::StdRng::seed_from_u64(seed),
+        }
+    }
+
+    pub fn generate_transaction(&mut self) -> AxiTransaction {
+        let burst_len = self.rng.gen_range(1..=16);
+        AxiTransaction {
+            addr: self.rng.gen::<u32>() & 0xFFFF_FFF0,  // 16バイトアライン
+            data: (0..burst_len as usize * 4)
+                  .map(|_| self.rng.gen())
+                  .collect(),
+            burst_len,
+            is_write: self.rng.gen(),
+        }
+    }
+}
+```
+
+**test/axi_test.iris:**
+```rust
+use rust::generators::{AxiGenerator, AxiTransaction};
+
+test AxiMasterTest {
+    let clk = Clock.new(period: 5.ns);  // 200MHz
+    let rst: bit = 0;
+
+    let dut = AxiMaster(clk: clk, rst: rst);
+
+    seq main {
+        // リセット
+        rst.set(1);
+        #100;
+        rst.set(0);
+
+        // Rust側で生成器を作成
+        let mut gen = AxiGenerator::new(12345);
+
+        // 100トランザクションをテスト
+        for i in 0..100 {
+            let txn = gen.generate_transaction();
+
+            if txn.is_write {
+                // 書き込みトランザクション
+                dut.awaddr.set(txn.addr);
+                dut.awlen.set(txn.burst_len - 1);
+                dut.awvalid.set(1);
+                await until(dut.awready.value() == 1);
+                await clk.posedge;
+                dut.awvalid.set(0);
+
+                // データ転送
+                for (j, chunk) in txn.data.chunks(4).enumerate() {
+                    let data = u32::from_le_bytes(chunk.try_into().unwrap());
+                    dut.wdata.set(data);
+                    dut.wlast.set(if j == txn.burst_len as usize - 1 { 1 } else { 0 });
+                    dut.wvalid.set(1);
+                    await until(dut.wready.value() == 1);
+                    await clk.posedge;
+                }
+                dut.wvalid.set(0);
+
+                // 応答待ち
+                await until(dut.bvalid.value() == 1);
+                dut.bready.set(1);
+                await clk.posedge;
+                dut.bready.set(0);
+            }
+
+            if i % 10 == 0 {
+                println!("Transaction {} completed", i);
+            }
+        }
+
+        println!("All 100 transactions completed successfully");
+    }
+}
+```
+
+### 16.20.3 非同期Rust関数の使用
+
+**rust/async_helpers.rs:**
+```rust
+//! 非同期テストヘルパー
+
+use tokio::time::{Duration, sleep};
+
+/// 非同期でテストベクタをファイルから読み込み
+pub async fn load_test_vectors(filename: &str) -> Result<Vec<u8>, std::io::Error> {
+    tokio::fs::read(filename).await
+}
+
+/// 非同期で結果をファイルに保存
+pub async fn save_results(filename: &str, data: &[u8]) -> Result<(), std::io::Error> {
+    tokio::fs::write(filename, data).await
+}
+
+/// 非同期タイムアウト付き条件待機
+pub async fn wait_with_timeout<F>(
+    mut condition: F,
+    timeout_ms: u64
+) -> Result<(), &'static str>
+where
+    F: FnMut() -> bool
+{
+    let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
+
+    while !condition() {
+        if std::time::Instant::now() > deadline {
+            return Err("Timeout");
+        }
+        sleep(Duration::from_micros(1)).await;
+    }
+    Ok(())
+}
+```
+
+**test/async_test.iris:**
+```rust
+use rust::async_helpers::{load_test_vectors, save_results};
+
+test MemoryAsyncTest {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    let dut = MemoryController(clk: clk, rst: rst);
+
+    seq main {
+        // リセット
+        rst.set(1);
+        #100;
+        rst.set(0);
+
+        // 非同期でテストベクタを読み込み
+        let test_data = match load_test_vectors("test_vectors.bin").await {
+            Ok(data) => data,
+            Err(e) => {
+                println!("Failed to load test vectors: {}", e);
+                return;
+            }
+        };
+
+        println!("Loaded {} bytes of test data", test_data.len());
+
+        // メモリに書き込み
+        for (addr, byte) in test_data.iter().enumerate() {
+            dut.addr.set(addr as u32);
+            dut.wdata.set(*byte as u32);
+            dut.wen.set(1);
+            await clk.posedge;
+        }
+        dut.wen.set(0);
+
+        // 読み戻して検証
+        let mut results = Vec::new();
+        for addr in 0..test_data.len() {
+            dut.addr.set(addr as u32);
+            dut.ren.set(1);
+            await clk.posedge;
+            await clk.posedge;  // 読み出しレイテンシ
+            results.push(dut.rdata.value() as u8);
+        }
+        dut.ren.set(0);
+
+        // 結果を非同期で保存
+        save_results("test_results.bin", &results).await.unwrap();
+
+        // 検証
+        if results == test_data {
+            println!("Memory test passed");
+        } else {
+            panic!("Memory verification failed");
+        }
+    }
+}
+```
+
+### 16.20.4 extern rustブロックの使用
+
+```rust
+// 明示的にRust関数シグネチャを宣言
+extern rust "test_utils" {
+    fn expected_count(cycles: u32, width: u32) -> u64;
+    fn verify_count(actual: u64, expected: u64, cycle: u32);
+}
+
+extern rust "generators" {
+    fn generate_random_bytes(seed: u64, count: usize) -> Vec<u8>;
+}
+
+test ExternRustTest {
+    let clk = Clock.new(period: 10.ns);
+    let rst: bit = 0;
+
+    let dut = Counter8(clk: clk, rst: rst, enable: 1);
+
+    seq main {
+        rst.set(1);
+        #50;
+        rst.set(0);
+
+        // extern宣言した関数を使用
+        for cycle in 0u32..100 {
+            await clk.posedge;
+            let expected = expected_count(cycle, 8);
+            verify_count(dut.count.value() as u64, expected, cycle);
+        }
+
+        // ランダムテスト
+        let random_data = generate_random_bytes(42, 256);
+        println!("Generated {} random bytes", random_data.len());
+    }
+}
+```
+
+---
+
 [<< 文法定義](./15_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./17_glossary.md)

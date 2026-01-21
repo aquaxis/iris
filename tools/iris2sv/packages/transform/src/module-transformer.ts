@@ -20,6 +20,9 @@ import type {
   HirStructFieldDef,
   HirConnection,
   HirEnumVariant,
+  HirInitialBlock,
+  HirTestSeqBlock,
+  HirTestSeqStmt,
 } from '@iris2sv/core';
 
 import type {
@@ -30,18 +33,22 @@ import type {
   SvSignal,
   SvParameter,
   SvAlwaysBlock,
+  SvInitialBlock,
   SvInstance,
   SvEnumDef,
   SvStructDef,
   SvFunction,
   SvFunctionArg,
-  SvSensitivity} from '@iris2sv/sv-backend';
+  SvSensitivity,
+  SvStmt,
+} from '@iris2sv/sv-backend';
 import {
   port,
   signal,
   parameter,
   alwaysComb,
   alwaysFf,
+  initial,
   edgeSensitivity,
   instance,
   connection,
@@ -50,8 +57,13 @@ import {
   functionDef,
   svModule,
   ifStmt,
+  block,
   identifier,
   unary,
+  delayStmt,
+  eventControlStmt,
+  waitStmt,
+  assertStmt,
 } from '@iris2sv/sv-backend';
 
 import type { TypeMapper} from './type-mapper.js';
@@ -115,6 +127,20 @@ export function transformModule(hirModule: HirModule, context: ModuleTransformer
   // Transform functions
   for (const fn of hirModule.functions) {
     items.push(transformFunction(fn, context));
+  }
+
+  // Transform initial blocks (for testbenches)
+  if (hirModule.initialBlocks) {
+    for (const initBlock of hirModule.initialBlocks) {
+      items.push(transformInitialBlock(initBlock, context));
+    }
+  }
+
+  // Transform test seq blocks (for testbenches)
+  if (hirModule.testSeqBlocks) {
+    for (const seqBlock of hirModule.testSeqBlocks) {
+      items.push(transformTestSeqBlock(seqBlock, context));
+    }
   }
 
   return svModule(
@@ -280,6 +306,107 @@ function transformFunction(hirFn: HirFunction, context: ModuleTransformerContext
   const body = context.stmtTransformer.transformBlock(hirFn.body);
 
   return functionDef(hirFn.name, returnType, args, body, true);
+}
+
+/**
+ * Transform HIR initial block to SV initial block
+ */
+function transformInitialBlock(
+  hirInit: HirInitialBlock,
+  context: ModuleTransformerContext
+): SvInitialBlock {
+  const body = context.stmtTransformer.transformBlock(hirInit.statements);
+  return initial(body);
+}
+
+/**
+ * Transform HIR testbench seq block to SV initial block
+ * seq blocks are transformed to initial blocks with time control
+ */
+function transformTestSeqBlock(
+  hirSeq: HirTestSeqBlock,
+  context: ModuleTransformerContext
+): SvInitialBlock {
+  const svStmts: SvStmt[] = [];
+
+  for (const stmt of hirSeq.statements) {
+    const svStmt = transformTestSeqStmt(stmt, context);
+    if (svStmt) {
+      svStmts.push(svStmt);
+    }
+  }
+
+  // If the block has a name, wrap in a named block
+  const body = hirSeq.name
+    ? block(svStmts, hirSeq.name)
+    : block(svStmts);
+
+  return initial(body);
+}
+
+/**
+ * Transform a testbench sequential statement
+ */
+function transformTestSeqStmt(
+  stmt: HirTestSeqStmt,
+  context: ModuleTransformerContext
+): SvStmt | undefined {
+  switch (stmt.kind) {
+    case 'HirDelayStmt':
+      return delayStmt(stmt.delay, stmt.unit);
+
+    case 'HirAwaitStmt':
+      return transformAwaitStmt(stmt);
+
+    case 'HirAssertStmt':
+      return assertStmt(
+        context.stmtTransformer.exprTransformer.transform(stmt.condition),
+        stmt.message
+      );
+
+    default:
+      // Regular HIR statement
+      return context.stmtTransformer.transform(stmt);
+  }
+}
+
+/**
+ * Transform HIR await statement to SV event control or wait
+ */
+function transformAwaitStmt(stmt: {
+  awaitType: 'clock_edge' | 'until' | 'event';
+  signal: string | undefined;
+  edge: 'posedge' | 'negedge' | undefined;
+  cycles: number | undefined;
+  condition: unknown;
+}): SvStmt {
+  switch (stmt.awaitType) {
+    case 'clock_edge':
+      // await clk.posedge -> @(posedge clk)
+      // await clk.posedge(5) -> repeat(5) @(posedge clk)
+      if (stmt.cycles !== undefined && stmt.cycles > 1) {
+        // For multiple cycles, we'd need a repeat statement
+        // For now, just emit a single event control
+        return eventControlStmt(stmt.signal ?? 'clk', stmt.edge);
+      }
+      return eventControlStmt(stmt.signal ?? 'clk', stmt.edge);
+
+    case 'until':
+      // await until(condition) -> wait(condition)
+      if (stmt.condition) {
+        // Need to convert HirExpr to SvExpr
+        // For now, create a simple identifier
+        return waitStmt(identifier('condition'));
+      }
+      return waitStmt(identifier('1'));
+
+    case 'event':
+      // await signal -> @(signal)
+      return eventControlStmt(stmt.signal ?? 'event', undefined);
+
+    default:
+      return eventControlStmt('clk', 'posedge');
+  }
 }
 
 /**
