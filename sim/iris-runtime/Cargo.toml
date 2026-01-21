@@ -1,0 +1,10 @@
+[package]
+name = "iris-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "IRIS RTL Simulation Runtime Library - Support library for compiled IRIS simulations"
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]

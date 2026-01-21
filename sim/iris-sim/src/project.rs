@@ -8,7 +8,7 @@ use std::path::Path;
 
 use thiserror::Error;
 
-use crate::parser::{Module, Parser, ParseError};
+use crate::parser::{Interface, Module, Parser, ParseError};
 
 /// Project error type
 #[derive(Error, Debug)]
@@ -37,6 +37,8 @@ pub enum ProjectError {
 pub struct Project {
     /// All modules in the project, keyed by name
     pub modules: HashMap<String, Module>,
+    /// All interfaces in the project, keyed by name
+    pub interfaces: HashMap<String, Interface>,
     /// Top module name
     pub top_module: Option<String>,
 }
@@ -46,6 +48,7 @@ impl Project {
     pub fn new() -> Self {
         Self {
             modules: HashMap::new(),
+            interfaces: HashMap::new(),
             top_module: None,
         }
     }
@@ -54,12 +57,22 @@ impl Project {
     pub fn load_single(path: &Path) -> Result<Self, ProjectError> {
         let source = std::fs::read_to_string(path)?;
         let parser = Parser::new();
-        let module = parser.parse(&source)?;
+        let result = parser.parse_all(&source)?;
 
         let mut project = Self::new();
-        let module_name = module.name.clone();
-        project.modules.insert(module.name.clone(), module);
-        project.top_module = Some(module_name);
+
+        // Add modules
+        for module in result.modules {
+            project.modules.insert(module.name.clone(), module);
+        }
+
+        // Add interfaces
+        for interface in result.interfaces {
+            project.interfaces.insert(interface.name.clone(), interface);
+        }
+
+        // Auto-detect top module
+        project.auto_detect_top();
 
         Ok(project)
     }
@@ -72,14 +85,22 @@ impl Project {
         for path in paths {
             let source = std::fs::read_to_string(path)?;
 
-            // Parse file - may contain multiple modules
-            let module = parser.parse(&source)?;
+            // Parse file - may contain multiple modules and interfaces
+            let result = parser.parse_all(&source)?;
 
-            if project.modules.contains_key(&module.name) {
-                return Err(ProjectError::DuplicateModule(module.name.clone()));
+            // Add modules
+            for module in result.modules {
+                if project.modules.contains_key(&module.name) {
+                    return Err(ProjectError::DuplicateModule(module.name.clone()));
+                }
+                project.modules.insert(module.name.clone(), module);
             }
 
-            project.modules.insert(module.name.clone(), module);
+            // Add interfaces
+            for interface in result.interfaces {
+                // Note: Duplicate interfaces could be a warning, but for now we just overwrite
+                project.interfaces.insert(interface.name.clone(), interface);
+            }
         }
 
         // Auto-detect top module if not specified
@@ -160,6 +181,16 @@ impl Project {
     /// Get list of module names
     pub fn module_names(&self) -> impl Iterator<Item = &String> {
         self.modules.keys()
+    }
+
+    /// Get all modules
+    pub fn get_all_modules(&self) -> impl Iterator<Item = (&String, &Module)> {
+        self.modules.iter()
+    }
+
+    /// Check if project has a test module
+    pub fn has_test_module(&self) -> bool {
+        self.modules.values().any(|m| m.is_test)
     }
 
     /// Auto-detect top module

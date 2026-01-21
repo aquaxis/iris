@@ -3,21 +3,12 @@
 //! Command-line interface for simulating IRIS hardware designs.
 
 use anyhow::{Context, Result};
-use clap::{Parser as ClapParser, ValueEnum};
+use clap::Parser as ClapParser;
 use std::path::PathBuf;
 
-use iris_sim::fst::{FstWriter, VcdWriter, WaveWriter, WaveformFormat};
+use iris_sim::fst::{VcdWriter, WaveWriter};
 use iris_sim::project::Project;
-use iris_sim::sim::{HierarchicalSimulator, Simulator};
-
-/// Output format for waveform files
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum OutputFormat {
-    /// VCD (Value Change Dump) - IEEE 1364 standard text format
-    Vcd,
-    /// FST (Fast Signal Trace) - GTKWave binary format
-    Fst,
-}
+use iris_sim::sim::{AssertionFailure, HierarchicalSimulator, MetastabilityWarning, Simulator};
 
 /// IRIS-SIM: A simulator for IRIS hardware description language
 #[derive(ClapParser, Debug)]
@@ -27,13 +18,9 @@ struct Args {
     #[arg(short, long, num_args = 1..)]
     input: Vec<PathBuf>,
 
-    /// Output waveform file path
+    /// Output waveform file path (.vcd)
     #[arg(short, long)]
     output: Option<PathBuf>,
-
-    /// Output format (auto-detected from file extension if not specified)
-    #[arg(short, long, value_enum)]
-    format: Option<OutputFormat>,
 
     /// Number of simulation cycles
     #[arg(short, long, default_value = "100")]
@@ -46,6 +33,104 @@ struct Args {
     /// Verbose output
     #[arg(short, long, default_value = "false")]
     verbose: bool,
+
+    /// Enable metastability warnings (async reset deassert coinciding with clock edge)
+    #[arg(short = 'W', long = "warn-metastability", default_value = "false")]
+    warn_metastability: bool,
+}
+
+/// Print metastability warnings in a formatted style
+fn print_metastability_warnings(warnings: &[MetastabilityWarning]) {
+    use std::collections::HashSet;
+
+    // Deduplicate warnings (same module/signal combination)
+    let mut seen: HashSet<(String, String, String)> = HashSet::new();
+
+    for warning in warnings {
+        let key = (
+            warning.module_path.clone(),
+            warning.clock_signal.clone(),
+            warning.reset_signal.clone(),
+        );
+
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.insert(key);
+
+        // Convert time from ps to ns for display
+        let time_ns = warning.time as f64 / 1000.0;
+
+        eprintln!();
+        eprintln!("warning[W001]: potential metastability risk");
+        eprintln!("  --> {}:sync({}.{}, {}.async)",
+            warning.module_path,
+            warning.clock_signal,
+            warning.clock_edge,
+            warning.reset_signal);
+        eprintln!("   |");
+        eprintln!("   = note: async reset '{}' deasserts at time {:.1}ns, coinciding with '{}' {}",
+            warning.reset_signal,
+            time_ns,
+            warning.clock_signal,
+            warning.clock_edge);
+        eprintln!("   = help: consider using a reset synchronizer to safely release reset");
+    }
+
+    if !seen.is_empty() {
+        eprintln!();
+    }
+}
+
+/// Print assertion failures in a formatted style
+fn print_assertion_failures(failures: &[AssertionFailure], input_files: &[PathBuf]) -> bool {
+    if failures.is_empty() {
+        return false;
+    }
+
+    eprintln!();
+    eprintln!("=== Assertion Failures ===");
+
+    for (i, failure) in failures.iter().enumerate() {
+        let time_ns = failure.time as f64 / 1000.0;
+
+        eprintln!();
+        eprintln!("error[A{:03}]: assertion failed", i + 1);
+
+        // Print source location if available
+        if let Some(ref span) = failure.span {
+            // Try to find the file that contains this line
+            let file_hint = if !input_files.is_empty() {
+                input_files.last().map(|p| p.display().to_string()).unwrap_or_else(|| "<source>".to_string())
+            } else {
+                "<source>".to_string()
+            };
+            eprintln!("  --> {}:{}:{}", file_hint, span.start_line, span.start_col);
+        }
+
+        eprintln!("   |");
+        eprintln!("   | assert {}", failure.condition);
+        eprintln!("   |");
+
+        // Print evaluated values for comparison expressions
+        if let (Some(ref lhs), Some(ref rhs)) = (&failure.lhs_value, &failure.rhs_value) {
+            eprintln!("   = note: left  = {}", lhs);
+            eprintln!("   = note: right = {}", rhs);
+        }
+
+        // Print custom message if provided
+        if let Some(ref msg) = failure.message {
+            eprintln!("   = message: \"{}\"", msg);
+        }
+
+        eprintln!("   = time: {:.1}ns ({} ps)", time_ns, failure.time);
+    }
+
+    eprintln!();
+    eprintln!("assertion failure summary: {} assertion(s) failed", failures.len());
+    eprintln!();
+
+    true // had failures
 }
 
 fn main() -> Result<()> {
@@ -58,13 +143,7 @@ fn main() -> Result<()> {
         }
         if let Some(ref output) = args.output {
             println!("Output file: {}", output.display());
-            let format = args.format
-                .map(|f| match f {
-                    OutputFormat::Vcd => WaveformFormat::Vcd,
-                    OutputFormat::Fst => WaveformFormat::Fst,
-                })
-                .unwrap_or_else(|| WaveformFormat::from_extension(output));
-            println!("Output format: {:?}", format);
+            println!("Output format: VCD");
         }
         if let Some(ref top) = args.top {
             println!("Top module: {}", top);
@@ -110,8 +189,9 @@ fn main() -> Result<()> {
             let m = project.get_module(name).unwrap();
             let is_top = project.top_module.as_ref() == Some(name);
             println!("    {} {}", name, if is_top { "(top)" } else { "" });
-            println!("      Ports: {}, Signals: {}, Logic blocks: {}",
-                     m.ports.len(), m.signals.len(), m.logic_blocks.len());
+            println!("      Ports: {}, Signals: {}, Logic blocks: {}, Seq blocks: {}, Initial blocks: {}, FSM blocks: {}, Memories: {}",
+                     m.ports.len(), m.signals.len(), m.logic_blocks.len(),
+                     m.seq_blocks.len(), m.initial_blocks.len(), m.fsm_blocks.len(), m.memories.len());
         }
         println!();
     }
@@ -121,12 +201,17 @@ fn main() -> Result<()> {
         println!("Running simulation for {} cycles...", args.cycles);
     }
 
-    // Check if we need hierarchical simulation (has instances)
-    let has_instances = module.instances.len() > 0 || project.modules.len() > 1;
+    // Check if we need hierarchical simulation (has instances, seq_blocks, initial_blocks, fsm_blocks, or memories)
+    let has_instances = module.instances.len() > 0
+        || project.modules.len() > 1
+        || !module.seq_blocks.is_empty()
+        || !module.initial_blocks.is_empty()
+        || !module.fsm_blocks.is_empty()
+        || !module.memories.is_empty();
 
     if has_instances {
         // Use hierarchical simulator
-        let mut simulator = HierarchicalSimulator::new(project.clone());
+        let mut simulator = HierarchicalSimulator::with_options(project.clone(), args.warn_metastability);
 
         // Reset sequence
         simulator.assert_reset();
@@ -144,50 +229,44 @@ fn main() -> Result<()> {
         // Run simulation
         simulator.run_cycles(args.cycles);
 
+        // Output metastability warnings if any
+        let warnings = simulator.get_metastability_warnings();
+        if !warnings.is_empty() {
+            print_metastability_warnings(warnings);
+        }
+
         if args.verbose {
             println!("  Simulation time: {} ps", simulator.get_time());
             println!();
         }
 
-        // Output waveform
+        // Output waveform (VCD format)
         if let Some(ref output_path) = args.output {
             if args.verbose {
                 println!("Writing waveform to {}...", output_path.display());
             }
 
-            // Determine output format
-            let format = args.format
-                .map(|f| match f {
-                    OutputFormat::Vcd => WaveformFormat::Vcd,
-                    OutputFormat::Fst => WaveformFormat::Fst,
-                })
-                .unwrap_or_else(|| WaveformFormat::from_extension(output_path));
-
-            match format {
-                WaveformFormat::Vcd => {
-                    let mut writer = VcdWriter::new(output_path)
-                        .with_context(|| format!("Failed to create VCD file: {}", output_path.display()))?;
-                    writer
-                        .write_trace(simulator.get_trace(), &module.name)
-                        .with_context(|| "Failed to write VCD waveform")?;
-                    writer.close().with_context(|| "Failed to close VCD file")?;
-                }
-                WaveformFormat::Fst => {
-                    let mut writer = FstWriter::new(output_path)
-                        .with_context(|| format!("Failed to create FST file: {}", output_path.display()))?;
-                    writer
-                        .write_trace(simulator.get_trace(), &module.name)
-                        .with_context(|| "Failed to write FST waveform")?;
-                    writer.close().with_context(|| "Failed to close FST file")?;
-                }
-            }
+            let mut writer = VcdWriter::new(output_path)
+                .with_context(|| format!("Failed to create VCD file: {}", output_path.display()))?;
+            writer
+                .write_trace(simulator.get_trace(), &module.name)
+                .with_context(|| "Failed to write VCD waveform")?;
+            writer.close().with_context(|| "Failed to close VCD file")?;
 
             if args.verbose {
                 println!("  Signals recorded: {}", simulator.get_trace().signal_names().count());
             }
         }
 
-        println!("Simulation completed successfully.");
+        // Check and report assertion failures
+        let failures = simulator.get_assertion_failures();
+        let has_failures = print_assertion_failures(failures, &args.input);
+
+        if has_failures {
+            println!("Simulation completed with assertion failures.");
+        } else {
+            println!("Simulation completed successfully.");
+        }
 
         // Print final signal values
         if args.verbose {
@@ -198,6 +277,11 @@ fn main() -> Result<()> {
                     println!("  {}: {}", name, value);
                 }
             }
+        }
+
+        // Return non-zero exit code if assertions failed
+        if has_failures {
+            std::process::exit(1);
         }
     } else {
         // Use simple simulator for single module
@@ -221,38 +305,18 @@ fn main() -> Result<()> {
             println!();
         }
 
-        // Output waveform
+        // Output waveform (VCD format)
         if let Some(ref output_path) = args.output {
             if args.verbose {
                 println!("Writing waveform to {}...", output_path.display());
             }
 
-            // Determine output format
-            let format = args.format
-                .map(|f| match f {
-                    OutputFormat::Vcd => WaveformFormat::Vcd,
-                    OutputFormat::Fst => WaveformFormat::Fst,
-                })
-                .unwrap_or_else(|| WaveformFormat::from_extension(output_path));
-
-            match format {
-                WaveformFormat::Vcd => {
-                    let mut writer = VcdWriter::new(output_path)
-                        .with_context(|| format!("Failed to create VCD file: {}", output_path.display()))?;
-                    writer
-                        .write_trace(simulator.get_trace(), &module.name)
-                        .with_context(|| "Failed to write VCD waveform")?;
-                    writer.close().with_context(|| "Failed to close VCD file")?;
-                }
-                WaveformFormat::Fst => {
-                    let mut writer = FstWriter::new(output_path)
-                        .with_context(|| format!("Failed to create FST file: {}", output_path.display()))?;
-                    writer
-                        .write_trace(simulator.get_trace(), &module.name)
-                        .with_context(|| "Failed to write FST waveform")?;
-                    writer.close().with_context(|| "Failed to close FST file")?;
-                }
-            }
+            let mut writer = VcdWriter::new(output_path)
+                .with_context(|| format!("Failed to create VCD file: {}", output_path.display()))?;
+            writer
+                .write_trace(simulator.get_trace(), &module.name)
+                .with_context(|| "Failed to write VCD waveform")?;
+            writer.close().with_context(|| "Failed to close VCD file")?;
 
             if args.verbose {
                 println!("  Signals recorded: {}", simulator.get_trace().signal_names().count());

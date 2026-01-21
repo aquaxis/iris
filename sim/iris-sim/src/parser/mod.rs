@@ -6,4 +6,4 @@ pub mod ast;
 mod grammar;
 
 pub use ast::*;
-pub use grammar::{Parser, ParseError};
+pub use grammar::{Parser, ParseError, ParseResult};

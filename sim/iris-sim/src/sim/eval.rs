@@ -111,6 +111,13 @@ impl<'a> Evaluator<'a> {
                 }
                 Ok(result)
             }
+            Expression::MemRead { mem_name, .. } => {
+                // Basic evaluator doesn't have memory access
+                Err(EvalError::UndefinedSignal(format!(
+                    "memory read {} (requires HierarchicalEvaluator)",
+                    mem_name
+                )))
+            }
         }
     }
 

@@ -36,6 +36,14 @@ pub struct Module {
     pub span: Option<Span>,
     /// True if this is a test module (declared with `test` keyword)
     pub is_test: bool,
+    /// Sequential blocks (for procedural testbench code)
+    pub seq_blocks: Vec<SeqBlock>,
+    /// Initial blocks (executed once at simulation start)
+    pub initial_blocks: Vec<InitialBlock>,
+    /// Finite State Machines
+    pub fsm_blocks: Vec<FsmBlock>,
+    /// Memory declarations
+    pub memories: Vec<MemDecl>,
 }
 
 /// Generic parameter
@@ -60,6 +68,12 @@ pub enum PortDirection {
     In,
     Out,
     InOut,
+    /// Interface initiator (master)
+    Initiator,
+    /// Interface target (slave)
+    Target,
+    /// Interface monitor (passive observer)
+    Monitor,
 }
 
 impl fmt::Display for PortDirection {
@@ -68,6 +82,9 @@ impl fmt::Display for PortDirection {
             PortDirection::In => write!(f, "in"),
             PortDirection::Out => write!(f, "out"),
             PortDirection::InOut => write!(f, "inout"),
+            PortDirection::Initiator => write!(f, "initiator"),
+            PortDirection::Target => write!(f, "target"),
+            PortDirection::Monitor => write!(f, "monitor"),
         }
     }
 }
@@ -137,6 +154,321 @@ pub struct Signal {
 pub enum LogicBlock {
     Comb(CombBlock),
     Sync(SyncBlock),
+}
+
+/// Sequential block (for procedural testbench code)
+#[derive(Clone, Debug)]
+pub struct SeqBlock {
+    pub name: Option<String>,
+    pub statements: Vec<SeqStatement>,
+}
+
+/// Initial block (executed once at simulation start)
+#[derive(Clone, Debug)]
+pub struct InitialBlock {
+    pub statements: Vec<SeqStatement>,
+}
+
+/// Finite State Machine block
+#[derive(Clone, Debug)]
+pub struct FsmBlock {
+    /// FSM name
+    pub name: String,
+    /// Clock specification
+    pub clock: ClockSpec,
+    /// Reset specification (optional)
+    pub reset: Option<ResetSpec>,
+    /// State enumeration
+    pub states: Vec<FsmState>,
+    /// State transitions
+    pub transitions: Vec<FsmTransition>,
+    /// Output mappings (Mealy-style)
+    pub outputs: Vec<FsmOutput>,
+}
+
+/// FSM state definition
+#[derive(Clone, Debug)]
+pub struct FsmState {
+    /// State name
+    pub name: String,
+    /// Moore outputs (output values in this state)
+    pub moore_outputs: Vec<(String, Expression)>,
+}
+
+/// FSM transition definition
+#[derive(Clone, Debug)]
+pub struct FsmTransition {
+    /// Source state name ("_" for default/wildcard)
+    pub from_state: String,
+    /// Conditional transitions
+    pub when_clauses: Vec<FsmWhenClause>,
+}
+
+/// FSM when clause (conditional transition)
+#[derive(Clone, Debug)]
+pub struct FsmWhenClause {
+    /// Condition for this transition
+    pub condition: Expression,
+    /// Actions to take (assignments and goto)
+    pub actions: Vec<FsmAction>,
+}
+
+/// FSM action (within a when clause)
+#[derive(Clone, Debug)]
+pub enum FsmAction {
+    /// Go to another state
+    Goto(String),
+    /// Assignment
+    Assign { target: String, value: Expression },
+}
+
+/// FSM output mapping (Mealy-style)
+#[derive(Clone, Debug)]
+pub struct FsmOutput {
+    /// Output signal name
+    pub signal: String,
+    /// State to value mappings
+    pub mappings: Vec<(String, Expression)>,
+}
+
+/// Memory declaration
+#[derive(Clone, Debug)]
+pub struct MemDecl {
+    /// Memory name
+    pub name: String,
+    /// Element type
+    pub element_type: Type,
+    /// Depth (number of elements)
+    pub depth: usize,
+    /// Configuration options
+    pub config: MemConfig,
+    /// Initial values (if any)
+    pub init: Option<MemInit>,
+}
+
+/// Memory configuration
+#[derive(Clone, Debug, Default)]
+pub struct MemConfig {
+    /// Number of ports (default: 1)
+    pub ports: Option<usize>,
+    /// Memory type (ram or rom)
+    pub mem_type: Option<MemType>,
+    /// Read mode (sync or async)
+    pub read_mode: Option<MemReadMode>,
+    /// Write mode (sync)
+    pub write_mode: Option<MemWriteMode>,
+    /// Initialization file path
+    pub init_file: Option<String>,
+}
+
+/// Memory type
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemType {
+    Ram,
+    Rom,
+}
+
+/// Memory read mode
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemReadMode {
+    Sync,
+    Async,
+}
+
+/// Memory write mode
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemWriteMode {
+    Sync,
+}
+
+/// Memory initialization
+#[derive(Clone, Debug)]
+pub enum MemInit {
+    /// Array of values
+    Values(Vec<Expression>),
+    /// File path for hex/bin file
+    File(String),
+}
+
+/// Interface definition
+#[derive(Clone, Debug)]
+pub struct Interface {
+    /// Interface name
+    pub name: String,
+    /// Generic parameters
+    pub generics: Vec<GenericParam>,
+    /// Interface signals
+    pub signals: Vec<InterfaceSignal>,
+    /// View definitions
+    pub views: Vec<ViewDef>,
+}
+
+/// Interface signal definition
+#[derive(Clone, Debug)]
+pub struct InterfaceSignal {
+    /// Signal name
+    pub name: String,
+    /// Signal type
+    pub ty: Type,
+    /// Is logic type (optional prefix)
+    pub is_logic: bool,
+}
+
+/// View definition within an interface
+#[derive(Clone, Debug)]
+pub struct ViewDef {
+    /// View name
+    pub name: String,
+    /// Signal directions in this view
+    pub signals: Vec<ViewSignal>,
+}
+
+/// Signal direction in a view
+#[derive(Clone, Debug)]
+pub struct ViewSignal {
+    /// Signal name (must reference an interface signal)
+    pub name: String,
+    /// Direction in this view
+    pub direction: ViewDirection,
+}
+
+/// Direction within a view
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewDirection {
+    In,
+    Out,
+    InOut,
+}
+
+impl fmt::Display for ViewDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ViewDirection::In => write!(f, "in"),
+            ViewDirection::Out => write!(f, "out"),
+            ViewDirection::InOut => write!(f, "inout"),
+        }
+    }
+}
+
+/// Sequential statement (for seq_block / initial_block)
+#[derive(Clone, Debug)]
+pub enum SeqStatement {
+    /// Await expression (await clk.posedge, await clk.cycles(N))
+    Await(AwaitExpr),
+    /// Delay statement (#10ns)
+    Delay(Duration),
+    /// Signal write (signal.set(expr))
+    SignalWrite {
+        path: SignalPath,
+        value: Expression,
+    },
+    /// Assignment (target = value)
+    Assign {
+        target: String,
+        value: Expression,
+    },
+    /// If statement
+    If {
+        condition: Expression,
+        then_branch: Vec<SeqStatement>,
+        else_branch: Option<Vec<SeqStatement>>,
+    },
+    /// Assert statement
+    Assert(AssertStmt),
+    /// Memory write (mem[addr] = value)
+    MemWrite {
+        mem_name: String,
+        addr: Expression,
+        value: Expression,
+    },
+    /// For loop: for i in start..end { body }
+    For {
+        var: String,
+        range: RangeExpr,
+        body: Vec<SeqStatement>,
+    },
+    /// While loop: while condition { body }
+    While {
+        condition: Expression,
+        body: Vec<SeqStatement>,
+    },
+}
+
+/// Await expression
+#[derive(Clone, Debug)]
+pub enum AwaitExpr {
+    /// Clock edge (clk.posedge / clk.negedge)
+    ClockEdge {
+        signal: String,
+        edge: ClockEdge,
+    },
+    /// Clock cycles (clk.cycles(N))
+    ClockCycles {
+        signal: String,
+        count: Expression,
+    },
+    /// Until condition with optional timeout
+    Until {
+        condition: Expression,
+        timeout: Option<Duration>,
+    },
+}
+
+/// Signal path (e.g., dut.counter, dut.sub.signal)
+#[derive(Clone, Debug)]
+pub struct SignalPath {
+    pub segments: Vec<String>,
+}
+
+impl SignalPath {
+    pub fn to_string(&self) -> String {
+        self.segments.join(".")
+    }
+}
+
+/// Duration with time unit
+#[derive(Clone, Debug)]
+pub struct Duration {
+    pub value: u64,
+    pub unit: TimeUnit,
+}
+
+impl Duration {
+    /// Convert to picoseconds
+    pub fn to_picoseconds(&self) -> u64 {
+        match self.unit {
+            TimeUnit::Ps => self.value,
+            TimeUnit::Ns => self.value * 1_000,
+            TimeUnit::Us => self.value * 1_000_000,
+            TimeUnit::Ms => self.value * 1_000_000_000,
+            TimeUnit::S => self.value * 1_000_000_000_000,
+        }
+    }
+}
+
+/// Time unit
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimeUnit {
+    Ps,  // picoseconds
+    Ns,  // nanoseconds
+    Us,  // microseconds
+    Ms,  // milliseconds
+    S,   // seconds
+}
+
+impl Default for TimeUnit {
+    fn default() -> Self {
+        TimeUnit::Ns
+    }
+}
+
+/// Assert statement
+#[derive(Clone, Debug)]
+pub struct AssertStmt {
+    pub condition: Expression,
+    pub message: Option<String>,
+    /// Source location for error reporting
+    pub span: Option<Span>,
 }
 
 /// Combinational logic block
@@ -228,6 +560,28 @@ pub enum Statement {
         expr: Expression,
         arms: Vec<MatchArm>,
     },
+    /// For loop: for i in start..end { body }
+    For {
+        var: String,
+        range: RangeExpr,
+        body: Vec<Statement>,
+    },
+    /// While loop: while condition { body }
+    While {
+        condition: Expression,
+        body: Vec<Statement>,
+    },
+}
+
+/// Range expression for for loops
+#[derive(Clone, Debug)]
+pub struct RangeExpr {
+    /// Start value (inclusive)
+    pub start: Expression,
+    /// End value
+    pub end: Expression,
+    /// True if end is inclusive (..=)
+    pub inclusive: bool,
 }
 
 /// Match arm
@@ -291,6 +645,11 @@ pub enum Expression {
     },
     /// Concatenation: {a, b, c}
     Concat(Vec<Expression>),
+    /// Memory read: mem[addr]
+    MemRead {
+        mem_name: String,
+        addr: Box<Expression>,
+    },
 }
 
 /// Literal value
@@ -393,6 +752,56 @@ impl fmt::Display for UnaryOp {
             UnaryOp::Not => write!(f, "~"),
             UnaryOp::Neg => write!(f, "-"),
             UnaryOp::LogNot => write!(f, "!"),
+        }
+    }
+}
+
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Literal::Binary { width, value } => write!(f, "{}'b{:b}", width, value),
+            Literal::Hex { width, value } => write!(f, "{}'h{:x}", width, value),
+            Literal::Decimal { width: Some(w), value } => write!(f, "{}'d{}", w, value),
+            Literal::Decimal { width: None, value } => write!(f, "{}", value),
+        }
+    }
+}
+
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expression::Literal(lit) => write!(f, "{}", lit),
+            Expression::Ident(name) => write!(f, "{}", name),
+            Expression::BinOp { op, lhs, rhs } => write!(f, "{} {} {}", lhs, op, rhs),
+            Expression::UnaryOp { op, expr } => write!(f, "{}{}", op, expr),
+            Expression::Index { base, index } => write!(f, "{}[{}]", base, index),
+            Expression::Slice { base, high, low } => write!(f, "{}[{}:{}]", base, high, low),
+            Expression::MethodCall { receiver, method, args } => {
+                write!(f, "{}.{}(", receiver, method)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            Expression::If { condition, then_expr, else_expr } => {
+                write!(f, "if {} {{ {} }} else {{ {} }}", condition, then_expr, else_expr)
+            }
+            Expression::Concat(exprs) => {
+                write!(f, "{{")?;
+                for (i, expr) in exprs.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", expr)?;
+                }
+                write!(f, "}}")
+            }
+            Expression::MemRead { mem_name, addr } => {
+                write!(f, "{}[{}]", mem_name, addr)
+            }
         }
     }
 }

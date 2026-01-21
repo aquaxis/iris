@@ -4,12 +4,49 @@
 
 use std::collections::HashMap;
 
-use crate::parser::{Expression, Instance, LogicBlock, Module, ResetMode, Statement};
+use crate::parser::{
+    AssertStmt, AwaitExpr, Expression, FsmAction, FsmBlock, LogicBlock, MemInit, MemReadMode,
+    MemType, Module, ResetMode, SeqStatement, Span, Statement,
+};
 use crate::project::Project;
 use crate::types::{SignalValue, SimTime};
 
+/// Memory runtime state
+#[derive(Debug, Clone)]
+pub struct MemoryState {
+    /// Memory name
+    pub name: String,
+    /// Element width in bits
+    pub element_width: usize,
+    /// Memory depth
+    pub depth: usize,
+    /// Memory contents
+    pub data: Vec<SignalValue>,
+    /// Read mode (sync/async)
+    pub read_mode: MemReadMode,
+    /// Is ROM (read-only)
+    pub is_rom: bool,
+    /// Registered read data (for sync read)
+    pub read_data_reg: SignalValue,
+}
+
 use super::eval::Evaluator;
 use super::trace::SignalTrace;
+
+/// Metastability warning information
+#[derive(Debug, Clone)]
+pub struct MetastabilityWarning {
+    /// Simulation time when the warning occurred
+    pub time: SimTime,
+    /// Module path where the warning occurred
+    pub module_path: String,
+    /// Clock signal name
+    pub clock_signal: String,
+    /// Reset signal name
+    pub reset_signal: String,
+    /// Clock edge type
+    pub clock_edge: String,
+}
 
 /// Instance runtime state
 #[derive(Debug)]
@@ -52,11 +89,45 @@ pub struct HierarchicalSimulator {
     reset_duration: u64,
     /// Current cycle count (for test mode reset)
     cycle_count: u64,
+    /// Enable metastability warnings
+    warn_metastability: bool,
+    /// Collected metastability warnings
+    metastability_warnings: Vec<MetastabilityWarning>,
+    /// Initial blocks have been executed
+    initial_executed: bool,
+    /// Assertion failures
+    assertion_failures: Vec<AssertionFailure>,
+    /// FSM current states (fsm_name -> current_state_name)
+    fsm_states: HashMap<String, String>,
+    /// Memory states (memory_name -> MemoryState)
+    memories: HashMap<String, MemoryState>,
+}
+
+/// Assertion failure information
+#[derive(Debug, Clone)]
+pub struct AssertionFailure {
+    /// Simulation time when the assertion failed
+    pub time: SimTime,
+    /// Assertion message (if provided)
+    pub message: Option<String>,
+    /// Condition expression (as string for display)
+    pub condition: String,
+    /// Source location (line, column)
+    pub span: Option<Span>,
+    /// Left-hand side value (for binary comparisons)
+    pub lhs_value: Option<String>,
+    /// Right-hand side value (for binary comparisons)
+    pub rhs_value: Option<String>,
 }
 
 impl HierarchicalSimulator {
     /// Create a new hierarchical simulator
     pub fn new(project: Project) -> Self {
+        Self::with_options(project, false)
+    }
+
+    /// Create a new hierarchical simulator with options
+    pub fn with_options(project: Project, warn_metastability: bool) -> Self {
         let top_module = project.top_module.clone().unwrap_or_default();
         let is_test_mode = project.is_top_test_module();
         let mut sim = Self {
@@ -73,6 +144,12 @@ impl HierarchicalSimulator {
             is_test_mode,
             reset_duration: 5, // Default: 5 cycles reset
             cycle_count: 0,
+            warn_metastability,
+            metastability_warnings: Vec::new(),
+            initial_executed: false,
+            assertion_failures: Vec::new(),
+            fsm_states: HashMap::new(),
+            memories: HashMap::new(),
         };
         sim.initialize();
         sim
@@ -82,11 +159,172 @@ impl HierarchicalSimulator {
     fn initialize(&mut self) {
         if let Some(top) = self.project.get_module(&self.top_module).cloned() {
             self.initialize_module(&top, "");
+            // Initialize FSMs
+            self.initialize_fsms(&top);
+            // Initialize memories
+            self.initialize_memories(&top);
         }
 
         // For test mode, initialize clock and reset
         if self.is_test_mode {
             self.initialize_test_signals();
+        }
+    }
+
+    /// Initialize memories
+    fn initialize_memories(&mut self, module: &Module) {
+        for mem in &module.memories {
+            let element_width = mem.element_type.width().unwrap_or(8);
+            let depth = mem.depth;
+
+            // Determine read mode (default: async)
+            let read_mode = mem.config.read_mode.unwrap_or(MemReadMode::Async);
+
+            // Determine if ROM
+            let is_rom = mem.config.mem_type == Some(MemType::Rom);
+
+            // Initialize memory contents
+            let mut data: Vec<SignalValue> = Vec::with_capacity(depth);
+
+            // Apply initialization if provided
+            match &mem.init {
+                Some(MemInit::Values(values)) => {
+                    for (i, expr) in values.iter().enumerate() {
+                        if i >= depth {
+                            break;
+                        }
+                        let evaluator = Evaluator::new(&self.signals);
+                        let val = evaluator
+                            .eval(expr)
+                            .unwrap_or_else(|_| SignalValue::new(element_width));
+                        data.push(val);
+                    }
+                    // Fill remaining with zeros
+                    while data.len() < depth {
+                        data.push(SignalValue::new(element_width));
+                    }
+                }
+                Some(MemInit::File(path)) => {
+                    // Try to load from file
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        for (i, line) in content.lines().enumerate() {
+                            if i >= depth {
+                                break;
+                            }
+                            let line = line.trim();
+                            if line.is_empty() || line.starts_with("//") {
+                                continue;
+                            }
+                            // Try to parse as hex (default) or binary
+                            let val = if let Ok(v) = u64::from_str_radix(line, 16) {
+                                SignalValue::from_u64(v, element_width)
+                            } else if let Ok(v) = u64::from_str_radix(line, 2) {
+                                SignalValue::from_u64(v, element_width)
+                            } else {
+                                SignalValue::new(element_width)
+                            };
+                            data.push(val);
+                        }
+                    }
+                    // Fill remaining with zeros
+                    while data.len() < depth {
+                        data.push(SignalValue::new(element_width));
+                    }
+                }
+                None => {
+                    // Initialize all to zero
+                    for _ in 0..depth {
+                        data.push(SignalValue::new(element_width));
+                    }
+                }
+            }
+
+            let state = MemoryState {
+                name: mem.name.clone(),
+                element_width,
+                depth,
+                data,
+                read_mode,
+                is_rom,
+                read_data_reg: SignalValue::new(element_width),
+            };
+
+            self.memories.insert(mem.name.clone(), state);
+
+            // Create signals for memory read data
+            let read_data_signal = format!("{}_rdata", mem.name);
+            self.signals
+                .insert(read_data_signal.clone(), SignalValue::new(element_width));
+            self.trace
+                .record(&read_data_signal, 0, SignalValue::new(element_width));
+        }
+    }
+
+    /// Read from memory
+    pub fn memory_read(&self, mem_name: &str, addr: usize) -> Option<SignalValue> {
+        if let Some(mem) = self.memories.get(mem_name) {
+            if addr < mem.depth {
+                return Some(mem.data[addr].clone());
+            }
+        }
+        None
+    }
+
+    /// Write to memory (returns false if ROM or out of bounds)
+    pub fn memory_write(&mut self, mem_name: &str, addr: usize, value: SignalValue) -> bool {
+        if let Some(mem) = self.memories.get_mut(mem_name) {
+            if mem.is_rom {
+                return false; // Cannot write to ROM
+            }
+            if addr < mem.depth {
+                mem.data[addr] = value;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get memory state
+    pub fn get_memory(&self, name: &str) -> Option<&MemoryState> {
+        self.memories.get(name)
+    }
+
+    /// Initialize FSMs to their first state
+    fn initialize_fsms(&mut self, module: &Module) {
+        for fsm in &module.fsm_blocks {
+            // Set initial state to the first state in the enum
+            if let Some(first_state) = fsm.states.first() {
+                self.fsm_states.insert(fsm.name.clone(), first_state.name.clone());
+
+                // Create a signal to track the FSM state (useful for debugging)
+                let state_signal_name = format!("{}_state", fsm.name);
+                // Encode state as index
+                let state_index = 0u64;
+                let width = (fsm.states.len() as f64).log2().ceil().max(1.0) as usize;
+                let value = SignalValue::from_u64(state_index, width);
+                self.signals.insert(state_signal_name.clone(), value.clone());
+                self.trace.record(&state_signal_name, 0, value);
+
+                // Apply initial Moore outputs
+                self.apply_moore_outputs(fsm, &first_state.name);
+            }
+        }
+    }
+
+    /// Apply Moore outputs for a given state
+    fn apply_moore_outputs(&mut self, fsm: &FsmBlock, state_name: &str) {
+        // Find the state
+        if let Some(state) = fsm.states.iter().find(|s| s.name == state_name) {
+            for (output_name, value_expr) in &state.moore_outputs {
+                let evaluator = HierarchicalEvaluator::new(&self.signals, "");
+                if let Ok(val) = evaluator.eval(value_expr) {
+                    let changed = self.signals.get(output_name) != Some(&val);
+                    self.signals.insert(output_name.clone(), val.clone());
+                    if changed {
+                        self.trace.record(output_name, self.time, val);
+                    }
+                }
+            }
         }
     }
 
@@ -190,6 +428,11 @@ impl HierarchicalSimulator {
 
     /// Deassert reset
     pub fn deassert_reset(&mut self) {
+        // Check for metastability before deasserting
+        if self.warn_metastability && self.reset_active {
+            self.check_and_record_metastability_warning();
+        }
+
         if let Some(ref rst) = self.reset_signal.clone() {
             self.signals.insert(rst.clone(), SignalValue::from_u64(0, 1));
             self.trace.record(rst, self.time, SignalValue::from_u64(0, 1));
@@ -247,9 +490,241 @@ impl HierarchicalSimulator {
 
     /// Run simulation for specified number of cycles
     pub fn run_cycles(&mut self, cycles: u64) {
+        // Execute initial blocks once after reset is deasserted
+        if !self.initial_executed && !self.reset_active {
+            self.execute_initial_blocks();
+            self.initial_executed = true;
+        }
+
         for _ in 0..cycles {
             self.step_cycle();
+
+            // Execute initial blocks after reset is deasserted (if not yet done)
+            if !self.initial_executed && !self.reset_active {
+                self.execute_initial_blocks();
+                self.initial_executed = true;
+            }
         }
+    }
+
+    /// Execute all initial blocks and seq blocks
+    fn execute_initial_blocks(&mut self) {
+        if let Some(top) = self.project.get_module(&self.top_module).cloned() {
+            // Execute initial blocks first
+            for initial in &top.initial_blocks {
+                for stmt in &initial.statements {
+                    self.execute_seq_statement(stmt, "");
+                }
+            }
+
+            // Execute seq blocks (testbench sequential code)
+            for seq_block in &top.seq_blocks {
+                for stmt in &seq_block.statements {
+                    self.execute_seq_statement(stmt, "");
+                }
+            }
+        }
+    }
+
+    /// Execute a sequential statement
+    fn execute_seq_statement(&mut self, stmt: &SeqStatement, prefix: &str) {
+        match stmt {
+            SeqStatement::Assign { target, value } => {
+                let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                if let Ok(val) = evaluator.eval(value) {
+                    let name = self.make_signal_name(prefix, target);
+                    let changed = self.signals.get(&name) != Some(&val);
+                    self.signals.insert(name.clone(), val.clone());
+                    if changed {
+                        self.trace.record(&name, self.time, val);
+                    }
+                }
+            }
+            SeqStatement::SignalWrite { path, value } => {
+                let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                if let Ok(val) = evaluator.eval(value) {
+                    let name = path.to_string();
+                    let changed = self.signals.get(&name) != Some(&val);
+                    self.signals.insert(name.clone(), val.clone());
+                    if changed {
+                        self.trace.record(&name, self.time, val);
+                    }
+                }
+            }
+            SeqStatement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                if let Ok(cond_val) = evaluator.eval(condition) {
+                    let is_true = cond_val.to_u64().map(|v| v != 0).unwrap_or(false);
+                    let branch = if is_true {
+                        then_branch
+                    } else if let Some(else_b) = else_branch {
+                        else_b
+                    } else {
+                        return;
+                    };
+                    for s in branch {
+                        self.execute_seq_statement(s, prefix);
+                    }
+                }
+            }
+            SeqStatement::Assert(assert_stmt) => {
+                self.execute_assert(assert_stmt, prefix);
+            }
+            SeqStatement::Delay(duration) => {
+                // Advance simulation time
+                let ps = duration.to_picoseconds();
+                self.time += ps;
+            }
+            SeqStatement::Await(await_expr) => {
+                // For now, await just advances by the appropriate amount
+                self.execute_await(await_expr, prefix);
+            }
+            SeqStatement::MemWrite {
+                mem_name,
+                addr,
+                value,
+            } => {
+                let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                if let (Ok(addr_val), Ok(data_val)) = (evaluator.eval(addr), evaluator.eval(value))
+                {
+                    let addr_usize = addr_val.to_u64().unwrap_or(0) as usize;
+                    self.memory_write(mem_name, addr_usize, data_val);
+                }
+            }
+            SeqStatement::For { var, range, body } => {
+                let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                if let (Ok(start_val), Ok(end_val)) =
+                    (evaluator.eval(&range.start), evaluator.eval(&range.end))
+                {
+                    let start = start_val.to_u64().unwrap_or(0) as i64;
+                    let end = end_val.to_u64().unwrap_or(0) as i64;
+                    let end = if range.inclusive { end + 1 } else { end };
+
+                    for i in start..end {
+                        // Set loop variable in signals
+                        let var_name = self.make_signal_name(prefix, var);
+                        self.signals
+                            .insert(var_name.clone(), SignalValue::from_u64(i as u64, 32));
+
+                        // Execute body
+                        for stmt in body {
+                            self.execute_seq_statement(stmt, prefix);
+                        }
+                    }
+                }
+            }
+            SeqStatement::While { condition, body } => {
+                const MAX_ITERATIONS: usize = 100000; // Prevent infinite loops
+                let mut iterations = 0;
+
+                loop {
+                    if iterations >= MAX_ITERATIONS {
+                        eprintln!(
+                            "Warning: While loop exceeded {} iterations, breaking",
+                            MAX_ITERATIONS
+                        );
+                        break;
+                    }
+
+                    let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                    match evaluator.eval(condition) {
+                        Ok(cond_val) => {
+                            let is_true = cond_val.to_u64().map(|v| v != 0).unwrap_or(false);
+                            if !is_true {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+
+                    // Execute body
+                    for stmt in body {
+                        self.execute_seq_statement(stmt, prefix);
+                    }
+
+                    iterations += 1;
+                }
+            }
+        }
+    }
+
+    /// Execute an assert statement
+    fn execute_assert(&mut self, assert_stmt: &AssertStmt, prefix: &str) {
+        let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+        if let Ok(cond_val) = evaluator.eval(&assert_stmt.condition) {
+            let is_true = cond_val.to_u64().map(|v| v != 0).unwrap_or(false);
+            if !is_true {
+                // Extract lhs/rhs values for binary comparison expressions
+                let (lhs_value, rhs_value) = match &assert_stmt.condition {
+                    Expression::BinOp { lhs, rhs, .. } => {
+                        let lhs_val = evaluator.eval(lhs).ok().and_then(|v| {
+                            v.to_u64().map(|val| format!("0x{:x} ({})", val, val))
+                        });
+                        let rhs_val = evaluator.eval(rhs).ok().and_then(|v| {
+                            v.to_u64().map(|val| format!("0x{:x} ({})", val, val))
+                        });
+                        (lhs_val, rhs_val)
+                    }
+                    _ => (None, None),
+                };
+
+                let failure = AssertionFailure {
+                    time: self.time,
+                    message: assert_stmt.message.clone(),
+                    condition: format!("{}", assert_stmt.condition),
+                    span: assert_stmt.span.clone(),
+                    lhs_value,
+                    rhs_value,
+                };
+                self.assertion_failures.push(failure);
+            }
+        }
+    }
+
+    /// Execute an await expression
+    fn execute_await(&mut self, await_expr: &AwaitExpr, _prefix: &str) {
+        match await_expr {
+            AwaitExpr::ClockEdge { signal: _, edge: _ } => {
+                // Wait for one clock cycle
+                self.time += self.clock_period;
+            }
+            AwaitExpr::ClockCycles { signal: _, count } => {
+                // Evaluate the count expression
+                let evaluator = HierarchicalEvaluator::new(&self.signals, "");
+                if let Ok(count_val) = evaluator.eval(count) {
+                    let cycles = count_val.to_u64().unwrap_or(1);
+                    self.time += self.clock_period * cycles;
+                }
+            }
+            AwaitExpr::Until { condition, timeout } => {
+                // Simple implementation: check condition, advance time if not met
+                let max_time = timeout
+                    .as_ref()
+                    .map(|d| d.to_picoseconds())
+                    .unwrap_or(self.clock_period * 1000); // Default timeout: 1000 cycles
+                let start_time = self.time;
+
+                while self.time - start_time < max_time {
+                    let evaluator = HierarchicalEvaluator::new(&self.signals, "");
+                    if let Ok(cond_val) = evaluator.eval(condition) {
+                        if cond_val.to_u64().map(|v| v != 0).unwrap_or(false) {
+                            return; // Condition met
+                        }
+                    }
+                    self.time += self.clock_period;
+                }
+                // Timeout reached
+            }
+        }
+    }
+
+    /// Get assertion failures
+    pub fn get_assertion_failures(&self) -> &[AssertionFailure] {
+        &self.assertion_failures
     }
 
     /// Execute one clock cycle
@@ -283,9 +758,13 @@ impl HierarchicalSimulator {
 
         if has_async_reset {
             self.apply_reset();
+            // Reset FSMs to initial state
+            self.reset_fsms();
         } else {
             // Execute sync blocks for all modules
             self.execute_all_sync_blocks();
+            // Execute FSM transitions
+            self.execute_fsms();
         }
 
         // Execute comb blocks for all modules
@@ -428,6 +907,129 @@ impl HierarchicalSimulator {
         }
     }
 
+    /// Reset all FSMs to their initial state
+    fn reset_fsms(&mut self) {
+        if let Some(top) = self.project.get_module(&self.top_module).cloned() {
+            for fsm in &top.fsm_blocks {
+                if let Some(first_state) = fsm.states.first() {
+                    self.fsm_states.insert(fsm.name.clone(), first_state.name.clone());
+
+                    // Update state signal
+                    let state_signal_name = format!("{}_state", fsm.name);
+                    let width = (fsm.states.len() as f64).log2().ceil().max(1.0) as usize;
+                    let value = SignalValue::from_u64(0, width);
+                    let changed = self.signals.get(&state_signal_name) != Some(&value);
+                    self.signals.insert(state_signal_name.clone(), value.clone());
+                    if changed {
+                        self.trace.record(&state_signal_name, self.time, value);
+                    }
+
+                    // Apply initial Moore outputs
+                    self.apply_moore_outputs(&fsm, &first_state.name);
+                }
+            }
+        }
+    }
+
+    /// Execute FSM transitions
+    fn execute_fsms(&mut self) {
+        if let Some(top) = self.project.get_module(&self.top_module).cloned() {
+            for fsm in &top.fsm_blocks {
+                self.execute_fsm(&fsm);
+            }
+        }
+    }
+
+    /// Execute a single FSM
+    fn execute_fsm(&mut self, fsm: &FsmBlock) {
+        let current_state = match self.fsm_states.get(&fsm.name) {
+            Some(s) => s.clone(),
+            None => return,
+        };
+
+        // Find transition for current state
+        let mut next_state = current_state.clone();
+        let mut found_transition = false;
+
+        for transition in &fsm.transitions {
+            // Check if this transition applies to current state
+            if transition.from_state == current_state || transition.from_state == "_" {
+                // Evaluate when clauses
+                for when_clause in &transition.when_clauses {
+                    let evaluator = HierarchicalEvaluator::new(&self.signals, "");
+                    if let Ok(cond_val) = evaluator.eval(&when_clause.condition) {
+                        let is_true = cond_val.to_u64().map(|v| v != 0).unwrap_or(false);
+                        if is_true {
+                            // Execute actions
+                            for action in &when_clause.actions {
+                                match action {
+                                    FsmAction::Goto(state) => {
+                                        next_state = state.clone();
+                                        found_transition = true;
+                                    }
+                                    FsmAction::Assign { target, value } => {
+                                        let evaluator = HierarchicalEvaluator::new(&self.signals, "");
+                                        if let Ok(val) = evaluator.eval(value) {
+                                            let changed = self.signals.get(target) != Some(&val);
+                                            self.signals.insert(target.clone(), val.clone());
+                                            if changed {
+                                                self.trace.record(target, self.time, val);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            break; // First matching when clause wins
+                        }
+                    }
+                }
+
+                if found_transition {
+                    break; // First matching transition wins
+                }
+            }
+        }
+
+        // Update state if changed
+        if next_state != current_state {
+            self.fsm_states.insert(fsm.name.clone(), next_state.clone());
+
+            // Update state signal
+            let state_signal_name = format!("{}_state", fsm.name);
+            let state_index = fsm.states.iter()
+                .position(|s| s.name == next_state)
+                .unwrap_or(0) as u64;
+            let width = (fsm.states.len() as f64).log2().ceil().max(1.0) as usize;
+            let value = SignalValue::from_u64(state_index, width);
+            let changed = self.signals.get(&state_signal_name) != Some(&value);
+            self.signals.insert(state_signal_name.clone(), value.clone());
+            if changed {
+                self.trace.record(&state_signal_name, self.time, value);
+            }
+
+            // Apply Moore outputs for new state
+            self.apply_moore_outputs(fsm, &next_state);
+        }
+
+        // Apply Mealy outputs (output blocks)
+        for output in &fsm.outputs {
+            let current_state = self.fsm_states.get(&fsm.name).cloned().unwrap_or_default();
+            for (state_name, value_expr) in &output.mappings {
+                if state_name == &current_state {
+                    let evaluator = HierarchicalEvaluator::new(&self.signals, "");
+                    if let Ok(val) = evaluator.eval(value_expr) {
+                        let changed = self.signals.get(&output.signal) != Some(&val);
+                        self.signals.insert(output.signal.clone(), val.clone());
+                        if changed {
+                            self.trace.record(&output.signal, self.time, val);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     /// Execute all comb blocks
     fn execute_all_comb_blocks(&mut self) {
         // Iterate until convergence
@@ -513,7 +1115,59 @@ impl HierarchicalSimulator {
                     }
                 }
             }
-            _ => {}
+            Statement::For { var: _, range, body } => {
+                // For comb/sync blocks, for loops are unrolled at compile time
+                // The range must be known at compile time
+                let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                if let (Ok(start_val), Ok(end_val)) =
+                    (evaluator.eval(&range.start), evaluator.eval(&range.end))
+                {
+                    let start = start_val.to_u64().unwrap_or(0) as i64;
+                    let end = end_val.to_u64().unwrap_or(0) as i64;
+                    let end = if range.inclusive { end + 1 } else { end };
+
+                    for _i in start..end {
+                        for stmt in body {
+                            if let Some(result) = self.execute_statement(stmt, prefix) {
+                                return Some(result);
+                            }
+                        }
+                    }
+                }
+            }
+            Statement::While { condition, body } => {
+                // For comb/sync blocks, while loops need careful handling
+                const MAX_ITERATIONS: usize = 1000;
+                let mut iterations = 0;
+
+                loop {
+                    if iterations >= MAX_ITERATIONS {
+                        break;
+                    }
+
+                    let evaluator = HierarchicalEvaluator::new(&self.signals, prefix);
+                    match evaluator.eval(condition) {
+                        Ok(cond_val) => {
+                            let is_true = cond_val.to_u64().map(|v| v != 0).unwrap_or(false);
+                            if !is_true {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+
+                    for stmt in body {
+                        if let Some(result) = self.execute_statement(stmt, prefix) {
+                            return Some(result);
+                        }
+                    }
+
+                    iterations += 1;
+                }
+            }
+            Statement::Match { .. } => {
+                // Match is already handled via pattern matching in other contexts
+            }
         }
         None
     }
@@ -527,17 +1181,84 @@ impl HierarchicalSimulator {
     pub fn get_trace(&self) -> &SignalTrace {
         &self.trace
     }
+
+    /// Check and record metastability warning for async reset blocks
+    fn check_and_record_metastability_warning(&mut self) {
+        if let Some(top) = self.project.get_module(&self.top_module).cloned() {
+            self.check_module_metastability(&top, "");
+        }
+    }
+
+    /// Check a module and its instances for async reset usage
+    fn check_module_metastability(&mut self, module: &Module, prefix: &str) {
+        for block in &module.logic_blocks {
+            if let LogicBlock::Sync(sync) = block {
+                if let Some(ref reset) = sync.reset {
+                    if matches!(reset.mode, ResetMode::Async) {
+                        let module_path = if prefix.is_empty() {
+                            module.name.clone()
+                        } else {
+                            format!("{}.{}", prefix, module.name)
+                        };
+
+                        let warning = MetastabilityWarning {
+                            time: self.time,
+                            module_path,
+                            clock_signal: sync.clock.signal.clone(),
+                            reset_signal: reset.signal.clone(),
+                            clock_edge: format!("{}", sync.clock.edge),
+                        };
+                        self.metastability_warnings.push(warning);
+                    }
+                }
+            }
+        }
+
+        // Check instances recursively
+        for inst in &module.instances {
+            let inst_prefix = if prefix.is_empty() {
+                inst.name.clone()
+            } else {
+                format!("{}.{}", prefix, inst.name)
+            };
+            if let Some(inst_module) = self.project.get_module(&inst.module_name).cloned() {
+                self.check_module_metastability(&inst_module, &inst_prefix);
+            }
+        }
+    }
+
+    /// Get collected metastability warnings
+    pub fn get_metastability_warnings(&self) -> &[MetastabilityWarning] {
+        &self.metastability_warnings
+    }
 }
 
 /// Hierarchical evaluator that resolves instance.signal references
 struct HierarchicalEvaluator<'a> {
     signals: &'a HashMap<String, SignalValue>,
     prefix: &'a str,
+    memories: Option<&'a HashMap<String, MemoryState>>,
 }
 
 impl<'a> HierarchicalEvaluator<'a> {
     fn new(signals: &'a HashMap<String, SignalValue>, prefix: &'a str) -> Self {
-        Self { signals, prefix }
+        Self {
+            signals,
+            prefix,
+            memories: None,
+        }
+    }
+
+    fn with_memories(
+        signals: &'a HashMap<String, SignalValue>,
+        prefix: &'a str,
+        memories: &'a HashMap<String, MemoryState>,
+    ) -> Self {
+        Self {
+            signals,
+            prefix,
+            memories: Some(memories),
+        }
     }
 
     fn resolve_signal(&self, name: &str) -> Option<&SignalValue> {
@@ -708,6 +1429,21 @@ impl<'a> HierarchicalEvaluator<'a> {
                 } else {
                     self.eval(else_expr)
                 }
+            }
+            Expression::MemRead { mem_name, addr } => {
+                if let Some(memories) = self.memories {
+                    let addr_val = self.eval(addr)?;
+                    let addr_usize = addr_val.to_u64().unwrap_or(0) as usize;
+                    if let Some(mem) = memories.get(mem_name) {
+                        if addr_usize < mem.depth {
+                            return Ok(mem.data[addr_usize].clone());
+                        }
+                    }
+                }
+                Err(super::eval::EvalError::UndefinedSignal(format!(
+                    "memory read {}",
+                    mem_name
+                )))
             }
             _ => Err(super::eval::EvalError::InvalidOperation("Unsupported expression".to_string())),
         }

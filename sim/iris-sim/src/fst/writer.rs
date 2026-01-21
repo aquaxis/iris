@@ -1,7 +1,7 @@
 //! Waveform writer module
 //!
-//! Provides waveform output functionality supporting VCD and FST formats.
-//! VCD files can be viewed with GTKWave or converted to FST using vcd2fst.
+//! Provides waveform output functionality supporting VCD format.
+//! VCD files can be viewed with GTKWave.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -19,27 +19,6 @@ pub enum WaveformError {
     Io(#[from] std::io::Error),
     #[error("Invalid signal: {0}")]
     InvalidSignal(String),
-    #[error("FST error: {0}")]
-    FstError(String),
-}
-
-/// Waveform output format
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WaveformFormat {
-    /// VCD (Value Change Dump) - IEEE 1364 standard text format
-    Vcd,
-    /// FST (Fast Signal Trace) - GTKWave binary format
-    Fst,
-}
-
-impl WaveformFormat {
-    /// Detect format from file extension
-    pub fn from_extension(path: &Path) -> Self {
-        match path.extension().and_then(|e| e.to_str()) {
-            Some("fst") => WaveformFormat::Fst,
-            _ => WaveformFormat::Vcd,
-        }
-    }
 }
 
 /// Trait for waveform writers

@@ -9,5 +9,5 @@ mod trace;
 
 pub use engine::Simulator;
 pub use eval::{EvalError, Evaluator};
-pub use hierarchy::HierarchicalSimulator;
+pub use hierarchy::{AssertionFailure, HierarchicalSimulator, MetastabilityWarning};
 pub use trace::SignalTrace;
