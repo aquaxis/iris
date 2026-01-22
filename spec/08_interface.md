@@ -1,12 +1,12 @@
-# 第7章 インターフェース
+# 第8章 インターフェース
 
-[<< FSM](./06_fsm.md) | [目次](./iris_spec_0.1.0.md) | [演算子 >>](./08_operators.md)
+[<< FSM](./07_fsm.md) | [目次](./iris_spec_0.1.0.md) | [演算子 >>](./09_operators.md)
 
 ---
 
-## 7.1 インターフェース構文
+## 8.1 インターフェース構文
 
-### 7.1.1 EBNF定義
+### 8.1.1 EBNF定義
 
 ```ebnf
 interface_decl = "interface" identifier [ generic_params ] [ where_clause ]
@@ -21,7 +21,7 @@ direction = "in" | "out" | "inout" ;
 signal_list = identifier { "," identifier } [ "," ] ;
 ```
 
-### 7.1.2 基本定義
+### 8.1.2 基本定義
 
 ```rust
 interface AxiLite[AddrWidth: uint = 32, DataWidth: uint = 32] {
@@ -71,9 +71,9 @@ interface AxiLite[AddrWidth: uint = 32, DataWidth: uint = 32] {
 
 ---
 
-## 7.2 ビュー定義
+## 8.2 ビュー定義
 
-### 7.2.1 標準ビュー名
+### 8.2.1 標準ビュー名
 
 | ビュー名 | 説明 | 用途 |
 |----------|------|------|
@@ -82,7 +82,7 @@ interface AxiLite[AddrWidth: uint = 32, DataWidth: uint = 32] {
 | `monitor` | 観測専用（全信号入力） | 検証用 |
 | カスタム名 | ユーザー定義ビュー | 特殊接続 |
 
-### 7.2.2 ビュー方向規則
+### 8.2.2 ビュー方向規則
 
 ```rust
 interface Handshake {
@@ -109,7 +109,7 @@ interface Handshake {
 }
 ```
 
-### 7.2.3 双方向信号
+### 8.2.3 双方向信号
 
 ```rust
 interface I2C {
@@ -130,9 +130,9 @@ interface I2C {
 
 ---
 
-## 7.3 インターフェースの使用
+## 8.3 インターフェースの使用
 
-### 7.3.1 ポート宣言
+### 8.3.1 ポート宣言
 
 ```rust
 mod AxiMaster(
@@ -160,7 +160,7 @@ mod AxiSlave(
 }
 ```
 
-### 7.3.2 インターフェース接続
+### 8.3.2 インターフェース接続
 
 ```rust
 mod Top(
@@ -186,7 +186,7 @@ mod Top(
 }
 ```
 
-### 7.3.3 配列インターフェース
+### 8.3.3 配列インターフェース
 
 ```rust
 mod MultiPortController(
@@ -205,9 +205,9 @@ mod MultiPortController(
 
 ---
 
-## 7.4 インターフェースの合成
+## 8.4 インターフェースの合成
 
-### 7.4.1 信号展開規則
+### 8.4.1 信号展開規則
 
 インターフェースは合成時に個別信号に展開されます。
 
@@ -233,7 +233,7 @@ module Producer (
 );
 ```
 
-### 7.4.2 命名規則
+### 8.4.2 命名規則
 
 | パターン | 生成される信号名 |
 |----------|------------------|
@@ -243,9 +243,9 @@ module Producer (
 
 ---
 
-## 7.5 インターフェース継承とコンポジション
+## 8.5 インターフェース継承とコンポジション
 
-### 7.5.1 インターフェース継承
+### 8.5.1 インターフェース継承
 
 ```rust
 // 基本インターフェース
@@ -281,7 +281,7 @@ interface AxiStream extends StreamBase {
 - 多重継承は禁止（単一継承のみ）
 - 継承の深さは3レベルまでを推奨
 
-### 7.5.2 インターフェースのコンポジション
+### 8.5.2 インターフェースのコンポジション
 
 ```rust
 interface AxiFull {
@@ -304,9 +304,9 @@ interface AxiFull {
 
 ---
 
-## 7.6 接続規則
+## 8.6 接続規則
 
-### 7.6.1 接続の妥当性チェック
+### 8.6.1 接続の妥当性チェック
 
 | 接続パターン | 有効性 | 備考 |
 |--------------|--------|------|
@@ -315,7 +315,7 @@ interface AxiFull {
 | target ↔ target | エラー | 駆動なし |
 | monitor ↔ any | 有効 | 観測のみ |
 
-### 7.6.2 エラー例
+### 8.6.2 エラー例
 
 ```rust
 // エラー例
@@ -342,4 +342,4 @@ error[O0030]: incompatible interface views
 
 ---
 
-[<< FSM](./06_fsm.md) | [目次](./iris_spec_0.1.0.md) | [演算子 >>](./08_operators.md)
+[<< FSM](./07_fsm.md) | [目次](./iris_spec_0.1.0.md) | [演算子 >>](./09_operators.md)

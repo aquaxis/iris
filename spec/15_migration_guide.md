@@ -1,12 +1,12 @@
-# 第14章 SystemVerilog移行ガイド
+# 第15章 SystemVerilog移行ガイド
 
-[<< エラーメッセージ](./13_error_messages.md) | [目次](./iris_spec_0.1.0.md) | [文法定義 >>](./15_grammar.md)
+[<< エラーメッセージ](./14_error_messages.md) | [目次](./iris_spec_0.1.0.md) | [文法定義 >>](./16_grammar.md)
 
 ---
 
-## 14.1 基本的な対応表
+## 15.1 基本的な対応表
 
-### 14.1.1 モジュール宣言
+### 15.1.1 モジュール宣言
 
 | SystemVerilog | IRIS |
 |---------------|------|
@@ -37,7 +37,7 @@ mod Counter[Width: uint = 8] {
 }
 ```
 
-### 14.1.2 データ型
+### 15.1.2 データ型
 
 | SystemVerilog | IRIS | 備考 |
 |---------------|------|------|
@@ -52,7 +52,7 @@ mod Counter[Width: uint = 8] {
 
 ---
 
-## 14.2 組み合わせ論理
+## 15.2 組み合わせ論理
 
 **SystemVerilog:**
 ```systemverilog
@@ -80,7 +80,7 @@ comb {
 
 ---
 
-## 14.3 順序論理
+## 15.3 順序論理
 
 **SystemVerilog:**
 ```systemverilog
@@ -105,7 +105,7 @@ sync(clk.posedge, rst_n.async) {
 
 ---
 
-## 14.4 FSM
+## 15.4 FSM
 
 **SystemVerilog:**
 ```systemverilog
@@ -141,9 +141,9 @@ fsm Controller(clk.posedge, rst_n.async.active_low) {
 
 ---
 
-## 14.5 よくあるパターンの変換
+## 15.5 よくあるパターンの変換
 
-### 14.5.1 パラメータ化モジュール
+### 15.5.1 パラメータ化モジュール
 
 **SystemVerilog:**
 ```systemverilog
@@ -167,7 +167,7 @@ mod Fifo[Width: uint = 8, Depth: uint = 16, T: type = bit[Width]] {
 }
 ```
 
-### 14.5.2 generate文
+### 15.5.2 generate文
 
 **SystemVerilog:**
 ```systemverilog
@@ -189,7 +189,7 @@ for i in 0..N {
 }
 ```
 
-### 14.5.3 インターフェース
+### 15.5.3 インターフェース
 
 **SystemVerilog:**
 ```systemverilog
@@ -227,7 +227,7 @@ interface AxiLite {
 }
 ```
 
-### 14.5.4 アサーション
+### 15.5.4 アサーション
 
 **SystemVerilog:**
 ```systemverilog
@@ -245,9 +245,9 @@ cover @(clk.posedge) req ##1 ack;
 
 ---
 
-## 14.6 変換時の注意点
+## 15.6 変換時の注意点
 
-### 14.6.1 暗黙の型変換
+### 15.6.1 暗黙の型変換
 
 SystemVerilogでは暗黙の型変換が許可されるが、IRISでは明示的な変換が必要。
 
@@ -267,7 +267,7 @@ b = a.extend[16]();  // 明示的なゼロ拡張
 b = a as bit[16];    // キャスト
 ```
 
-### 14.6.2 代入演算子の統一
+### 15.6.2 代入演算子の統一
 
 IRISでは代入演算子を`=`に統一。コンテキストに応じてコンパイラが適切に解釈。
 
@@ -276,7 +276,7 @@ IRISでは代入演算子を`=`に統一。コンテキストに応じてコン�
 | always_comb + `=` | `let x = expr;` | 組み合わせ論理 |
 | always_ff + `<=` | syncブロック内で`=` | 順序論理 |
 
-### 14.6.3 default/case
+### 15.6.3 default/case
 
 SystemVerilogの`default`はIRISでは`_`（ワイルドカード）。
 
@@ -298,7 +298,7 @@ out = match sel {
 };
 ```
 
-### 14.6.4 メモリアクセス
+### 15.6.4 メモリアクセス
 
 **SystemVerilog:**
 ```systemverilog
@@ -324,7 +324,7 @@ sync(clk.posedge) {
 
 ---
 
-## 14.7 移行チェックリスト
+## 15.7 移行チェックリスト
 
 - [ ] モジュール宣言を`mod`形式に変換
 - [ ] ポート宣言を`in`/`out`/`inout`形式に変換
@@ -341,7 +341,7 @@ sync(clk.posedge) {
 
 ---
 
-## 14.8 キーワード対応表
+## 15.8 キーワード対応表
 
 | SystemVerilog | IRIS | 備考 |
 |---------------|------|------|
@@ -373,4 +373,4 @@ sync(clk.posedge) {
 
 ---
 
-[<< エラーメッセージ](./13_error_messages.md) | [目次](./iris_spec_0.1.0.md) | [文法定義 >>](./15_grammar.md)
+[<< エラーメッセージ](./14_error_messages.md) | [目次](./iris_spec_0.1.0.md) | [文法定義 >>](./16_grammar.md)

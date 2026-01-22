@@ -1,10 +1,10 @@
-# 第16章 サンプルコード集
+# 第17章 サンプルコード集
 
-[<< 文法定義](./15_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./17_glossary.md)
+[<< 文法定義](./16_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./18_glossary.md)
 
 ---
 
-## 16.1 基本的なカウンタ
+## 17.1 基本的なカウンタ
 
 ```rust
 /// 8ビットカウンタ
@@ -30,7 +30,7 @@ mod Counter8(
 
 ---
 
-## 16.2 パラメータ化カウンタ
+## 17.2 パラメータ化カウンタ
 
 ```rust
 /// パラメータ化されたカウンタ
@@ -62,7 +62,7 @@ mod Counter[Width: uint = 8](
 
 ---
 
-## 16.3 パラメータ化FIFO
+## 17.3 パラメータ化FIFO
 
 ```rust
 /// 同期FIFO
@@ -105,7 +105,7 @@ mod SyncFifo[Width: uint = 8, Depth: uint = 16](
 
 ---
 
-## 16.4 ALU（算術論理演算ユニット）
+## 17.4 ALU（算術論理演算ユニット）
 
 ```rust
 /// 4機能ALU
@@ -135,7 +135,7 @@ mod Alu[Width: uint = 8](
 
 ---
 
-## 16.5 シフトレジスタ
+## 17.5 シフトレジスタ
 
 ```rust
 /// パラメータ化シフトレジスタ
@@ -167,7 +167,7 @@ mod ShiftRegister[Width: uint = 8, Depth: uint = 4](
 
 ---
 
-## 16.6 FSM例：UARTトランスミッタ制御
+## 17.6 FSM例：UARTトランスミッタ制御
 
 ```rust
 mod UartTxFsm(
@@ -208,7 +208,7 @@ mod UartTxFsm(
 
 ---
 
-## 16.7 AXI-Lite スレーブ
+## 17.7 AXI-Lite スレーブ
 
 ```rust
 import iris_std::axi::AxiLite;
@@ -268,7 +268,7 @@ mod AxiLiteRegs[NumRegs: uint = 4](
 
 ---
 
-## 16.8 優先度エンコーダ
+## 17.8 優先度エンコーダ
 
 ```rust
 /// パラメータ化優先度エンコーダ
@@ -291,7 +291,7 @@ mod PriorityEncoder[Width: uint = 8](
 
 ---
 
-## 16.9 デュアルポートRAM
+## 17.9 デュアルポートRAM
 
 ```rust
 mod DualPortRam[Width: uint = 32, Depth: uint = 1024](
@@ -332,7 +332,7 @@ mod DualPortRam[Width: uint = 32, Depth: uint = 1024](
 
 ---
 
-## 16.10 パイプライン乗算器
+## 17.10 パイプライン乗算器
 
 ```rust
 /// 3段パイプライン乗算器
@@ -380,7 +380,7 @@ mod PipelinedMultiplier[Width: uint = 16](
 
 ---
 
-## 16.11 クロックドメイン交差（CDC）
+## 17.11 クロックドメイン交差（CDC）
 
 ```rust
 /// 2段フリップフロップ同期化器
@@ -407,7 +407,7 @@ mod Synchronizer[Width: uint = 1](
 
 ---
 
-## 16.12 PWMジェネレータ
+## 17.12 PWMジェネレータ
 
 ```rust
 /// パルス幅変調（PWM）ジェネレータ
@@ -452,7 +452,7 @@ mod PwmGenerator[Width: uint = 8](
 
 ---
 
-## 16.13 タイマーモジュール
+## 17.13 タイマーモジュール
 
 ```rust
 /// プログラマブルタイマー
@@ -519,7 +519,7 @@ mod Timer[Width: uint = 32](
 
 ---
 
-## 16.14 SPIマスターコントローラ
+## 17.14 SPIマスターコントローラ
 
 ```rust
 /// SPI マスターコントローラ（Mode 0: CPOL=0, CPHA=0）
@@ -611,7 +611,7 @@ mod SpiMaster[DataWidth: uint = 8](
 
 ---
 
-## 16.15 I2Cマスターコントローラ
+## 17.15 I2Cマスターコントローラ
 
 ```rust
 /// I2C マスターコントローラ（簡易版）
@@ -766,11 +766,11 @@ mod I2cMaster(
 
 ---
 
-## 16.16 信号宣言パターン集
+## 17.16 信号宣言パターン集
 
 このセクションでは、`let`、`let mut`、`var`宣言を各コンテキスト（comb、sync、fsm）で使用するパターンを示します。
 
-### 16.16.1 let宣言のパターン
+### 17.16.1 let宣言のパターン
 
 #### combでの使用（組み合わせ回路）
 
@@ -858,7 +858,7 @@ mod LetFsmExample(
 }
 ```
 
-### 16.16.2 let mut宣言のパターン
+### 17.16.2 let mut宣言のパターン
 
 #### combでの使用（累積計算用ローカル変数）
 
@@ -958,7 +958,7 @@ mod LetMutFsmExample(
 }
 ```
 
-### 16.16.3 var宣言のパターン
+### 17.16.3 var宣言のパターン
 
 **注意**: `var`宣言は`sync`または`fsm`ブロックでのみ使用可能です。
 
@@ -1041,7 +1041,7 @@ mod VarFsmExample(
 }
 ```
 
-### 16.16.4 使用禁止パターン（エラー例）
+### 17.16.4 使用禁止パターン（エラー例）
 
 以下のパターンはコンパイルエラーになります。
 
@@ -1081,7 +1081,7 @@ mod InvalidVarModuleLevel(
 }
 ```
 
-### 16.16.5 宣言パターン比較表
+### 17.16.5 宣言パターン比較表
 
 | 宣言 | comb | sync | fsm | 回路種別 | 備考 |
 |------|------|------|-----|----------|------|
@@ -1097,7 +1097,7 @@ mod InvalidVarModuleLevel(
 
 ---
 
-## 16.17 テストベンチ例
+## 17.17 テストベンチ例
 
 ```rust
 #[test]
@@ -1150,11 +1150,11 @@ test counter_various_widths[Width in [4, 8, 16, 32]]() {
 
 ---
 
-## 16.18 testモジュール例
+## 17.18 testモジュール例
 
 `test`モジュールはテストベンチ専用のモジュール定義である。ポート宣言を持たず、SystemVerilogのテストベンチトップ階層と同等の役割を持つ。
 
-### 16.18.1 基本的なtestモジュール
+### 17.18.1 基本的なtestモジュール
 
 ```rust
 /// 基本的なカウンタテスト
@@ -1191,7 +1191,7 @@ test CounterTest {
 }
 ```
 
-### 16.18.2 複数DUTの統合テスト
+### 17.18.2 複数DUTの統合テスト
 
 ```rust
 /// FIFOを使用した統合テスト
@@ -1247,7 +1247,7 @@ test FifoIntegrationTest {
 }
 ```
 
-### 16.18.3 複数クロックドメインのテスト
+### 17.18.3 複数クロックドメインのテスト
 
 ```rust
 /// 非同期FIFOのテスト（複数クロックドメイン）
@@ -1311,7 +1311,7 @@ test AsyncFifoTest {
 }
 ```
 
-### 16.18.4 testモジュールとtest関数の使い分け
+### 17.18.4 testモジュールとtest関数の使い分け
 
 | 用途 | 推奨 | 理由 |
 |------|------|------|
@@ -1322,9 +1322,9 @@ test AsyncFifoTest {
 
 ---
 
-## 16.19 seqブロック例
+## 17.19 seqブロック例
 
-### 16.19.1 基本的なseqブロック
+### 17.19.1 基本的なseqブロック
 
 ```rust
 /// seqブロックを使用したカウンタテスト
@@ -1359,7 +1359,7 @@ test CounterSeqTest {
 }
 ```
 
-### 16.19.2 複数seqブロックの並列実行
+### 17.19.2 複数seqブロックの並列実行
 
 ```rust
 /// 並列seqブロックを使用したプロデューサー・コンシューマーテスト
@@ -1434,7 +1434,7 @@ test FifoParallelTest {
 }
 ```
 
-### 16.19.3 条件待機とタイムアウト
+### 17.19.3 条件待機とタイムアウト
 
 ```rust
 /// 条件待機とタイムアウトを使用したテスト
@@ -1488,9 +1488,9 @@ test ProtocolTest {
 
 ---
 
-## 16.20 外部Rust関数呼び出し例
+## 17.20 外部Rust関数呼び出し例
 
-### 16.20.1 基本的な外部Rust関数の使用
+### 17.20.1 基本的な外部Rust関数の使用
 
 **rust/test_utils.rs:**
 ```rust
@@ -1548,7 +1548,7 @@ test CounterWithRust {
 }
 ```
 
-### 16.20.2 テストデータ生成器の使用
+### 17.20.2 テストデータ生成器の使用
 
 **rust/generators.rs:**
 ```rust
@@ -1651,7 +1651,7 @@ test AxiMasterTest {
 }
 ```
 
-### 16.20.3 非同期Rust関数の使用
+### 17.20.3 非同期Rust関数の使用
 
 **rust/async_helpers.rs:**
 ```rust
@@ -1749,7 +1749,7 @@ test MemoryAsyncTest {
 }
 ```
 
-### 16.20.4 extern rustブロックの使用
+### 17.20.4 extern rustブロックの使用
 
 ```rust
 // 明示的にRust関数シグネチャを宣言
@@ -1789,4 +1789,4 @@ test ExternRustTest {
 
 ---
 
-[<< 文法定義](./15_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./17_glossary.md)
+[<< 文法定義](./16_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./18_glossary.md)

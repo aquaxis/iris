@@ -1,12 +1,12 @@
-# 第6章 FSM（有限状態機械）
+# 第7章 FSM（有限状態機械）
 
-[<< 順序論理](./05_sequential_logic.md) | [目次](./iris_spec_0.1.0.md) | [インターフェース >>](./07_interface.md)
+[<< 順序論理](./06_sequential_logic.md) | [目次](./iris_spec_0.1.0.md) | [インターフェース >>](./08_interface.md)
 
 ---
 
-## 6.1 fsmブロック構文
+## 7.1 fsmブロック構文
 
-### 6.1.1 EBNF定義
+### 7.1.1 EBNF定義
 
 ```ebnf
 fsm_block = "fsm" identifier "(" clock_spec "," reset_spec ")"
@@ -27,7 +27,7 @@ encoding_type = "binary" | "onehot" | "gray" ;
 
 ---
 
-## 6.2 基本構造
+## 7.2 基本構造
 
 ```rust
 fsm StateMachineName(clk.posedge, rst.async) {
@@ -85,9 +85,9 @@ fsm StateMachineName(clk.posedge, rst.async) {
 
 ---
 
-## 6.3 状態遷移の記述
+## 7.3 状態遷移の記述
 
-### 6.3.1 状態内の記述要素
+### 7.3.1 状態内の記述要素
 
 | 要素 | 代入演算子 | 説明 |
 |------|-----------|------|
@@ -95,7 +95,7 @@ fsm StateMachineName(clk.posedge, rst.async) {
 | レジスタ更新 | `=` | クロックエッジで更新 |
 | 遷移条件 | `when...goto` | 次状態への遷移 |
 
-### 6.3.2 遷移記述例
+### 7.3.2 遷移記述例
 
 ```rust
 transitions {
@@ -119,7 +119,7 @@ transitions {
 }
 ```
 
-### 6.3.3 複数条件の優先順位
+### 7.3.3 複数条件の優先順位
 
 ```rust
 transitions {
@@ -141,9 +141,9 @@ transitions {
 
 ---
 
-## 6.4 状態エンコーディング
+## 7.4 状態エンコーディング
 
-### 6.4.1 エンコーディング種別
+### 7.4.1 エンコーディング種別
 
 | エンコーディング | 説明 | ビット数 | 用途 |
 |------------------|------|----------|------|
@@ -151,7 +151,7 @@ transitions {
 | `onehot` | ワンホットエンコーディング | N | 高速な状態デコード |
 | `gray` | グレイコードエンコーディング | ⌈log₂N⌉ | CDC対応 |
 
-### 6.4.2 エンコーディング指定
+### 7.4.2 エンコーディング指定
 
 ```rust
 // バイナリ（デフォルト）
@@ -166,7 +166,7 @@ output encoding: gray
 
 ---
 
-## 6.5 タイマー付きFSMの例
+## 7.5 タイマー付きFSMの例
 
 ```rust
 fsm TrafficLight(clk.posedge, rst.async) {
@@ -224,7 +224,7 @@ fsm TrafficLight(clk.posedge, rst.async) {
 
 ---
 
-## 6.6 デフォルト遷移
+## 7.6 デフォルト遷移
 
 いずれの`when`条件にも一致しない場合のデフォルト動作を指定できます。
 
@@ -254,7 +254,7 @@ transitions {
 
 ---
 
-## 6.7 Moore型出力の簡略記法
+## 7.7 Moore型出力の簡略記法
 
 状態に直接紐づく出力を簡潔に記述できます。
 
@@ -278,7 +278,7 @@ fsm Controller(clk.posedge, rst.async) {
 
 ---
 
-## 6.8 合成結果（SystemVerilog相当）
+## 7.8 合成結果（SystemVerilog相当）
 
 **IRIS:**
 
@@ -336,7 +336,7 @@ end
 
 ---
 
-## 6.9 FSM設計のガイドライン
+## 7.9 FSM設計のガイドライン
 
 1. **状態数**: 状態数が多い場合（>16）はバイナリエンコーディングを検討
 2. **出力遅延**: ミーリ型出力は組み合わせ遅延に注意
@@ -346,4 +346,4 @@ end
 
 ---
 
-[<< 順序論理](./05_sequential_logic.md) | [目次](./iris_spec_0.1.0.md) | [インターフェース >>](./07_interface.md)
+[<< 順序論理](./06_sequential_logic.md) | [目次](./iris_spec_0.1.0.md) | [インターフェース >>](./08_interface.md)

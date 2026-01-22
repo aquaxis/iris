@@ -1,12 +1,12 @@
-# 第5章 順序論理
+# 第6章 順序論理
 
-[<< 組み合わせ論理](./04_combinational_logic.md) | [目次](./iris_spec_0.1.0.md) | [FSM >>](./06_fsm.md)
+[<< 組み合わせ論理](./05_combinational_logic.md) | [目次](./iris_spec_0.1.0.md) | [FSM >>](./07_fsm.md)
 
 ---
 
-## 5.1 syncブロック構文
+## 6.1 syncブロック構文
 
-### 5.1.1 EBNF定義
+### 6.1.1 EBNF定義
 
 ```ebnf
 sync_block = "sync" "(" clock_spec [ "," reset_spec ] ")"
@@ -21,7 +21,7 @@ sync_statement = assignment | if_statement ;
 assignment = identifier "=" expression ";" ;
 ```
 
-### 5.1.2 基本形式
+### 6.1.2 基本形式
 
 ```rust
 // 基本フリップフロップ
@@ -43,13 +43,13 @@ sync(clk.negedge) {
 
 ---
 
-## 5.2 順序回路用の信号宣言
+## 6.2 順序回路用の信号宣言
 
 順序回路を記述するには、`let`、`let mut`、または`var`で信号を宣言し、`sync`ブロック内で代入します。
 
 **重要:** IRISでは、信号の合成結果は**使用コンテキスト**によって決定されます。`let`で宣言した信号でも、`sync`ブロック内で代入されると順序回路（レジスタ）として合成されます。
 
-### 5.2.1 letによる宣言
+### 6.2.1 letによる宣言
 
 ```rust
 // letでも順序回路として使用可能
@@ -61,7 +61,7 @@ sync(clk.posedge, rst.async) {
 }
 ```
 
-### 5.2.2 varによる宣言（順序回路専用）
+### 6.2.2 varによる宣言（順序回路専用）
 
 **重要:** `var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。`comb`ブロックや直接代入で使用するとコンパイルエラーになります。
 
@@ -78,7 +78,7 @@ sync(clk.posedge, rst.async) {
 // comb { counter = 0; }  // エラー: varはsync/fsm外で使用不可
 ```
 
-### 5.2.3 let mutによる宣言
+### 6.2.3 let mutによる宣言
 
 ```rust
 // Rust互換構文（varと同義）
@@ -86,7 +86,7 @@ let mut counter: bit[8] = 0;
 let mut data: bit[8];
 ```
 
-### 5.2.4 宣言形式の選択
+### 6.2.4 宣言形式の選択
 
 | 宣言 | 用途 | 使用可能コンテキスト | 備考 |
 |------|------|---------------------|------|
@@ -98,9 +98,9 @@ let mut data: bit[8];
 
 ---
 
-## 5.3 リセット指定
+## 6.3 リセット指定
 
-### 5.3.1 リセットモード
+### 6.3.1 リセットモード
 
 | 構文 | リセット種別 | 説明 |
 |------|-------------|------|
@@ -109,7 +109,7 @@ let mut data: bit[8];
 
 リセット値は`var`宣言時の初期値から決定されます。
 
-### 5.3.2 同期リセット
+### 6.3.2 同期リセット
 
 ```rust
 var count: bit[8] = 0;  // リセット時は0
@@ -121,7 +121,7 @@ sync(clk.posedge, rst.sync) {
 }
 ```
 
-### 5.3.3 非同期リセット
+### 6.3.3 非同期リセット
 
 ```rust
 var count: bit[8] = 0;  // リセット時は0
@@ -134,7 +134,7 @@ sync(clk.posedge, rst.async) {
 }
 ```
 
-### 5.3.4 合成結果（SystemVerilog相当）
+### 6.3.4 合成結果（SystemVerilog相当）
 
 **IRIS:**
 
@@ -159,9 +159,9 @@ end
 
 ---
 
-## 5.4 リセット極性
+## 6.4 リセット極性
 
-### 5.4.1 Active High（デフォルト）
+### 6.4.1 Active High（デフォルト）
 
 ```rust
 in rst: reset,
@@ -169,7 +169,7 @@ in rst: reset,
 sync(clk.posedge, rst.async) { ... }
 ```
 
-### 5.4.2 Active Low
+### 6.4.2 Active Low
 
 ```rust
 in rst_n: reset(active_low),
@@ -179,9 +179,9 @@ sync(clk.posedge, rst_n.async) { ... }
 
 ---
 
-## 5.5 クロックドメイン
+## 6.5 クロックドメイン
 
-### 5.5.1 ドメイン指定
+### 6.5.1 ドメイン指定
 
 ```rust
 // ドメインAのレジスタ
@@ -195,7 +195,7 @@ sync(clk_b.posedge) @domain_b {
 }
 ```
 
-### 5.5.2 クロックドメイン交差（CDC）チェック
+### 6.5.2 クロックドメイン交差（CDC）チェック
 
 IRISコンパイラは、異なるクロックドメイン間の直接参照を警告します。
 
@@ -219,7 +219,7 @@ warning[O0020]: clock domain crossing detected
    = help: use synchronizer: 'sync_ff(reg_a, stages: 2)'
 ```
 
-### 5.5.3 同期化プリミティブ
+### 6.5.3 同期化プリミティブ
 
 ```rust
 // 2段FFシンクロナイザ
@@ -235,9 +235,9 @@ sync(clk_b.posedge) @domain_b {
 
 ---
 
-## 5.6 条件付き代入
+## 6.6 条件付き代入
 
-### 5.6.1 暗黙の保持
+### 6.6.1 暗黙の保持
 
 ```rust
 sync(clk.posedge, rst.async) {
@@ -248,7 +248,7 @@ sync(clk.posedge, rst.async) {
 }
 ```
 
-### 5.6.2 明示的な保持
+### 6.6.2 明示的な保持
 
 ```rust
 sync(clk.posedge, rst.async) {
@@ -262,9 +262,9 @@ sync(clk.posedge, rst.async) {
 
 ---
 
-## 5.7 複合的な順序回路
+## 6.7 複合的な順序回路
 
-### 5.7.1 カウンタ
+### 6.7.1 カウンタ
 
 ```rust
 mod Counter(
@@ -293,7 +293,7 @@ mod Counter(
 }
 ```
 
-### 5.7.2 シフトレジスタ
+### 6.7.2 シフトレジスタ
 
 ```rust
 mod ShiftRegister(
@@ -317,7 +317,7 @@ mod ShiftRegister(
 }
 ```
 
-### 5.7.3 パイプラインレジスタ
+### 6.7.3 パイプラインレジスタ
 
 ```rust
 mod Pipeline(
@@ -344,7 +344,7 @@ mod Pipeline(
 
 ---
 
-## 5.8 複数のsyncブロック
+## 6.8 複数のsyncブロック
 
 モジュール内に複数の`sync`ブロックを配置できますが、同一信号への代入は禁止されています。
 
@@ -369,7 +369,7 @@ mod Example(
 
 ---
 
-## 5.9 syncブロックとcombブロックの関係
+## 6.9 syncブロックとcombブロックの関係
 
 ```rust
 mod Example(
@@ -400,4 +400,4 @@ mod Example(
 
 ---
 
-[<< 組み合わせ論理](./04_combinational_logic.md) | [目次](./iris_spec_0.1.0.md) | [FSM >>](./06_fsm.md)
+[<< 組み合わせ論理](./05_combinational_logic.md) | [目次](./iris_spec_0.1.0.md) | [FSM >>](./07_fsm.md)

@@ -1,12 +1,12 @@
-# 第9章 メモリ
+# 第10章 メモリ
 
-[<< 演算子](./08_operators.md) | [目次](./iris_spec_0.1.0.md) | [検証機能 >>](./10_verification.md)
+[<< 演算子](./09_operators.md) | [目次](./iris_spec_0.1.0.md) | [検証機能 >>](./11_verification.md)
 
 ---
 
-## 9.1 メモリ構文
+## 10.1 メモリ構文
 
-### 9.1.1 EBNF定義
+### 10.1.1 EBNF定義
 
 ```ebnf
 mem_decl = "mem" identifier ":" mem_type [ mem_config ] [ "=" initializer ] ";" ;
@@ -18,7 +18,7 @@ config_item = config_key ":" config_value [ "," ] ;
 config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 ```
 
-### 9.1.2 基本宣言
+### 10.1.2 基本宣言
 
 ```rust
 // シンプルなメモリ
@@ -33,9 +33,9 @@ mem cache: bit[64][4][256];       // 4ウェイ × 256エントリ × 64ビッ�
 
 ---
 
-## 9.2 メモリ種別
+## 10.2 メモリ種別
 
-### 9.2.1 RAM（読み書き可能）
+### 10.2.1 RAM（読み書き可能）
 
 ```rust
 mod Ram[DataWidth: uint = 32, Depth: uint = 1024] {
@@ -56,7 +56,7 @@ mod Ram[DataWidth: uint = 32, Depth: uint = 1024] {
 }
 ```
 
-### 9.2.2 ROM（読み取り専用）
+### 10.2.2 ROM（読み取り専用）
 
 ```rust
 mod Rom[DataWidth: uint = 8, Depth: uint = 256] {
@@ -92,9 +92,9 @@ mod RomFromFile(
 
 ---
 
-## 9.3 読み出しモード
+## 10.3 読み出しモード
 
-### 9.3.1 読み出しモードの種類
+### 10.3.1 読み出しモードの種類
 
 | モード | 説明 | 動作 |
 |--------|------|------|
@@ -102,7 +102,7 @@ mod RomFromFile(
 | `write_first` | 書き込み優先 | 書き込み後の値を読み出し |
 | `no_change` | 変更なし | 書き込み時は読み出し値を保持 |
 
-### 9.3.2 読み出しモードの指定
+### 10.3.2 読み出しモードの指定
 
 ```rust
 // 読み出し優先（デフォルト）
@@ -130,9 +130,9 @@ mem ram_nc: bit[32][1024] {
 
 ---
 
-## 9.4 ポート構成
+## 10.4 ポート構成
 
-### 9.4.1 シングルポートRAM
+### 10.4.1 シングルポートRAM
 
 ```rust
 mem single_port: bit[32][1024] {
@@ -147,7 +147,7 @@ sync(clk.posedge) {
 }
 ```
 
-### 9.4.2 シンプルデュアルポートRAM
+### 10.4.2 シンプルデュアルポートRAM
 
 ```rust
 mod SimpleDualPort[Width: uint, Depth: uint] {
@@ -174,7 +174,7 @@ mod SimpleDualPort[Width: uint, Depth: uint] {
 }
 ```
 
-### 9.4.3 真デュアルポートRAM
+### 10.4.3 真デュアルポートRAM
 
 ```rust
 mod TrueDualPort[Width: uint, Depth: uint] {
@@ -212,7 +212,7 @@ mod TrueDualPort[Width: uint, Depth: uint] {
 }
 ```
 
-### 9.4.4 異なるクロックドメイン
+### 10.4.4 異なるクロックドメイン
 
 ```rust
 mod AsyncDualPort[Width: uint, Depth: uint] {
@@ -244,9 +244,9 @@ mod AsyncDualPort[Width: uint, Depth: uint] {
 
 ---
 
-## 9.5 初期化
+## 10.5 初期化
 
-### 9.5.1 インライン初期化
+### 10.5.1 インライン初期化
 
 ```rust
 // 配列リテラルによる初期化
@@ -264,7 +264,7 @@ mem zeros: bit[32][1024] = [0; 1024];
 const crc_table: bit[8][256] = init_crc_table();
 ```
 
-### 9.5.2 ファイル初期化
+### 10.5.2 ファイル初期化
 
 ```rust
 // HEXファイル（16進数）
@@ -288,9 +288,9 @@ const rom_mif: bit[32][1024] {
 
 ---
 
-## 9.6 合成アトリビュート
+## 10.6 合成アトリビュート
 
-### 9.6.1 RAMスタイル
+### 10.6.1 RAMスタイル
 
 | スタイル | 説明 | 用途 |
 |----------|------|------|
@@ -314,7 +314,7 @@ mem huge_buffer: bit[72][131072];
 mem reg_file: bit[32][32];
 ```
 
-### 9.6.2 その他のアトリビュート
+### 10.6.2 その他のアトリビュート
 
 ```rust
 // レジスタ出力追加（タイミング改善）
@@ -332,9 +332,9 @@ mem byte_addressable: bit[32][1024];
 
 ---
 
-## 9.7 RAM推論ガイドライン
+## 10.7 RAM推論ガイドライン
 
-### 9.7.1 推論パターン
+### 10.7.1 推論パターン
 
 | パターン | 推論結果 | 条件 |
 |----------|----------|------|
@@ -343,7 +343,7 @@ mem byte_addressable: bit[32][1024];
 | 読み出しのみ | ROM | 初期化必須 |
 | let文内でアクセス | 組み合わせ論理 | 分散RAM向け |
 
-### 9.7.2 サイズ推奨
+### 10.7.2 サイズ推奨
 
 | サイズ | 推奨スタイル | 備考 |
 |--------|--------------|------|
@@ -353,4 +353,4 @@ mem byte_addressable: bit[32][1024];
 
 ---
 
-[<< 演算子](./08_operators.md) | [目次](./iris_spec_0.1.0.md) | [検証機能 >>](./10_verification.md)
+[<< 演算子](./09_operators.md) | [目次](./iris_spec_0.1.0.md) | [検証機能 >>](./11_verification.md)

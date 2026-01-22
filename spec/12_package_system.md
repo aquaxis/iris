@@ -1,12 +1,12 @@
-# 第11章 パッケージシステム
+# 第12章 パッケージシステム
 
-[<< 検証機能](./10_verification.md) | [目次](./iris_spec_0.1.0.md) | [アトリビュート >>](./12_attributes.md)
+[<< 検証機能](./11_verification.md) | [目次](./iris_spec_0.1.0.md) | [アトリビュート >>](./13_attributes.md)
 
 ---
 
-## 11.1 パッケージ構文
+## 12.1 パッケージ構文
 
-### 11.1.1 EBNF定義
+### 12.1.1 EBNF定義
 
 ```ebnf
 package_decl = "package" package_path ";" { package_item } ;
@@ -16,7 +16,7 @@ package_item = visibility_modifier ( type_def | const_def | fn_def
 visibility_modifier = [ "pub" ] ;
 ```
 
-### 11.1.2 パッケージ定義
+### 12.1.2 パッケージ定義
 
 ```rust
 // src/common/mod.iris
@@ -56,9 +56,9 @@ pub fn parity(data: Byte) -> bit {
 
 ---
 
-## 11.2 可視性制御
+## 12.2 可視性制御
 
-### 11.2.1 可視性修飾子
+### 12.2.1 可視性修飾子
 
 | 修飾子 | 可視範囲 | 用途 |
 |--------|----------|------|
@@ -78,9 +78,9 @@ const INTERNAL_VERSION: uint = 1;
 
 ---
 
-## 11.3 インポート
+## 12.3 インポート
 
-### 11.3.1 インポート構文
+### 12.3.1 インポート構文
 
 ```ebnf
 import_decl = "import" import_path [ "as" identifier ] ";" ;
@@ -89,7 +89,7 @@ import_list = import_item { "," import_item } ;
 import_item = identifier [ "as" identifier ] ;
 ```
 
-### 11.3.2 インポート例
+### 12.3.2 インポート例
 
 ```rust
 // 単一アイテムのインポート
@@ -115,7 +115,7 @@ import mylib::protocols::axi::AxiLite;
 import mylib::protocols::axi::{AxiLite, AxiStream};
 ```
 
-### 11.3.3 再エクスポート
+### 12.3.3 再エクスポート
 
 ```rust
 // src/lib.iris
@@ -132,7 +132,7 @@ pub mod utils;
 
 ---
 
-## 11.4 パッケージ階層
+## 12.4 パッケージ階層
 
 ```rust
 // ファイル構造
@@ -162,9 +162,9 @@ pub use types::*;  // typesの内容を再エクスポート
 
 ---
 
-## 11.5 プロジェクト構成
+## 12.5 プロジェクト構成
 
-### 11.5.1 標準ディレクトリ構造
+### 12.5.1 標準ディレクトリ構造
 
 ```
 project/
@@ -193,7 +193,7 @@ project/
 └── build/                  # ビルド出力
 ```
 
-### 11.5.2 ファイル拡張子
+### 12.5.2 ファイル拡張子
 
 IRIS言語ソースファイルには以下の拡張子を使用します：
 
@@ -204,7 +204,7 @@ IRIS言語ソースファイルには以下の拡張子を使用します：
 
 > **注記**: ツールチェーン（iris-sim, irisfmt, iris2sv等）は両方の拡張子を同等に認識します。プロジェクト内では一貫性のため`.iris`拡張子の使用を推奨します。
 
-### 11.5.3 モジュール解決規則
+### 12.5.3 モジュール解決規則
 
 | パターン | ファイルパス |
 |----------|-------------|
@@ -214,9 +214,9 @@ IRIS言語ソースファイルには以下の拡張子を使用します：
 
 ---
 
-## 11.6 設定ファイル（iris.toml）
+## 12.6 設定ファイル（iris.toml）
 
-### 11.6.1 基本設定
+### 12.6.1 基本設定
 
 ```toml
 [package]
@@ -246,7 +246,7 @@ spi = []
 ethernet = ["iris_eth"]
 ```
 
-### 11.6.2 合成設定
+### 12.6.2 合成設定
 
 ```toml
 [synthesis]
@@ -266,7 +266,7 @@ retiming = true
 fsm_encoding = "auto"
 ```
 
-### 11.6.3 シミュレーション設定
+### 12.6.3 シミュレーション設定
 
 ```toml
 [simulation]
@@ -276,7 +276,7 @@ waveform_format = "vcd"
 coverage = ["line", "branch", "toggle", "fsm"]
 ```
 
-### 11.6.4 Rust連携設定
+### 12.6.4 Rust連携設定
 
 テストベンチで外部Rust関数を使用する場合の設定。
 
@@ -310,7 +310,7 @@ opt-level = 3
 lto = true
 ```
 
-### 11.6.5 テスト設定
+### 12.6.5 テスト設定
 
 ```toml
 [test]
@@ -337,7 +337,7 @@ types = ["line", "branch", "toggle"]
 output_format = "html"
 ```
 
-### 11.6.6 Rust連携プロジェクト構造
+### 12.6.6 Rust連携プロジェクト構造
 
 Rust関数をテストベンチで使用する場合のプロジェクト構造:
 
@@ -380,9 +380,9 @@ rand = "0.8"               # iris.toml の [rust.dependencies] から
 
 ---
 
-## 11.7 依存関係管理
+## 12.7 依存関係管理
 
-### 11.7.1 依存関係の種類
+### 12.7.1 依存関係の種類
 
 ```toml
 [dependencies]
@@ -403,7 +403,7 @@ iris_eth = { version = "1.0", optional = true }
 iris_axi = { version = "2.0", features = ["lite", "stream"] }
 ```
 
-### 11.7.2 ワークスペース
+### 12.7.2 ワークスペース
 
 ```toml
 # workspace/iris.toml
@@ -422,4 +422,4 @@ iris_axi = "2.0"
 
 ---
 
-[<< 検証機能](./10_verification.md) | [目次](./iris_spec_0.1.0.md) | [アトリビュート >>](./12_attributes.md)
+[<< 検証機能](./11_verification.md) | [目次](./iris_spec_0.1.0.md) | [アトリビュート >>](./13_attributes.md)

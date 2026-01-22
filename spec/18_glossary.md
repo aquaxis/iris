@@ -1,6 +1,6 @@
-# 第17章 用語集
+# 第18章 用語集
 
-[<< サンプルコード集](./16_examples.md) | [目次](./iris_spec_0.1.0.md) | [FAQ >>](./18_faq.md)
+[<< サンプルコード集](./17_examples.md) | [目次](./iris_spec_0.1.0.md) | [FAQ >>](./19_faq.md)
 
 ---
 
@@ -352,4 +352,4 @@ FSM遷移条件。`when condition { goto State; }`形式。
 
 ---
 
-[<< サンプルコード集](./16_examples.md) | [目次](./iris_spec_0.1.0.md) | [FAQ >>](./18_faq.md)
+[<< サンプルコード集](./17_examples.md) | [目次](./iris_spec_0.1.0.md) | [FAQ >>](./19_faq.md)

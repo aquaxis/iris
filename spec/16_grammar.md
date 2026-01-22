@@ -1,12 +1,12 @@
-# 第15章 文法定義
+# 第16章 文法定義
 
-[<< 移行ガイド](./14_migration_guide.md) | [目次](./iris_spec_0.1.0.md) | [サンプルコード集 >>](./16_examples.md)
+[<< 移行ガイド](./15_migration_guide.md) | [目次](./iris_spec_0.1.0.md) | [サンプルコード集 >>](./17_examples.md)
 
 ---
 
-## 15.1 完全文法定義（EBNF）
+## 16.1 完全文法定義（EBNF）
 
-### 15.1.1 トップレベル構文
+### 16.1.1 トップレベル構文
 
 ```ebnf
 source_file = { item } ;
@@ -16,7 +16,7 @@ item = visibility_modifier ( mod_def | test_mod_def | type_def | const_def | fn_
 visibility_modifier = [ "pub" ] ;
 ```
 
-### 15.1.2 モジュール定義
+### 16.1.2 モジュール定義
 
 ```ebnf
 mod_def = [ attribute ] "mod" identifier [ generic_params ] [ where_clause ]
@@ -40,7 +40,7 @@ mod_item = signal_decl | const_decl | type_alias | logic_block
 - モジュール本体は`{}`内に記述
 - ポート宣言とモジュール本体が明確に分離される
 
-### 15.1.3 信号・変数宣言
+### 16.1.3 信号・変数宣言
 
 ```ebnf
 signal_decl = let_decl | var_decl ;
@@ -66,7 +66,7 @@ type_alias = "type" identifier [ generic_params ] "=" type_expr ";" ;
 - `let`宣言のみで`sync`/`fsm`内で代入すると順序回路
 - `var`は`sync`または`fsm`ブロック内でのみ使用可能（順序回路専用）
 
-### 15.1.4 型式
+### 16.1.4 型式
 
 ```ebnf
 type_expr = primitive_type | array_type | user_type | generic_type ;
@@ -81,7 +81,7 @@ generic_args = generic_arg { "," generic_arg } ;
 generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
 ```
 
-### 15.1.5 式
+### 16.1.5 式
 
 ```ebnf
 expr = unary_expr | binary_expr | primary_expr ;
@@ -105,7 +105,7 @@ cast_expr = expr "as" type_expr ;
 
 ---
 
-## 15.2 論理ブロック
+## 16.2 論理ブロック
 
 ```ebnf
 logic_block = signal_decl | comb_block | sync_block ;
@@ -118,7 +118,7 @@ reset_spec = expr "." ( "async" | "sync" ) ;
 
 ---
 
-## 15.3 FSM
+## 16.3 FSM
 
 ```ebnf
 fsm_block = "fsm" identifier "(" clock_spec [ "," reset_spec ] ")" "{"
@@ -138,7 +138,7 @@ transition_action = "goto" identifier ";" | statement ;
 
 ---
 
-## 15.4 文
+## 16.4 文
 
 ```ebnf
 statement = assign_stmt | if_stmt | match_stmt | for_stmt | while_stmt
@@ -161,7 +161,7 @@ block_stmt = "{" { statement } "}" ;
 
 ---
 
-## 15.5 インターフェース
+## 16.5 インターフェース
 
 ```ebnf
 interface_def = "interface" identifier [ generic_params ] "{"
@@ -175,9 +175,9 @@ view_direction = "in" | "out" | "inout" ;
 
 ---
 
-## 15.6 テスト
+## 16.6 テスト
 
-### 15.6.1 テストモジュール
+### 16.6.1 テストモジュール
 
 テストベンチ専用のモジュール定義。ポート宣言を持たない（ポートレス）。
 
@@ -194,7 +194,7 @@ initial_block = "initial" "{" { statement } "}" ;
 - 合成対象外（シミュレーション専用）
 - 他のモジュールからインスタンス化不可（トップレベルのみ）
 
-### 15.6.2 シーケンシャル処理ブロック（seq）
+### 16.6.2 シーケンシャル処理ブロック（seq）
 
 Rustコードを直接実行できるシーケンシャル処理ブロック。
 
@@ -222,7 +222,7 @@ time_unit       = "ns" | "us" | "ms" | "s" ;
 - 信号アクセスAPI（.value(), .set()）でDUTと連携
 - 複数seqブロック定義で並列実行
 
-### 15.6.3 外部Rust関数呼び出し
+### 16.6.3 外部Rust関数呼び出し
 
 外部`.rs`ファイルのRust関数を呼び出すための構文。
 
@@ -245,7 +245,7 @@ rust_type       = identifier | generic_type | "&" rust_type | "&" "mut" rust_typ
 - `use rust::module::*;` - ワイルドカードインポート
 - `extern rust "module" { fn name(); }` - 明示的シグネチャ宣言
 
-### 15.6.4 テスト関数
+### 16.6.4 テスト関数
 
 #[test]アトリビュートを使用した単体テスト関数。
 
@@ -261,7 +261,7 @@ test_param = "timeout" "=" duration
 
 ---
 
-## 15.7 パッケージとインポート
+## 16.7 パッケージとインポート
 
 ```ebnf
 package_decl = "package" package_path ";" { package_item } ;
@@ -277,7 +277,7 @@ import_item = identifier [ "as" identifier ] ;
 
 ---
 
-## 15.8 リテラル
+## 16.8 リテラル
 
 ```ebnf
 literal = integer_literal | bool_literal | string_literal ;
@@ -296,7 +296,7 @@ string_literal = '"' { character } '"' ;
 
 ---
 
-## 15.9 識別子とパス
+## 16.9 識別子とパス
 
 ```ebnf
 identifier = letter { letter | digit | "_" } ;
@@ -308,7 +308,7 @@ path = identifier { "::" identifier } ;
 
 ---
 
-## 15.10 アトリビュート
+## 16.10 アトリビュート
 
 ```ebnf
 attribute = "#[" attr_path [ attr_input ] "]" ;
@@ -320,7 +320,7 @@ attr_arg = [ identifier "=" ] literal ;
 
 ---
 
-## 15.11 メモリ宣言
+## 16.11 メモリ宣言
 
 ```ebnf
 mem_decl = "mem" identifier ":" mem_type [ mem_config ] [ "=" initializer ] ";" ;
@@ -334,9 +334,9 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 
 ---
 
-## 15.12 構文要素詳細説明
+## 16.12 構文要素詳細説明
 
-### 15.12.1 モジュール（mod）
+### 16.12.1 モジュール（mod）
 
 モジュールはハードウェア設計の基本単位。合成時にSystemVerilogのmoduleに変換される。
 
@@ -352,7 +352,7 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 - ポート宣言自体が信号宣言として機能するため、追加の`let`宣言は不要
 - `out`ポートは`comb`で代入すると組み合わせ回路、`sync`/`fsm`で代入すると順序回路として合成
 
-### 15.12.2 組み合わせ論理（comb）
+### 16.12.2 組み合わせ論理（comb）
 
 全ての出力信号に対して全パスで値が割り当てられることを保証。
 
@@ -362,7 +362,7 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 3. 代入は`=`
 4. 循環依存はコンパイルエラー
 
-### 15.12.3 順序論理（sync）
+### 16.12.3 順序論理（sync）
 
 クロック同期の順序回路を記述。
 
@@ -375,7 +375,7 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 6. `sync`ブロック内で代入された信号は順序回路（レジスタ）として合成される
 7. **`var`宣言は`sync`または`fsm`ブロック内でのみ使用可能**（`comb`や直接代入で使用不可）
 
-### 15.12.4 FSM
+### 16.12.4 FSM
 
 ステートマシンの高レベル記述。
 
@@ -387,4 +387,4 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 
 ---
 
-[<< 移行ガイド](./14_migration_guide.md) | [目次](./iris_spec_0.1.0.md) | [サンプルコード集 >>](./16_examples.md)
+[<< 移行ガイド](./15_migration_guide.md) | [目次](./iris_spec_0.1.0.md) | [サンプルコード集 >>](./17_examples.md)

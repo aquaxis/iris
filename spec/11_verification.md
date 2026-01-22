@@ -1,12 +1,12 @@
-# 第10章 検証機能
+# 第11章 検証機能
 
-[<< メモリ](./09_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./11_package_system.md)
+[<< メモリ](./10_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./12_package_system.md)
 
 ---
 
-## 10.1 テスト構文
+## 11.1 テスト構文
 
-### 10.1.1 基本テストブロック
+### 11.1.1 基本テストブロック
 
 ```rust
 #[test]
@@ -33,7 +33,7 @@ test check_counter() {
 }
 ```
 
-### 10.1.2 テストアトリビュート
+### 11.1.2 テストアトリビュート
 
 | アトリビュート | 説明 | 例 |
 |----------------|------|-----|
@@ -65,7 +65,7 @@ test future_feature() {
 }
 ```
 
-### 10.1.3 パラメトリックテスト
+### 11.1.3 パラメトリックテスト
 
 ```rust
 #[test]
@@ -98,7 +98,7 @@ test fifo_configurations[
 }
 ```
 
-### 10.1.4 シミュレーション制御
+### 11.1.4 シミュレーション制御
 
 ```rust
 // 時間単位
@@ -126,7 +126,7 @@ await until(dut.done == 1, timeout: 1.ms);  // タイムアウト付き
 await event(dut.interrupt);        // イベント発生まで待機
 ```
 
-### 10.1.5 並列実行
+### 11.1.5 並列実行
 
 ```rust
 // 並列実行
@@ -160,7 +160,7 @@ fork {
 join_none;      // 待機せず即座に続行
 ```
 
-### 10.1.6 テストフィクスチャ
+### 11.1.6 テストフィクスチャ
 
 ```rust
 fixture CounterTestFixture {
@@ -193,9 +193,9 @@ test increment_test(fix: CounterTestFixture) {
 
 ---
 
-## 10.2 アサーション
+## 11.2 アサーション
 
-### 10.2.1 即時アサーション
+### 11.2.1 即時アサーション
 
 ```rust
 // 基本アサーション
@@ -216,7 +216,7 @@ expect response == expected else {
 }
 ```
 
-### 10.2.2 並行アサーション
+### 11.2.2 並行アサーション
 
 ```rust
 // 基本形式
@@ -235,7 +235,7 @@ expect response == expected else {
     else error("Protocol violation: ack not received within 2 cycles");
 ```
 
-### 10.2.3 プロパティ
+### 11.2.3 プロパティ
 
 ```rust
 // プロパティ定義
@@ -254,7 +254,7 @@ property response_time[MaxDelay: uint] {
 @(clk.posedge) assert response_time[10];
 ```
 
-### 10.2.4 シーケンス
+### 11.2.4 シーケンス
 
 ```rust
 // シーケンス定義
@@ -275,7 +275,7 @@ sequence read_burst {
 }
 ```
 
-### 10.2.5 assume/restrict
+### 11.2.5 assume/restrict
 
 ```rust
 // 入力制約（フォーマル検証用）
@@ -288,9 +288,9 @@ sequence read_burst {
 
 ---
 
-## 10.3 カバレッジ
+## 11.3 カバレッジ
 
-### 10.3.1 カバーポイント
+### 11.3.1 カバーポイント
 
 ```rust
 // 基本カバーポイント
@@ -302,7 +302,7 @@ sequence read_burst {
     iff (valid == 1);
 ```
 
-### 10.3.2 カバーグループ
+### 11.3.2 カバーグループ
 
 ```rust
 covergroup TransactionCoverage(clk: clock) {
@@ -344,7 +344,7 @@ let cov = TransactionCoverage(clk);
 }
 ```
 
-### 10.3.3 コードカバレッジ指示
+### 11.3.3 コードカバレッジ指示
 
 ```rust
 // ライン/ブランチカバレッジの除外
@@ -366,9 +366,9 @@ fsm Controller(...) {
 
 ---
 
-## 10.4 ランダム化と制約
+## 11.4 ランダム化と制約
 
-### 10.4.1 ランダム変数
+### 11.4.1 ランダム変数
 
 ```rust
 // ランダム変数宣言
@@ -386,7 +386,7 @@ rand packet: Packet {
 }
 ```
 
-### 10.4.2 制約定義
+### 11.4.2 制約定義
 
 ```rust
 constraint valid_transaction {
@@ -409,11 +409,11 @@ constraint valid_transaction {
 
 ---
 
-## 10.5 テストモジュール
+## 11.5 テストモジュール
 
 テストベンチ専用のモジュール定義として`test`キーワードを使用できる。`test`モジュールはSystemVerilogのテストベンチのトップ階層と同等の役割を持つ。
 
-### 10.5.1 testモジュールの特徴
+### 11.5.1 testモジュールの特徴
 
 | 項目 | 内容 |
 |------|------|
@@ -422,7 +422,7 @@ constraint valid_transaction {
 | 合成対象 | いいえ（シミュレーション専用） |
 | インスタンス化 | 不可（トップレベルのみ） |
 
-### 10.5.2 modとtestの比較
+### 11.5.2 modとtestの比較
 
 | 項目 | mod | test |
 |------|-----|------|
@@ -431,7 +431,7 @@ constraint valid_transaction {
 | 合成 | 可能 | 不可 |
 | 用途 | RTL設計 | テストベンチ |
 
-### 10.5.3 構文
+### 11.5.3 構文
 
 ```ebnf
 test_mod_def = "test" identifier "{" { test_item } "}" ;
@@ -440,7 +440,7 @@ test_item    = let_decl | var_decl | const_decl | inst_decl
              | test_stmt ;
 ```
 
-### 10.5.4 基本的なtestモジュール
+### 11.5.4 基本的なtestモジュール
 
 ```rust
 test CounterTest {
@@ -471,7 +471,7 @@ test CounterTest {
 }
 ```
 
-### 10.5.5 複数DUTを持つtestモジュール
+### 11.5.5 複数DUTを持つtestモジュール
 
 ```rust
 test FifoIntegrationTest {
@@ -510,7 +510,7 @@ test FifoIntegrationTest {
 }
 ```
 
-### 10.5.6 testモジュールと#[test]アトリビュートの違い
+### 11.5.6 testモジュールと#[test]アトリビュートの違い
 
 | 項目 | test モジュール | #[test] アトリビュート |
 |------|----------------|----------------------|
@@ -521,7 +521,7 @@ test FifoIntegrationTest {
 
 既存の`#[test]`アトリビュートは単体テスト用途として維持し、新しい`test`モジュールは統合テストや複雑なテストベンチ向けとして使い分ける。
 
-### 10.5.7 SystemVerilog出力
+### 11.5.7 SystemVerilog出力
 
 IRISの`test`モジュールは、SystemVerilogのテストベンチトップ階層として出力される。
 
@@ -577,11 +577,11 @@ endmodule
 
 ---
 
-## 10.6 シーケンシャル処理ブロック（seq）
+## 11.6 シーケンシャル処理ブロック（seq）
 
 `seq`ブロックは、テストモジュール内でシーケンシャル（順次）処理を記述するための特殊なブロックである。`seq`ブロック内ではRust言語の制御構文を直接使用でき、複雑なテストシーケンスを記述できる。
 
-### 10.6.1 seqブロックの特徴
+### 11.6.1 seqブロックの特徴
 
 | 項目 | 内容 |
 |------|------|
@@ -591,7 +591,7 @@ endmodule
 | 実行モデル | シーケンシャル（手続き的） |
 | Rust統合 | Rustの制御構文を直接使用可能 |
 
-### 10.6.2 構文定義
+### 11.6.2 構文定義
 
 ```ebnf
 seq_block       = "seq" [ identifier ] "{" seq_content "}" ;
@@ -605,7 +605,7 @@ await_stmt      = "await" await_expr ";" ;
 delay_stmt      = "#" time_literal ";" ;
 ```
 
-### 10.6.3 基本的なseqブロック
+### 11.6.3 基本的なseqブロック
 
 ```rust
 test CounterVerification {
@@ -635,7 +635,7 @@ test CounterVerification {
 }
 ```
 
-### 10.6.4 信号アクセスAPI
+### 11.6.4 信号アクセスAPI
 
 seqブロック内では、DUTの信号に対して以下のAPIを使用してアクセスする。
 
@@ -647,7 +647,7 @@ seqブロック内では、DUTの信号に対して以下のAPIを使用して�
 | `.negedge()` | 立ち下がりエッジまで待機 | `await clk.negedge();` |
 | `.changed()` | 信号変化まで待機 | `await dut.ready.changed();` |
 
-### 10.6.5 時間制御
+### 11.6.5 時間制御
 
 ```rust
 seq timing_test {
@@ -670,7 +670,7 @@ seq timing_test {
 }
 ```
 
-### 10.6.6 Rust制御構文の使用
+### 11.6.6 Rust制御構文の使用
 
 seqブロック内ではRustの全ての制御構文が使用可能。
 
@@ -713,7 +713,7 @@ seq complex_test {
 }
 ```
 
-### 10.6.7 複数seqブロックの並列実行
+### 11.6.7 複数seqブロックの並列実行
 
 複数のseqブロックを定義すると並列に実行される。
 
@@ -749,7 +749,7 @@ test ParallelTest {
 }
 ```
 
-### 10.6.8 シミュレーション時間とseqブロックの関係
+### 11.6.8 シミュレーション時間とseqブロックの関係
 
 | 操作 | シミュレーション時間 |
 |------|---------------------|
@@ -760,7 +760,7 @@ test ParallelTest {
 | `.set(val)` | 即座に反映（デルタサイクル） |
 | `.value()` | 現在値を読み取り |
 
-### 10.6.9 seqブロックとinitialブロックの比較
+### 11.6.9 seqブロックとinitialブロックの比較
 
 | 項目 | seq | initial |
 |------|-----|---------|
@@ -771,11 +771,11 @@ test ParallelTest {
 
 ---
 
-## 10.7 外部Rust関数の直接呼び出し
+## 11.7 外部Rust関数の直接呼び出し
 
 `seq`ブロック内から外部の`.rs`ファイルで定義されたRust関数を直接呼び出すことができる。これにより、テストヘルパー関数、データ生成、検証ロジックなどをRustで実装し、テストベンチから利用できる。
 
-### 10.7.1 概要
+### 11.7.1 概要
 
 | 項目 | 内容 |
 |------|------|
@@ -784,7 +784,7 @@ test ParallelTest {
 | Rustファイル | 標準的な`.rs`ファイル |
 | 機能 | Rustの完全な機能を利用可能 |
 
-### 10.7.2 インポート構文
+### 11.7.2 インポート構文
 
 #### use rust:: 宣言
 
@@ -814,7 +814,7 @@ extern rust "test_utils" {
 }
 ```
 
-### 10.7.3 Rust側の実装
+### 11.7.3 Rust側の実装
 
 外部Rust関数は、プロジェクトの`rust/`ディレクトリに配置する。
 
@@ -861,7 +861,7 @@ pub fn generate_random_data(seed: u64) -> Vec<u8> {
 pub mod test_utils;
 ```
 
-### 10.7.4 使用例
+### 11.7.4 使用例
 
 ```rust
 // test/counter_test.iris
@@ -894,7 +894,7 @@ test CounterVerification {
 }
 ```
 
-### 10.7.5 非同期関数のサポート
+### 11.7.5 非同期関数のサポート
 
 Rust側で`async fn`として定義した関数は、`seq`ブロック内で`await`を使用して呼び出す。
 
@@ -936,7 +936,7 @@ test AsyncTest {
 }
 ```
 
-### 10.7.6 IRIS-Rust型マッピング
+### 11.7.6 IRIS-Rust型マッピング
 
 | IRIS型 | Rust型 | 備考 |
 |--------|--------|------|
@@ -950,7 +950,7 @@ test AsyncTest {
 | `bool` | `bool` | 論理型 |
 | `Signal<T>` | `iris_runtime::Signal<T>` | 信号ハンドル |
 
-### 10.7.7 エラーハンドリング
+### 11.7.7 エラーハンドリング
 
 外部Rust関数でのエラーは、Rustの標準的なエラーハンドリング機構を使用する。
 
@@ -1007,7 +1007,7 @@ test ProtocolTest {
 }
 ```
 
-### 10.7.8 セキュリティに関する注意
+### 11.7.8 セキュリティに関する注意
 
 外部Rust関数は任意のRustコードを実行できるため、以下の点に注意が必要:
 
@@ -1017,4 +1017,4 @@ test ProtocolTest {
 
 ---
 
-[<< メモリ](./09_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./11_package_system.md)
+[<< メモリ](./10_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./12_package_system.md)
