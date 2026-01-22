@@ -1,0 +1,574 @@
+(* ============================================================================ *)
+(* Rust Language Subset Grammar - Extended Backus-Naur Form (EBNF)            *)
+(* ============================================================================ *)
+(* Version: 0.1.0                                                              *)
+(* Date: 2026-01-21                                                            *)
+(* Specification: ISO/IEC 14977 compliant                                      *)
+(* Purpose: Defines Rust subset usable within IRIS seq_block                   *)
+(* Reference: The Rust Reference (https://doc.rust-lang.org/reference/)        *)
+(* ============================================================================ *)
+(* This grammar defines a subset of Rust language constructs that can be       *)
+(* embedded within IRIS seq_block for testbench procedural code.               *)
+(* ============================================================================ *)
+
+(* ===== 1. Top-level Syntax ===== *)
+
+(* Rust statements allowed in IRIS seq_block *)
+rust_statement = let_statement
+               | expression_statement
+               | item_statement ;
+
+item_statement = const_item | type_alias | fn_item ;
+
+(* ===== 2. Let Statement (Variable Declaration) ===== *)
+
+let_statement = "let" [ "mut" ] pattern [ ":" type ] [ "=" expression ] ";" ;
+
+pattern = identifier_pattern
+        | wildcard_pattern
+        | tuple_pattern
+        | struct_pattern
+        | ref_pattern ;
+
+identifier_pattern = [ "ref" ] [ "mut" ] identifier ;
+
+wildcard_pattern = "_" ;
+
+tuple_pattern = "(" [ pattern { "," pattern } [ "," ] ] ")" ;
+
+struct_pattern = path "{" [ struct_pattern_fields ] "}" ;
+
+struct_pattern_fields = struct_pattern_field { "," struct_pattern_field } [ "," ] ;
+
+struct_pattern_field = identifier [ ":" pattern ]
+                     | ".." ;
+
+ref_pattern = "&" [ "mut" ] pattern ;
+
+(* ===== 3. Expressions ===== *)
+
+expression = expression_without_block
+           | expression_with_block ;
+
+expression_without_block = literal_expression
+                         | path_expression
+                         | operator_expression
+                         | grouped_expression
+                         | array_expression
+                         | tuple_expression
+                         | struct_expression
+                         | call_expression
+                         | method_call_expression
+                         | field_expression
+                         | index_expression
+                         | range_expression
+                         | closure_expression
+                         | return_expression
+                         | break_expression
+                         | continue_expression
+                         | await_expression
+                         | try_expression ;
+
+expression_with_block = block_expression
+                      | if_expression
+                      | match_expression
+                      | loop_expression
+                      | while_expression
+                      | for_expression ;
+
+(* ===== 3.1 Literal Expressions ===== *)
+
+literal_expression = char_literal
+                   | string_literal
+                   | byte_literal
+                   | byte_string_literal
+                   | integer_literal
+                   | float_literal
+                   | bool_literal ;
+
+char_literal = "'" ( char_content | escape_sequence ) "'" ;
+
+char_content = ? any Unicode scalar value except ', \, \n, \r, \t ? ;
+
+string_literal = '"' { string_content | escape_sequence } '"' ;
+
+string_content = ? any Unicode scalar value except ", \ ? ;
+
+raw_string_literal = "r" { "#" } '"' { raw_string_content } '"' { "#" } ;
+
+raw_string_content = ? any character ? ;
+
+byte_literal = "b'" ( byte_content | byte_escape ) "'" ;
+
+byte_content = ? any ASCII character except ', \, \n, \r, \t ? ;
+
+byte_string_literal = 'b"' { byte_string_content | byte_escape } '"' ;
+
+byte_string_content = ? any ASCII character except ", \ ? ;
+
+integer_literal = decimal_literal
+                | binary_literal
+                | octal_literal
+                | hex_literal ;
+
+decimal_literal = decimal_digit { decimal_digit | "_" } [ integer_suffix ] ;
+
+binary_literal = "0b" ( "0" | "1" ) { "0" | "1" | "_" } [ integer_suffix ] ;
+
+octal_literal = "0o" octal_digit { octal_digit | "_" } [ integer_suffix ] ;
+
+hex_literal = "0x" hex_digit { hex_digit | "_" } [ integer_suffix ] ;
+
+integer_suffix = "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
+               | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" ;
+
+float_literal = decimal_literal "." decimal_literal [ exponent ] [ float_suffix ]
+              | decimal_literal exponent [ float_suffix ]
+              | decimal_literal float_suffix ;
+
+exponent = ( "e" | "E" ) [ "+" | "-" ] decimal_literal ;
+
+float_suffix = "f32" | "f64" ;
+
+bool_literal = "true" | "false" ;
+
+escape_sequence = "\\" escape_char ;
+
+escape_char = "n" | "r" | "t" | "\\" | "0" | "'" | '"'
+            | "x" hex_digit hex_digit
+            | "u{" hex_digit { hex_digit } "}" ;
+
+byte_escape = "\\" ( "n" | "r" | "t" | "\\" | "0" | "'" | '"'
+            | "x" hex_digit hex_digit ) ;
+
+(* ===== 3.2 Path Expressions ===== *)
+
+path_expression = path_in_expression ;
+
+path_in_expression = [ "::" ] path_expr_segment { "::" path_expr_segment } ;
+
+path_expr_segment = identifier [ "::" generic_args ]
+                  | "super"
+                  | "self"
+                  | "Self"
+                  | "crate" ;
+
+generic_args = "<" [ generic_arg { "," generic_arg } [ "," ] ] ">" ;
+
+generic_arg = lifetime
+            | type
+            | const_generic_arg
+            | type "=" type
+            | identifier "=" expression ;
+
+const_generic_arg = block_expression
+                  | literal_expression
+                  | "-" literal_expression
+                  | path_in_expression ;
+
+(* ===== 3.3 Operator Expressions ===== *)
+
+operator_expression = unary_expression
+                    | binary_expression
+                    | compound_assignment_expression
+                    | type_cast_expression ;
+
+unary_expression = "-" expression
+                 | "!" expression
+                 | "*" expression
+                 | "&" [ "mut" ] expression ;
+
+binary_expression = expression binary_operator expression ;
+
+binary_operator = arithmetic_operator
+                | comparison_operator
+                | lazy_boolean_operator
+                | bitwise_operator
+                | assignment_operator ;
+
+arithmetic_operator = "+" | "-" | "*" | "/" | "%" ;
+
+comparison_operator = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
+
+lazy_boolean_operator = "&&" | "||" ;
+
+bitwise_operator = "&" | "|" | "^" | "<<" | ">>" ;
+
+assignment_operator = "=" ;
+
+compound_assignment_expression = expression compound_assign_operator expression ;
+
+compound_assign_operator = "+=" | "-=" | "*=" | "/=" | "%="
+                         | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+type_cast_expression = expression "as" type ;
+
+(* ===== 3.4 Grouped and Tuple Expressions ===== *)
+
+grouped_expression = "(" expression ")" ;
+
+tuple_expression = "(" [ expression "," [ expression { "," expression } [ "," ] ] ] ")" ;
+
+(* ===== 3.5 Array Expressions ===== *)
+
+array_expression = "[" [ array_elements ] "]" ;
+
+array_elements = expression { "," expression } [ "," ]
+               | expression ";" expression ;
+
+(* ===== 3.6 Struct Expressions ===== *)
+
+struct_expression = path_in_expression "{" [ struct_fields ] "}"
+                  | path_in_expression "(" [ expression { "," expression } [ "," ] ] ")"
+                  | path_in_expression ;
+
+struct_fields = struct_field { "," struct_field } [ "," ] [ struct_base ] ;
+
+struct_field = [ identifier ":" ] expression ;
+
+struct_base = ".." expression ;
+
+(* ===== 3.7 Call Expressions ===== *)
+
+call_expression = expression "(" [ call_params ] ")" ;
+
+call_params = expression { "," expression } [ "," ] ;
+
+method_call_expression = expression "." identifier [ "::" generic_args ] "(" [ call_params ] ")" ;
+
+(* ===== 3.8 Field and Index Expressions ===== *)
+
+field_expression = expression "." identifier
+                 | expression "." tuple_index ;
+
+tuple_index = decimal_literal ;
+
+index_expression = expression "[" expression "]" ;
+
+(* ===== 3.9 Range Expressions ===== *)
+
+range_expression = range_from_expression
+                 | range_to_expression
+                 | range_full_expression
+                 | range_from_to_expression
+                 | range_inclusive_expression
+                 | range_to_inclusive_expression ;
+
+range_from_expression = expression ".." ;
+
+range_to_expression = ".." expression ;
+
+range_full_expression = ".." ;
+
+range_from_to_expression = expression ".." expression ;
+
+range_inclusive_expression = expression "..=" expression ;
+
+range_to_inclusive_expression = "..=" expression ;
+
+(* ===== 3.10 Closure Expressions ===== *)
+
+closure_expression = [ "move" ] closure_params [ "->" type ] ( expression | block_expression ) ;
+
+closure_params = "||"
+               | "|" [ closure_param { "," closure_param } [ "," ] ] "|" ;
+
+closure_param = [ "mut" ] identifier [ ":" type ] ;
+
+(* ===== 3.11 Control Flow Expressions ===== *)
+
+return_expression = "return" [ expression ] ;
+
+break_expression = "break" [ lifetime ] [ expression ] ;
+
+continue_expression = "continue" [ lifetime ] ;
+
+(* ===== 3.12 Await and Try Expressions ===== *)
+
+await_expression = expression "." "await" ;
+
+try_expression = expression "?" ;
+
+(* ===== 4. Block Expressions ===== *)
+
+block_expression = "{" [ statements ] [ expression ] "}" ;
+
+statements = { statement } ;
+
+statement = ";"
+          | item_statement
+          | let_statement
+          | expression_statement ;
+
+expression_statement = expression_without_block ";"
+                     | expression_with_block [ ";" ] ;
+
+(* ===== 5. If Expression ===== *)
+
+if_expression = "if" expression block_expression [ else_clause ] ;
+
+else_clause = "else" ( block_expression | if_expression ) ;
+
+(* ===== 6. Match Expression ===== *)
+
+match_expression = "match" expression "{" [ match_arms ] "}" ;
+
+match_arms = { match_arm } ;
+
+match_arm = [ outer_attribute ] pattern [ match_guard ] "=>" ( expression "," | block_expression [ "," ] ) ;
+
+match_guard = "if" expression ;
+
+(* ===== 7. Loop Expressions ===== *)
+
+loop_expression = [ loop_label ] ( infinite_loop | while_loop | for_loop ) ;
+
+loop_label = lifetime ":" ;
+
+infinite_loop = "loop" block_expression ;
+
+while_loop = "while" expression block_expression ;
+
+while_expression = while_loop ;
+
+for_loop = "for" pattern "in" expression block_expression ;
+
+for_expression = for_loop ;
+
+(* ===== 8. Types ===== *)
+
+type = type_no_bounds
+     | impl_trait_type
+     | trait_object_type ;
+
+type_no_bounds = parenthesized_type
+               | tuple_type
+               | never_type
+               | raw_pointer_type
+               | reference_type
+               | array_type
+               | slice_type
+               | inferred_type
+               | qualified_path_in_type
+               | type_path
+               | impl_trait_type_one_bound
+               | trait_object_type_one_bound ;
+
+parenthesized_type = "(" type ")" ;
+
+tuple_type = "(" [ type { "," type } [ "," ] ] ")" ;
+
+never_type = "!" ;
+
+raw_pointer_type = "*" ( "const" | "mut" ) type_no_bounds ;
+
+reference_type = "&" [ lifetime ] [ "mut" ] type_no_bounds ;
+
+array_type = "[" type ";" expression "]" ;
+
+slice_type = "[" type "]" ;
+
+inferred_type = "_" ;
+
+type_path = [ "::" ] type_path_segment { "::" type_path_segment } ;
+
+type_path_segment = identifier [ "::" generic_args ]
+                  | identifier "(" [ type { "," type } [ "," ] ] ")" [ "->" type ] ;
+
+qualified_path_in_type = qualified_path_type { "::" type_path_segment } ;
+
+qualified_path_type = "<" type [ "as" type_path ] ">" ;
+
+impl_trait_type = "impl" type_param_bounds ;
+
+impl_trait_type_one_bound = "impl" trait_bound ;
+
+trait_object_type = "dyn" type_param_bounds ;
+
+trait_object_type_one_bound = "dyn" trait_bound ;
+
+type_param_bounds = type_param_bound { "+" type_param_bound } [ "+" ] ;
+
+type_param_bound = lifetime | trait_bound ;
+
+trait_bound = [ "?" ] [ for_lifetimes ] type_path ;
+
+for_lifetimes = "for" "<" lifetime_params ">" ;
+
+lifetime_params = [ lifetime_param { "," lifetime_param } [ "," ] ] ;
+
+lifetime_param = lifetime [ ":" lifetime_bounds ] ;
+
+lifetime_bounds = lifetime { "+" lifetime } [ "+" ] ;
+
+lifetime = "'" identifier | "'static" | "'_" ;
+
+(* ===== 9. Items (Limited Subset) ===== *)
+
+const_item = "const" identifier ":" type "=" expression ";" ;
+
+type_alias = "type" identifier [ generic_params ] [ where_clause ] "=" type ";" ;
+
+fn_item = [ "async" ] [ "unsafe" ] [ "extern" [ abi ] ] "fn" identifier
+          [ generic_params ] "(" [ fn_params ] ")" [ fn_return_type ]
+          [ where_clause ] ( block_expression | ";" ) ;
+
+generic_params = "<" [ generic_param { "," generic_param } [ "," ] ] ">" ;
+
+generic_param = lifetime_param
+              | type_param
+              | const_param ;
+
+type_param = identifier [ ":" type_param_bounds ] [ "=" type ] ;
+
+const_param = "const" identifier ":" type [ "=" const_generic_arg ] ;
+
+where_clause = "where" where_predicate { "," where_predicate } [ "," ] ;
+
+where_predicate = lifetime ":" lifetime_bounds
+                | [ for_lifetimes ] type ":" [ type_param_bounds ] ;
+
+fn_params = fn_param { "," fn_param } [ "," ] ;
+
+fn_param = [ identifier ":" ] type
+         | ".." ;
+
+fn_return_type = "->" type ;
+
+abi = string_literal ;
+
+(* ===== 10. Attributes ===== *)
+
+outer_attribute = "#[" attr "]" ;
+
+inner_attribute = "#![" attr "]" ;
+
+attr = path [ attr_input ] ;
+
+attr_input = "(" attr_token_tree ")"
+           | "=" expression ;
+
+attr_token_tree = token { token }
+                | "(" attr_token_tree ")"
+                | "[" attr_token_tree "]"
+                | "{" attr_token_tree "}" ;
+
+token = ? any token except delimiters ? ;
+
+(* ===== 11. Paths ===== *)
+
+path = identifier { "::" identifier } ;
+
+simple_path = [ "::" ] simple_path_segment { "::" simple_path_segment } ;
+
+simple_path_segment = identifier
+                    | "super"
+                    | "self"
+                    | "crate"
+                    | "$crate" ;
+
+(* ===== 12. Lexical Elements ===== *)
+
+(* --------------------------------------------------------------------- *)
+(* 12.1 Identifiers                                                      *)
+(* --------------------------------------------------------------------- *)
+
+identifier = identifier_start { identifier_continue }
+           | raw_identifier ;
+
+identifier_start = letter | "_" ;
+
+identifier_continue = letter | digit | "_" ;
+
+raw_identifier = "r#" identifier ;
+
+(* --------------------------------------------------------------------- *)
+(* 12.2 Keywords                                                         *)
+(* --------------------------------------------------------------------- *)
+
+keyword = "as" | "async" | "await" | "break" | "const" | "continue" | "crate"
+        | "dyn" | "else" | "enum" | "extern" | "false" | "fn" | "for" | "if"
+        | "impl" | "in" | "let" | "loop" | "match" | "mod" | "move" | "mut"
+        | "pub" | "ref" | "return" | "self" | "Self" | "static" | "struct"
+        | "super" | "trait" | "true" | "type" | "unsafe" | "use" | "where"
+        | "while"
+        (* Reserved keywords *)
+        | "abstract" | "become" | "box" | "do" | "final" | "macro"
+        | "override" | "priv" | "try" | "typeof" | "unsized" | "virtual"
+        | "yield" ;
+
+(* --------------------------------------------------------------------- *)
+(* 12.3 Character Classes                                                *)
+(* --------------------------------------------------------------------- *)
+
+letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m"
+       | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
+       | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M"
+       | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+decimal_digit = digit ;
+
+octal_digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+
+hex_digit = digit
+          | "a" | "b" | "c" | "d" | "e" | "f"
+          | "A" | "B" | "C" | "D" | "E" | "F" ;
+
+(* --------------------------------------------------------------------- *)
+(* 12.4 Whitespace and Comments                                          *)
+(* --------------------------------------------------------------------- *)
+
+whitespace = " " | "\t" | "\n" | "\r" ;
+
+comment = line_comment | block_comment ;
+
+line_comment = "//" { any_character - newline } newline ;
+
+block_comment = "/*" { any_character | block_comment } "*/" ;
+
+doc_comment = inner_doc_comment | outer_doc_comment ;
+
+inner_doc_comment = "//!" { any_character - newline } newline
+                  | "/*!" { any_character | block_comment } "*/" ;
+
+outer_doc_comment = "///" { any_character - newline } newline
+                  | "/**" { any_character | block_comment } "*/" ;
+
+newline = "\n" | "\r\n" | "\r" ;
+
+any_character = ? any Unicode scalar value ? ;
+
+(* --------------------------------------------------------------------- *)
+(* 12.5 Operators and Punctuation                                        *)
+(* --------------------------------------------------------------------- *)
+
+(* Arithmetic operators *)
+arithmetic_op = "+" | "-" | "*" | "/" | "%" ;
+
+(* Comparison operators *)
+comparison_op = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
+
+(* Logical operators *)
+logical_op = "&&" | "||" | "!" ;
+
+(* Bitwise operators *)
+bitwise_op = "&" | "|" | "^" | "<<" | ">>" ;
+
+(* Assignment operators *)
+assign_op = "=" | "+=" | "-=" | "*=" | "/=" | "%="
+          | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+(* Other operators *)
+other_op = ".." | "..=" | "=>" | "->" | "@" | "?" ;
+
+(* Delimiters *)
+delimiter = "(" | ")" | "[" | "]" | "{" | "}" ;
+
+(* Punctuation *)
+punctuation = "," | ";" | ":" | "::" | "." | "#" ;
+
+(* ============================================================================ *)
+(* End of Rust Subset EBNF Grammar                                             *)
+(* ============================================================================ *)
