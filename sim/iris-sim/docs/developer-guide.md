@@ -461,7 +461,7 @@ impl CodeGenerator {
     /// モジュールをRust構造体に変換
     pub fn generate_module(&mut self, module: &ModuleDef) {
         // 構造体定義
-        self.emit_line(&format!("pub struct {} { {", module.name));
+        self.emit_line(&format!("pub struct {} {{", module.name));
         self.indent();
 
         // ポート
