@@ -2,7 +2,9 @@
 
 **(アイリス: Immutable RTL Implementation Standard)**
 
-IRISは、SystemVerilogの複雑さを解消し、Rustの設計思想を取り入れた次世代ハードウェア記述言語です。約220の予約語を持つSystemVerilogに対し、IRISは54語のキーワードでRTL設計に必要な表現力を提供します。
+IRISは、組み合わせ回路と順序回路を記述することを前提としたハードウェア記述言語です。人間とAIが読み書きできる、高級っぽく見える低レベルな言語を目指しています。
+
+SystemVerilogの複雑さを解消し、Rustの設計思想を取り入れた次世代ハードウェア記述言語として、約220の予約語を持つSystemVerilogに対し、IRISは54語のキーワードでRTL設計に必要な表現力を提供します。
 
 ## 設計思想
 
