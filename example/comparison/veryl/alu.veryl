@@ -1,0 +1,49 @@
+/// ALU (RV32I)
+///
+/// The ten operations RV32I defines. The operation is chosen by alu_op, which
+/// the decoder supplies.
+///
+/// There are two places where getting the sign wrong still runs:
+///
+///   SLT  is a signed comparison, SLTU an unsigned one
+///   SRA  is an arithmetic right shift, SRL a logical one
+///
+/// Both survive a good number of tests when swapped, so the signed
+/// intermediates are made explicitly signed and kept apart from the unsigned
+/// path.
+module Alu (
+    op: input  logic<4> ,
+    a : input  logic<32>,
+    b : input  logic<32>,
+    y : output logic<32>,
+) {
+    // The inputs read as signed
+    var sa: signed logic<32>;
+    var sb: signed logic<32>;
+
+    // Only the low five bits of the shift amount are used (RV32I)
+    var shamt: logic<5>;
+
+    var sra_result: signed logic<32>;
+
+    always_comb {
+        sa         = a;
+        sb         = b;
+        shamt      = b[4:0];
+        sra_result = sa >>> shamt;
+
+        y = case op {
+            4'd0   : a + b,                              // ADD
+            4'd1   : a - b,                              // SUB
+            4'd2   : a << shamt,                         // SLL
+            4'd3   : if sa <: sb ? 32'd1 : 32'd0,         // SLT  signed
+            4'd4   : if a <: b ? 32'd1 : 32'd0,           // SLTU unsigned
+            4'd5   : a ^ b,                              // XOR
+            4'd6   : a >> shamt,                         // SRL  logical
+            4'd7   : sra_result,                         // SRA  arithmetic
+            4'd8   : a | b,                              // OR
+            4'd9   : a & b,                              // AND
+            default: 32'd0,
+        };
+    }
+}

@@ -16,6 +16,10 @@ import type {
   HirFunction,
   HirEnumDef,
   HirStructDef,
+  HirUnionDef,
+  HirInterface,
+  HirModport,
+  HirModportSignal,
   HirFunctionParam,
   HirStructFieldDef,
   HirConnection,
@@ -37,6 +41,8 @@ import type {
   SvInstance,
   SvEnumDef,
   SvStructDef,
+  SvUnionDef,
+  SvInterface,
   SvFunction,
   SvFunctionArg,
   SvSensitivity,
@@ -54,11 +60,14 @@ import {
   connection,
   enumDef,
   structDef,
+  unionDef,
+  svInterface,
   functionDef,
   svModule,
   ifStmt,
   block,
   identifier,
+  blockingAssign,
   unary,
   delayStmt,
   eventControlStmt,
@@ -127,6 +136,22 @@ export function transformModule(hirModule: HirModule, context: ModuleTransformer
   // Transform functions
   for (const fn of hirModule.functions) {
     items.push(transformFunction(fn, context));
+  }
+
+  // A testbench drives its own clock: `always #5 clk = ~clk;`
+  for (const driver of hirModule.clockDrivers ?? []) {
+    items.push({
+      kind: 'SvAlwaysBlock',
+      alwaysType: 'always',
+      sensitivity: [],
+      body: block([
+        delayStmt(driver.halfPeriod),
+        blockingAssign(
+          identifier(driver.signal),
+          unary('~', identifier(driver.signal))
+        ),
+      ]),
+    });
   }
 
   // Transform initial blocks (for testbenches)
@@ -248,15 +273,17 @@ function transformInstance(hirInst: HirInstance, context: ModuleTransformerConte
 /**
  * Transform HIR type definition
  */
-function transformTypeDef(
+export function transformTypeDef(
   typeDef: HirTypeDef,
   context: ModuleTransformerContext
-): SvEnumDef | SvStructDef {
+): SvEnumDef | SvStructDef | SvUnionDef {
   switch (typeDef.kind) {
     case 'HirEnumDef':
       return transformEnumDef(typeDef, context);
     case 'HirStructDef':
       return transformStructDef(typeDef, context);
+    case 'HirUnionDef':
+      return transformUnionDef(typeDef, context);
     default: {
       const _exhaustive: never = typeDef;
       throw new Error(`Unknown type def kind: ${(_exhaustive as HirTypeDef).kind}`);
@@ -268,7 +295,14 @@ function transformTypeDef(
  * Transform HIR enum definition
  */
 function transformEnumDef(hirEnum: HirEnumDef, context: ModuleTransformerContext): SvEnumDef {
-  const baseType = context.typeMapper.mapType(hirEnum.type);
+  // The base type is the storage the enum sits in, not the enum itself.
+  // Mapping the enum type gave `typedef enum Op { ... } Op;`, which Verilator
+  // rejects as a self-referential enumerated type definition.
+  const baseType = context.typeMapper.mapType({
+    kind: 'LogicType',
+    width: hirEnum.type.width,
+    signed: false,
+  });
   const members = hirEnum.type.variants.map((v: HirEnumVariant) => {
     if (v.value !== undefined) {
       return { name: v.name, value: { kind: 'SvLiteralExpr' as const, literal: { kind: 'SvIntLiteral' as const, value: v.value, width: undefined, radix: undefined, signed: false } } };
@@ -292,9 +326,41 @@ function transformStructDef(hirStruct: HirStructDef, context: ModuleTransformerC
 }
 
 /**
+ * Transform an interface and its modports.
+ */
+export function transformInterface(
+  hirIface: HirInterface,
+  context: ModuleTransformerContext
+): SvInterface {
+  return svInterface(
+    hirIface.name,
+    hirIface.signals.map((s: HirSignal) => transformSignal(s, context)),
+    hirIface.modports.map((m: HirModport) => ({
+      name: m.name,
+      signals: m.signals.map((s: HirModportSignal) => ({
+        name: s.name,
+        direction: s.direction,
+      })),
+    }))
+  );
+}
+
+/**
+ * Transform HIR union definition
+ */
+function transformUnionDef(hirUnion: HirUnionDef, context: ModuleTransformerContext): SvUnionDef {
+  const fields = hirUnion.fields.map((f: HirStructFieldDef) => ({
+    name: f.name,
+    dataType: context.typeMapper.mapType(f.type),
+  }));
+
+  return unionDef(hirUnion.name, fields, true);  // packed union
+}
+
+/**
  * Transform HIR function definition
  */
-function transformFunction(hirFn: HirFunction, context: ModuleTransformerContext): SvFunction {
+export function transformFunction(hirFn: HirFunction, context: ModuleTransformerContext): SvFunction {
   const returnType = context.typeMapper.mapType(hirFn.returnType);
 
   const args: SvFunctionArg[] = hirFn.params.map((p: HirFunctionParam) => ({

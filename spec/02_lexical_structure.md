@@ -1,6 +1,6 @@
 # 第2章 字句構造
 
-[<< 概要](./01_overview.md) | [目次](./iris_spec_0.1.0.md) | [型システム >>](./03_type_system.md)
+[<< 概要](./01_overview.md) | [目次](./iris_spec.md) | [型システム >>](./03_type_system.md)
 
 ---
 
@@ -28,19 +28,24 @@
 ### 2.2.1 識別子規則
 
 ```ebnf
-identifier      = identifier_start { identifier_continue } ;
+identifier = identifier_start { identifier_continue } ;
+
 identifier_start = letter | "_" ;
 identifier_continue = letter | digit | "_" ;
-letter          = "a"..."z" | "A"..."Z" ;
-digit           = "0"..."9" ;
+
+letter = "a"..."z" | "A"..."Z" ;
+
+digit = "0"..."9" ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
 
 ### 2.2.2 命名規約（推奨）
 
 | 対象 | 規約 | 例 |
 |------|------|-----|
 | モジュール | PascalCase | `Counter`, `AxiLite` |
-| 信号・変数 | snake_case | `data_valid`, `read_enable` |
+| 信号と変数 | snake_case | `data_valid`, `read_enable` |
 | 定数 | SCREAMING_SNAKE_CASE | `MAX_WIDTH`, `DEFAULT_DEPTH` |
 | 型エイリアス | PascalCase | `Byte`, `Word` |
 | 列挙値 | PascalCase | `Idle`, `Running` |
@@ -75,7 +80,8 @@ digit           = "0"..."9" ;
 
 ### 2.3.3 複数行コメント内Markdown記述
 
-`/* ... */` 複数行コメント内ではMarkdown記法が使用可能。コンパイル時にドキュメントとして抽出・出力できる。
+`/* ... */` 複数行コメント内ではMarkdown記法が使用可能。
+コンパイル時にドキュメントとして抽出し、出力できる。
 
 **サポートする図表形式:**
 
@@ -129,22 +135,22 @@ mod AxiLiteSlave(
 
 ---
 
-## 2.4 予約語（55語）
+## 2.4 予約語（58語）
 
-IRISは55個の予約語を持ち、SystemVerilogの約220語と比較して大幅に削減されている。
+IRISは58個の予約語を持ち、SystemVerilogの約220語と比較して大幅に削減されている。
 
-### 2.4.1 モジュール構造（11語）
+### 2.4.1 モジュール構造（12語）
 
 ```
 mod     extern  inst    in      out     inout
-const   type    import  export  pub
+const   type    import  export  pub     package
 ```
 
 | 予約語 | 説明 | SystemVerilog相当 | 使用例 |
 |--------|------|-------------------|--------|
 | `mod` | モジュール定義 | `module ... endmodule` | `mod Counter(...) { ... }` |
 | `extern` | 外部モジュール/Rust関数宣言 | `(* black_box *)`, DPI | `extern mod LegacyIP;`, `extern rust "module" { ... }` |
-| `inst` | モジュールインスタンス化 | モジュールインスタンス | `inst u_counter: Counter;` |
+| `inst` | モジュールインスタンス化 | モジュールインスタンス | `inst u_counter = Counter { clk: clk };` |
 | `in` | 入力ポート宣言 | `input` | `in clk: clock` |
 | `out` | 出力ポート宣言 | `output` | `out data: bit[8]` |
 | `inout` | 双方向ポート宣言 | `inout` | `inout bidir: bit` |
@@ -191,12 +197,13 @@ var     mut     mem
 | `union` | 共用体定義 | `union packed` | `union DataView { ... }` |
 | `clock` | クロック信号型 | - | `in clk: clock` |
 | `reset` | リセット信号型 | - | `in rst: reset` |
-| `let` | 不変信号宣言 | `wire` + `assign` | `let sum = a + b;` |
+| `let` | 不変信号宣言。式を与えると連続代入されるwireになる（第4.3.2節） | `wire` + `assign` | `let sum = a + b;` |
 | `var` | 可変信号宣言（**推奨**） | `reg` | `var counter: bit[8] = 0;` |
 | `mut` | 可変修飾子 | - | `let mut cnt: bit[8];` |
 | `mem` | メモリ宣言 | 配列 | `mem buffer: bit[8][256];` |
 
-※ `var`は`let mut`と同義。可変信号には`var`の使用を推奨（簡潔で可読性が高い）。
+※ `var`は`let mut`と同義。
+可変信号には`var`の使用を推奨（簡潔で可読性が高い）。
 ※ 整数型（`i8`, `u8`, `i16`, `u16`, `i32`, `u32`等）は予約語ではなく組み込み型名。
 
 ### 2.4.4 論理ブロック（9語）
@@ -236,10 +243,10 @@ constraint await  seq
 | `await` | シミュレーション待機 | `@`, `wait` | `await clk.posedge;` |
 | `seq` | シーケンシャル処理ブロック | `initial`（手続き的） | `seq { for i in 0..10 { ... } }` |
 
-### 2.4.6 インターフェース（4語）
+### 2.4.6 インターフェース（6語）
 
 ```
-interface   initiator  target   view
+interface   initiator  target   view   extends   monitor
 ```
 
 | 予約語 | 説明 | SystemVerilog相当 | 使用例 |
@@ -248,6 +255,8 @@ interface   initiator  target   view
 | `initiator` | マスター側ビュー | `modport` | `view initiator { ... }` |
 | `target` | スレーブ側ビュー | `modport` | `view target { ... }` |
 | `view` | インターフェースビュー定義 | `modport` | `view monitor { ... }` |
+| `extends` | インターフェース継承 | - | `interface AxiStream extends StreamBase { ... }` |
+| `monitor` | 観測専用ビュー | `modport` | `view monitor { ... }` |
 
 ### 2.4.7 その他（2語）
 
@@ -264,25 +273,37 @@ where   fn
 
 | カテゴリ | 予約語 | 語数 |
 |----------|--------|------|
-| モジュール構造 | `mod`, `extern`, `inst`, `in`, `out`, `inout`, `const`, `type`, `import`, `export`, `pub` | 11 |
+| モジュール構造 | `mod`, `extern`, `inst`, `in`, `out`, `inout`, `const`, `type`, `import`, `export`, `pub`, `package` | 12 |
 | 制御構造 | `if`, `else`, `match`, `for`, `while`, `break`, `continue`, `return` | 8 |
 | 型関連 | `bit`, `int`, `uint`, `bool`, `enum`, `struct`, `union`, `clock`, `reset`, `let`, `var`, `mut`, `mem` | 13 |
 | 論理ブロック | `comb`, `sync`, `fsm`, `state`, `when`, `goto`, `initial`, `transitions`, `default` | 9 |
 | 検証 | `test`, `assert`, `expect`, `cover`, `assume`, `constraint`, `await`, `seq` | 8 |
-| インターフェース | `interface`, `initiator`, `target`, `view` | 4 |
+| インターフェース | `interface`, `initiator`, `target`, `view`, `extends`, `monitor` | 6 |
 | その他 | `where`, `fn` | 2 |
-| **合計** | | **55** |
+| **合計** | | **58** |
 
 ### 2.4.9 コンテキストキーワード
 
-以下の識別子は特定のコンテキストでのみキーワードとして機能する。通常の識別子としても使用可能。
+以下の識別子は特定のコンテキストでのみキーワードとして機能する。
+通常の識別子としても使用可能。
 
 | 識別子 | コンテキスト | 説明 | 使用例 |
 |--------|--------------|------|--------|
 | `rust` | `extern rust`, `use rust::` | 外部Rust関数との連携 | `extern rust "module" { fn name(); }`, `use rust::module::func;` |
 | `async` | `seq`ブロック内 | 非同期関数の呼び出し | `let result = func().await;` |
+| `use` | `use rust::` | Rust関数インポート | `use rust::test_utils::verify_count;` |
+| `rand` | 検証コンテキスト内 | ランダム変数宣言 | `rand data: bit[32];` |
+| `property` | 検証コンテキスト内 | プロパティ定義 | `property handshake_protocol { ... }` |
+| `sequence` | 検証コンテキスト内 | シーケンス定義 | `sequence burst_transfer { ... }` |
+| `covergroup` | 検証コンテキスト内 | カバーグループ定義 | `covergroup TransactionCoverage(clk) { ... }` |
+| `fixture` | 検証コンテキスト内 | テストフィクスチャ | `fixture CounterTestFixture { ... }` |
+| `fork` | `test`モジュール内 | 並列実行 | `fork { task1(); } join { task2(); }` |
+| `join` | `fork`ブロック内 | 並列実行の待機 | `fork { ... } join;` |
+| `join_any` | `fork`ブロック内 | いずれか完了待機 | `fork { ... } join_any;` |
+| `join_none` | `fork`ブロック内 | 即座に続行 | `fork { ... } join_none;` |
+| `static` | `seq`ブロック内 | 静的変数 | `static counter: AtomicU32 = AtomicU32::new(0);` |
 
-※ コンテキストキーワードは予約語数（55語）には含まれない。
+※ コンテキストキーワードは予約語数（58語）には含まれない。
 
 ---
 
@@ -291,13 +312,31 @@ where   fn
 ### 2.5.1 整数リテラル構文
 
 ```ebnf
-integer_literal = sized_literal | unsized_literal ;
-sized_literal   = width "'" base_char value ;
-unsized_literal = "'" base_char value ;
-width           = decimal_digits ;
-base_char       = "b" | "B" | "o" | "O" | "d" | "D" | "h" | "H" ;
-value           = { digit | "_" | "x" | "X" | "z" | "Z" } ;
+integer_literal = [ literal_size ] [ "'" base ] digits ;
+
+literal_size = decimal_digits ;
+
+base = "b" | "o" | "d" | "h" ;
+
+digits = binary_digit { [ "_" ] binary_digit }
+       | octal_digit { [ "_" ] octal_digit }
+       | decimal_digit { [ "_" ] decimal_digit }
+       | hex_digit { [ "_" ] hex_digit } ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+サイズも基数も省ける。
+`42`はこの規則に収まる10進のリテラルである。
+
+**サイズ無しリテラル（`'hFF`）は基準実装がまだ読めない。**
+
+**基数は小文字だけである。**
+`8'HFF`は書けない。
+
+**リテラルに`x`と`z`は書けない。**
+IRISは4値を模擬するが、不定値やハイインピーダンスを literal として置く記法は
+文法にも実装にも無い。
 
 ### 2.5.2 基数と許容文字
 
@@ -339,26 +378,27 @@ value           = { digit | "_" | "x" | "X" | "z" | "Z" } ;
 
 ---
 
-## 2.6 演算子・区切り子
+## 2.6 演算子と区切り子
 
 ### 2.6.1 演算子一覧
 
 | 優先度 | 演算子 | 結合性 | 説明 |
 |--------|--------|--------|------|
 | 1 (最高) | `()` `[]` `.` `::` | 左 | グループ化、添字、メンバ、スコープ |
-| 2 | `~` `!` | 右 | 単項NOT、論理NOT |
-| 3 | `*` `/` `%` | 左 | 乗算、除算、剰余 |
-| 4 | `+` `-` | 左 | 加算、減算 |
-| 5 | `<<` `>>` `>>>` | 左 | シフト |
-| 6 | `<` `<=` `>` `>=` | 左 | 比較 |
-| 7 | `==` `!=` | 左 | 等価 |
-| 8 | `&` | 左 | ビットAND |
-| 9 | `^` `~^` | 左 | ビットXOR、XNOR |
-| 10 | `\|` | 左 | ビットOR |
-| 11 | `&&` | 左 | 論理AND |
-| 12 | `\|\|` | 左 | 論理OR |
-| 13 | `?:` | 右 | 三項条件 |
-| 14 (最低) | `=` | 右 | 代入（統一演算子） |
+| 2 | `!` `~` `-` (単項) | 右 | 論理NOT、ビットNOT、符号反転 |
+| 3 | `**` | 右 | べき乗 |
+| 4 | `*` `/` `%` | 左 | 乗算、除算、剰余 |
+| 5 | `+` `-` | 左 | 加算、減算 |
+| 6 | `<<` `>>` `>>>` | 左 | シフト |
+| 7 | `<` `<=` `>` `>=` | 左 | 比較 |
+| 8 | `==` `!=` `===` `!==` | 左 | 等価（`===`/`!==`は検証用） |
+| 9 | `&` | 左 | ビットAND |
+| 10 | `^` `~^` | 左 | ビットXOR、XNOR |
+| 11 | `\|` | 左 | ビットOR |
+| 12 | `&&` | 左 | 論理AND |
+| 13 | `\|\|` | 左 | 論理OR |
+| 14 | `?:` `as` | 右 | 三項条件、キャスト |
+| 15 (最低) | `=` | 右 | 代入（統一演算子） |
 
 ### 2.6.2 区切り子
 
@@ -368,4 +408,4 @@ value           = { digit | "_" | "x" | "X" | "z" | "Z" } ;
 
 ---
 
-[<< 概要](./01_overview.md) | [目次](./iris_spec_0.1.0.md) | [型システム >>](./03_type_system.md)
+[<< 概要](./01_overview.md) | [目次](./iris_spec.md) | [型システム >>](./03_type_system.md)

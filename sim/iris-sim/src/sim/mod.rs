@@ -2,12 +2,11 @@
 //!
 //! This module provides the simulation engine for executing IRIS designs.
 
-mod engine;
-mod eval;
+pub mod eval;
 mod hierarchy;
+pub mod seq;
 mod trace;
 
-pub use engine::Simulator;
 pub use eval::{EvalError, Evaluator};
-pub use hierarchy::{AssertionFailure, HierarchicalSimulator, MetastabilityWarning};
+pub use hierarchy::{cover_name, AssertionFailure, HierarchicalSimulator, MetastabilityWarning};
 pub use trace::SignalTrace;

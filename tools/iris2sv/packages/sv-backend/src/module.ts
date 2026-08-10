@@ -186,6 +186,44 @@ export interface SvStructDef {
   readonly isPacked: boolean;
 }
 
+/** One direction group of a `modport`. */
+export interface SvModportSignal {
+  readonly name: string;
+  readonly direction: 'input' | 'output' | 'inout';
+}
+
+/** `modport initiator (output valid, input ready);` */
+export interface SvModport {
+  readonly name: string;
+  readonly signals: SvModportSignal[];
+}
+
+/**
+ * `interface Bus; logic valid; modport ...; endinterface`
+ *
+ * IRIS interfaces and their views map onto this directly, and the backend had
+ * no node for either, so a design declaring one converted to a diagnostic.
+ */
+export interface SvInterface {
+  readonly kind: 'SvInterface';
+  readonly name: string;
+  readonly signals: SvSignal[];
+  readonly modports: SvModport[];
+}
+
+/**
+ * `typedef union packed { ... } Name;`
+ *
+ * A union overlays its members where a struct lays them end to end, so the two
+ * cannot share a node without changing what the design means.
+ */
+export interface SvUnionDef {
+  readonly kind: 'SvUnionDef';
+  readonly name: string;
+  readonly fields: SvStructField[];
+  readonly isPacked: boolean;
+}
+
 /**
  * Type alias (typedef)
  */
@@ -271,6 +309,7 @@ export type SvModuleItem =
   | SvEnumDef
   | SvStructDef
   | SvTypeDef
+  | SvUnionDef
   | SvFunction
   | SvTask
   | SvGenerateFor
@@ -298,7 +337,7 @@ export interface SvSourceFile {
   readonly kind: 'SvSourceFile';
   readonly timescale: string | undefined;  // e.g., "1ns/1ps"
   readonly modules: SvModule[];
-  readonly typeDefs: (SvEnumDef | SvStructDef | SvTypeDef)[];  // Top-level typedefs
+  readonly typeDefs: (SvEnumDef | SvStructDef | SvUnionDef | SvTypeDef)[];  // Top-level typedefs
 }
 
 // ==================== Helper Functions ====================
@@ -467,6 +506,27 @@ export function enumDef(
 /**
  * Create a struct definition
  */
+export function svInterface(
+  name: string,
+  signals: SvSignal[],
+  modports: SvModport[]
+): SvInterface {
+  return { kind: 'SvInterface', name, signals, modports };
+}
+
+export function unionDef(
+  name: string,
+  fields: { name: string; dataType: SvDataType }[],
+  isPacked = true
+): SvUnionDef {
+  return {
+    kind: 'SvUnionDef',
+    name,
+    fields,
+    isPacked,
+  };
+}
+
 export function structDef(
   name: string,
   fields: { name: string; dataType: SvDataType }[],

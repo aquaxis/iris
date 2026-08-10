@@ -21,7 +21,99 @@ pub enum EvalError {
     InvalidOperation(String),
 }
 
+/// The runtime's spelling of a binary operator
+pub fn runtime_binop(op: BinOp) -> iris_runtime::ops::BinOp {
+    use iris_runtime::ops::BinOp as R;
+    match op {
+        BinOp::Add => R::Add,
+        BinOp::Sub => R::Sub,
+        BinOp::Mul => R::Mul,
+        BinOp::Div => R::Div,
+        BinOp::Mod => R::Mod,
+        BinOp::And => R::And,
+        BinOp::Or => R::Or,
+        BinOp::Xor => R::Xor,
+        BinOp::Shl => R::Shl,
+        BinOp::Shr => R::Shr,
+        BinOp::AShr => R::AShr,
+        BinOp::Eq => R::Eq,
+        BinOp::Ne => R::Ne,
+        BinOp::Lt => R::Lt,
+        BinOp::Le => R::Le,
+        BinOp::Gt => R::Gt,
+        BinOp::Ge => R::Ge,
+        BinOp::LogicalAnd => R::LogicalAnd,
+        BinOp::LogicalOr => R::LogicalOr,
+    }
+}
+
+/// The runtime's spelling of a unary operator
+pub fn runtime_unop(op: UnaryOp) -> iris_runtime::ops::UnaryOp {
+    use iris_runtime::ops::UnaryOp as R;
+    match op {
+        UnaryOp::Not => R::Not,
+        UnaryOp::Neg => R::Neg,
+        UnaryOp::LogNot => R::LogNot,
+    }
+}
+
+/// Do the low `tag_width` bits of a value hold this tag?
+pub fn matches_tag(value: &SignalValue, tag: u64, tag_width: usize) -> bool {
+    let mask = if tag_width >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << tag_width) - 1
+    };
+    value.to_u64().map(|v| v & mask == tag).unwrap_or(false)
+}
+
+/// The payload a tagged value carries
+pub fn payload_of(value: &SignalValue, tag_width: usize, payload_width: usize) -> SignalValue {
+    iris_runtime::ops::slice(value, tag_width + payload_width - 1, tag_width)
+}
+
+/// The memory a name refers to, written either plainly or hierarchically.
+///
+/// `storage` parses as an identifier, but `dut.storage` parses as a method
+/// call on `dut`, so both forms have to be recognised.
+pub fn memory_path(expr: &Expression) -> Option<String> {
+    match expr {
+        Expression::Ident(name) => Some(name.clone()),
+        Expression::MethodCall {
+            receiver,
+            method,
+            args,
+        } if args.is_empty() => Some(format!("{}.{}", memory_path(receiver)?, method)),
+        _ => None,
+    }
+}
+
+/// Is this expression a decimal literal written without a width suffix?
+///
+/// Such a literal takes the width of the other operand, so `ptr + 1` wraps at
+/// the width of `ptr` instead of at 32 bits.
+pub fn is_unsized_literal(expr: &Expression) -> bool {
+    matches!(expr, Expression::Literal(Literal::Decimal { width: None, .. }))
+}
+
 /// Expression evaluator
+/// Evaluate a system function that survived elaboration, using `value_of` to
+/// resolve its argument. Only the synthesisable functions are handled.
+pub fn eval_sys_func<F>(expr: &Expression, value_of: F) -> Option<i64>
+where
+    F: Fn(&Expression) -> Option<i64>,
+{
+    use crate::parser::SysFuncArg;
+    let Expression::SysFunc { name, args } = expr else {
+        return None;
+    };
+    match (name.as_str(), args.first()) {
+        ("clog2", Some(SysFuncArg::Expr(e))) => value_of(e).map(crate::project::clog2),
+        ("bits", Some(SysFuncArg::Type(t))) => t.width().map(|w| w as i64),
+        _ => None,
+    }
+}
+
 pub struct Evaluator<'a> {
     signals: &'a HashMap<String, SignalValue>,
 }
@@ -35,6 +127,10 @@ impl<'a> Evaluator<'a> {
     /// Evaluate an expression
     pub fn eval(&self, expr: &Expression) -> Result<SignalValue, EvalError> {
         match expr {
+            Expression::Call { name, .. } => Err(EvalError::InvalidOperation(format!(
+                "call to unknown function '{}'",
+                name
+            ))),
             Expression::Literal(lit) => self.eval_literal(lit),
             Expression::Ident(name) => self
                 .signals
@@ -72,7 +168,9 @@ impl<'a> Evaluator<'a> {
             }
             Expression::Slice { base, high, low } => {
                 let base_val = self.eval(base)?;
-                Ok(base_val.slice(*high, *low))
+                let high = self.eval(high)?.to_u64().unwrap_or(0) as usize;
+                let low = self.eval(low)?.to_u64().unwrap_or(0) as usize;
+                Ok(base_val.slice(high, low))
             }
             Expression::MethodCall {
                 receiver,
@@ -94,6 +192,14 @@ impl<'a> Evaluator<'a> {
                 } else {
                     self.eval(else_expr)
                 }
+            }
+            Expression::Replicate { count, value } => {
+                let times = self.eval(count)?.to_u64().unwrap_or(0) as usize;
+                let mut repeated = Vec::new();
+                for _ in 0..times {
+                    repeated.extend(value.iter().cloned());
+                }
+                self.eval(&Expression::Concat(repeated))
             }
             Expression::Concat(exprs) => {
                 let mut result_bits = Vec::new();
@@ -118,6 +224,58 @@ impl<'a> Evaluator<'a> {
                     mem_name
                 )))
             }
+            Expression::PartSelect {
+                base,
+                index,
+                width,
+                upward,
+            } => {
+                let base_val = self.eval(base)?;
+                let index = self.eval(index)?.to_u64().unwrap_or(0) as usize;
+                let width = self.eval(width)?.to_u64().unwrap_or(1).max(1) as usize;
+                let low = if *upward {
+                    index
+                } else {
+                    index.saturating_sub(width - 1)
+                };
+                Ok(base_val.slice(low + width - 1, low))
+            }
+            Expression::SysFunc { .. } => eval_sys_func(expr, |e| {
+                self.eval(e).ok().and_then(|v| v.to_u64()).map(|v| v as i64)
+            })
+            .map(|v| SignalValue::from_u64(v as u64, 32))
+            .ok_or_else(|| {
+                EvalError::InvalidOperation(format!("cannot evaluate {}", expr))
+            }),
+            Expression::Match { scrutinee, arms } => {
+                let value = self.eval(scrutinee)?;
+                for arm in arms {
+                    if self.pattern_matches(&arm.pattern, &value) {
+                        return self.eval(&arm.value);
+                    }
+                }
+                Err(EvalError::InvalidOperation(
+                    "match expression has no arm covering the value".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Does a match pattern accept this value?
+    fn pattern_matches(&self, pattern: &crate::parser::Pattern, value: &SignalValue) -> bool {
+        use crate::parser::Pattern;
+        match pattern {
+            Pattern::Wildcard => true,
+            Pattern::Literal(lit) => Some(lit.to_u64()) == value.to_u64(),
+            Pattern::Ident(name) => match self.signals.get(name) {
+                Some(v) => v.to_u64() == value.to_u64(),
+                None => false,
+            },
+            Pattern::Variant { tag, tag_width, .. } => {
+                matches_tag(value, *tag, *tag_width)
+            }
+            // Only an elaborated pattern can be matched
+            Pattern::Path { .. } => false,
         }
     }
 
@@ -206,6 +364,24 @@ impl<'a> Evaluator<'a> {
                     EvalError::InvalidOperation("Cannot shift by X/Z values".to_string())
                 })?;
                 Ok(SignalValue::from_u64(a << (b as u32), lhs.width()))
+            }
+            BinOp::AShr => {
+                // Arithmetic shift keeps the sign when both sides are signed
+                let width = lhs.width();
+                let shift = rhs.to_u64().ok_or_else(|| {
+                    EvalError::InvalidOperation("Cannot shift by an X/Z amount".to_string())
+                })? as u32;
+                if lhs.is_signed() {
+                    let a = lhs.to_i64().ok_or_else(|| {
+                        EvalError::InvalidOperation("Cannot shift X/Z values".to_string())
+                    })?;
+                    Ok(SignalValue::from_i64(a >> shift.min(63), width))
+                } else {
+                    let a = lhs.to_u64().ok_or_else(|| {
+                        EvalError::InvalidOperation("Cannot shift X/Z values".to_string())
+                    })?;
+                    Ok(SignalValue::from_u64(a >> shift, width))
+                }
             }
             BinOp::Shr => {
                 let a = lhs.to_u64().ok_or_else(|| {

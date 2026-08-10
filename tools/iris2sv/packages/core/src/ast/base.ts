@@ -135,6 +135,25 @@ export interface PrimitiveType extends AstNode {
   readonly kind: 'PrimitiveType';
   readonly type: 'bit' | 'int' | 'uint' | 'bool' | 'clock' | 'reset' | 'string';
   readonly width: Expr | undefined; // For bit[N], int[N], uint[N]
+  /** Attributes of a clock or reset, as in `clock(period: 10ns)`, `reset(active_low: true)`. */
+  readonly attrs?: TypeAttr[] | undefined;
+}
+
+/**
+ * One attribute of a clock or reset type, such as `active_low: true`
+ */
+export interface TypeAttr extends AstNode {
+  readonly kind: 'TypeAttr';
+  readonly name: Identifier;
+  readonly value: Expr;
+  /**
+   * Time unit of a duration, as in `clock(period: 10ns)`.
+   *
+   * `duration = integer ~ time_unit?` in the reference grammar. Without a place
+   * to keep the unit the parser stopped at `ns` and reported `Expected ')'`,
+   * which rejected every testbench in the repository.
+   */
+  readonly unit?: string | undefined;
 }
 
 /**
@@ -290,6 +309,13 @@ export interface IndexExpr extends AstNode {
   readonly base: Expr;
   readonly index: Expr;
   readonly endIndex: Expr | undefined; // For slicing: base[start:end]
+  /**
+   * The operator of a part select, from `a[i +: 8]` or `a[i -: 8]`.
+   *
+   * `part_select = "[" ~ expr ~ part_select_op ~ expr ~ "]"`. SystemVerilog
+   * spells it the same way, so the operator has to survive the conversion.
+   */
+  readonly partSelect?: '+:' | '-:' | undefined;
 }
 
 /**
@@ -441,6 +467,8 @@ export interface StructPattern extends AstNode {
 }
 
 // Statement types (forward declaration - full definition in stmt.ts)
+import type { AssertStmt } from './items.js';
+
 export type Stmt =
   | LetStmt
   | VarStmt
@@ -452,6 +480,7 @@ export type Stmt =
   | WhileStmt
   | ReturnStmt
   | BlockStmt
+  | AssertStmt
   | ExprStmt;
 
 /**

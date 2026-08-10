@@ -1,18 +1,23 @@
 (* ============================================================================ *)
 (* IRIS Language Grammar - Extended Backus-Naur Form (EBNF)                     *)
 (* ============================================================================ *)
-(* Version: 0.2.1                                                               *)
-(* Date: 2026-01-21                                                             *)
+(* Version: 0.4.0                                                               *)
+(* Date: 2026-08-09                                                             *)
 (* Specification: ISO/IEC 14977 compliant                                       *)
-(* Reference: spec/15_grammar.md                                                *)
+(* Reference: spec/16_grammar.md                                                *)
+(*                                                                              *)
+(* EBNF alternation is unordered, but a parser written from it is usually not.  *)
+(* Where one alternative is a prefix of another, the longer one is listed first  *)
+(* so that a direct transcription cannot hide it.                               *)
 (* ============================================================================ *)
 
 (* ===== 1. Top-level Syntax ===== *)
 
 source_file = { item } ;
 
-item = visibility_modifier ( mod_def | test_mod_def | type_def | const_def | fn_def
-     | interface_def | package_decl | import_decl | test_def ) ;
+item = package_decl | import_decl | export_decl
+     | visibility_modifier ( extern_mod_def | mod_def | test_mod_def | type_def
+                           | const_decl | fn_def | interface_def | test_def ) ;
 
 visibility_modifier = [ "pub" ] ;
 
@@ -28,28 +33,33 @@ default_value = const_expr ;
 
 where_clause = "where" constraint { "," constraint } ;
 constraint = identifier ":" type_expr
-           | identifier "==" const_expr
-           | identifier "!=" const_expr
-           | identifier "<" const_expr
-           | identifier "<=" const_expr
-           | identifier ">" const_expr
-           | identifier ">=" const_expr ;
+           | identifier binary_op const_expr
+           | expr "." identifier "(" [ expr_list ] ")" ;
 
 port_list = { port_decl } ;
 port_decl = port_direction identifier ":" type_expr [ "," ] ;
-port_direction = "in" | "out" | "inout" | "initiator" | "target" | "monitor" ;
+(* Ordered longest first: "in" would otherwise hide "inout" and "initiator" *)
+port_direction = "initiator" | "monitor" | "target" | "inout" | "out" | "in" ;
 
 mod_item = signal_decl | const_decl | type_alias | logic_block
-         | inst_decl | mem_decl | fsm_block ;
+         | inst_decl | mem_decl | fsm_block | constraint_block ;
 
-(* Instance declaration *)
-inst_decl = identifier ":" path [ generic_args ] "(" [ connection_list ] ")" ";" ;
-connection_list = connection { "," connection } ;
-connection = "." identifier "(" expr ")" ;
+(* A module implemented outside IRIS: ports, and no body *)
+extern_mod_def = "extern" "mod" identifier [ generic_params ] "(" port_list ")" ";" ;
+
+(* Instance declaration - spec-compliant syntax *)
+inst_decl = "inst" identifier [ "[" array_size "]" ] "=" path
+            [ generic_args ] "{" port_connections "}" ";" ;
+(* The length of an instance array, as `inst u[4] = M { ... };` *)
+array_size = const_expr ;
+generic_args = "[" generic_arg { "," generic_arg } "]" ;
+generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
+port_connections = port_connection { "," port_connection } [ "," ] ;
+port_connection = identifier ":" expression ;
 
 (* ===== 3. Signal and Variable Declarations ===== *)
 
-signal_decl = let_decl | var_decl ;
+signal_decl = rand_decl | let_decl | var_decl ;
 
 (* let declaration: combinational or sequential depending on context *)
 (* - let x = expr;        -> combinational (direct assignment) *)
@@ -57,8 +67,12 @@ signal_decl = let_decl | var_decl ;
 (* - let mut x = expr;    -> initial value becomes reset value in sync/fsm *)
 let_decl = "let" [ "mut" ] identifier [ ":" type_expr ] [ "=" expr ] ";" ;
 
-(* var declaration: sequential logic only (sync/fsm blocks only) *)
+(* var declaration: can be declared at module level, assigned only in sync/fsm *)
 var_decl = "var" identifier [ ":" type_expr ] [ "=" expr ] ";" ;
+
+(* A random variable: `$randomize` draws a new value for it, subject to the
+   constraint blocks declared alongside it *)
+rand_decl = "rand" identifier ":" type_expr [ "=" expr ] ";" ;
 
 const_decl = "const" identifier ":" type_expr "=" expr ";" ;
 
@@ -68,77 +82,105 @@ type_alias = "type" identifier [ generic_params ] "=" type_expr ";" ;
 
 type_expr = primitive_type | array_type | tuple_type | user_type | generic_type ;
 
-primitive_type = "bit" [ "[" const_expr "]" ]
+primitive_type = "bit" [ "[" const_expr [ ":" const_expr ] "]" ]
                | "int" "[" const_expr "]"
                | "uint" "[" const_expr "]"
-               | "bool"
-               | "clock" [ clock_config ]
-               | "reset" [ reset_config ]
-               | "string" ;
+               | "bool" | "string"
+               | "clock" [ "(" clock_config { "," clock_config } ")" ]
+               | "reset" [ "(" reset_config { "," reset_config } ")" ] ;
 
-(* Clock configuration: period specification *)
-clock_config = "(" "period" ":" duration ")" ;
+clock_config = "period" ":" duration ;
+reset_config = "active_low" ":" bool_literal
+             | "assert_cycles" ":" const_expr
+             | "assert_time" ":" duration ;
 
-(* Reset configuration: active_low, assert_cycles, assert_time *)
-reset_config = "(" reset_param { "," reset_param } ")" ;
-reset_param = "active_low" ":" bool_literal
-            | "assert_cycles" ":" integer_literal
-            | "assert_time" ":" duration ;
+(* Both spellings occur: `10ns` for a clock period, `1.ms` inside an attribute *)
+duration = integer_literal time_unit | number "." time_unit ;
+time_unit = "ps" | "ns" | "us" | "ms" | "s" ;
 
 array_type = type_expr "[" const_expr "]" ;
 
-tuple_type = "(" type_expr { "," type_expr } ")" ;
+tuple_type = "(" type_expr { "," type_expr } [ "," ] ")" ;
 
 user_type = path ;
 
 generic_type = path "[" generic_args "]" ;
 
-generic_args = generic_arg { "," generic_arg } ;
-generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
-
 (* ===== 5. Expressions ===== *)
 
 expr = unary_expr | binary_expr | primary_expr ;
-
 unary_expr = unary_op expr ;
-
 binary_expr = expr binary_op expr ;
 
+(* Ordered longest first: `path` before `identifier`, and the three selection
+   forms before one another, so a transcription cannot hide the longer form *)
 primary_expr = literal
-             | identifier
+             | match_expr
+             | if_expr
              | path
              | call_expr
+             | method_call
+             | part_select_expr
+             | slice_expr
              | index_expr
              | field_expr
              | cast_expr
-             | if_expr
-             | match_expr
+             | replication_expr
              | concat_expr
-             | repeat_expr
+             | sys_func
+             | identifier
              | "(" expr ")" ;
 
 unary_op = "!" | "~" | "-" | "&" | "|" | "^" ;
 
-binary_op = "+" | "-" | "*" | "/" | "%" | "**"
-          | "&" | "|" | "^" | "<<" | ">>" | ">>>"
-          | "==" | "!=" | "<" | "<=" | ">" | ">="
-          | "&&" | "||" ;
+(* Ordered longest first, so that "<" cannot hide "<=" and ">>" cannot hide
+   ">>>" in a parser transcribed from this grammar *)
+binary_op = "===" | "!=="
+          | "**" | ">>>" | "<<" | ">>"
+          | "==" | "!=" | "<=" | ">=" | "&&" | "||"
+          | "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<" | ">" ;
 
 call_expr = expr "(" [ expr_list ] ")" ;
+method_call = expr "." identifier [ "[" type_expr "]" ] [ "(" [ expr_list ] ")" ] ;
 
-index_expr = expr "[" expr [ ":" expr ] "]" ;
+(* Three ways to select bits. A slice takes constant bounds, because both ends
+   moving gives no fixed width; a part select takes a constant width at a
+   position that need not be constant. Listed longest first. *)
+part_select_expr = expr "[" expr ( "+:" | "-:" ) const_expr "]" ;
+slice_expr = expr "[" const_expr ":" const_expr "]" ;
+index_expr = expr "[" expr "]" ;
 
 field_expr = expr "." identifier ;
-
 cast_expr = expr "as" type_expr ;
+
+concat_expr = "{" expr { "," expr } [ "," ] "}" ;
+replication_expr = "{" const_expr "{" expr "}" "}" ;
 
 if_expr = "if" expr "{" expr "}" "else" "{" expr "}" ;
 
 match_expr = "match" expr "{" { match_arm } "}" ;
 
-concat_expr = "{" expr_list "}" ;
+(* The statement form: each arm holds statements rather than a value *)
+match_stmt = "match" expr "{" { match_stmt_arm } "}" ;
+match_stmt_arm = pattern "=>" ( "{" { statement } "}" | expr ) [ "," ] ;
 
-repeat_expr = "{" expr ";" const_expr "}" ;
+match_arm = pattern "=>" ( expr "," | block_stmt ) ;
+
+(* Ordered longest first: the variant form starts with an identifier, so a
+   bare identifier listed before it would hide it *)
+pattern = "_"
+        | literal
+        | struct_pattern
+        | tuple_pattern
+        | variant_pattern
+        | identifier ;
+
+(* A variant of an enumeration, optionally binding the value it carries *)
+variant_pattern = path "::" identifier [ "(" identifier ")" ] ;
+
+tuple_pattern = "(" pattern { "," pattern } [ "," ] ")" ;
+struct_pattern = identifier "{" field_pattern { "," field_pattern } [ "," ] "}" ;
+field_pattern = identifier ":" pattern ;
 
 expr_list = expr { "," expr } ;
 
@@ -148,115 +190,104 @@ const_expr = expr ;
 
 logic_block = signal_decl | comb_block | sync_block ;
 
-(* Combinational logic block *)
-comb_block = "comb" "{" { statement } "}" ;
+comb_block = "comb" [ default_spec ] "{" { statement } "}" ;
+default_spec = "default" "(" default_assign { "," default_assign } ")" ;
+(* A default names a signal and the value it takes when nothing assigns it,
+   so the value is not optional: `default(y)` alone says nothing. *)
+default_assign = identifier "=" expr ;
 
-(* Sequential logic block *)
-sync_block = "sync" "(" clock_spec [ "," reset_spec ] ")" "{" { statement } "}" ;
+sync_block = "sync" "(" clock_spec [ "," reset_spec ] ")" [ domain_attr ] "{" { statement } "}" ;
 
-clock_spec = expr "." ( "posedge" | "negedge" ) ;
-
-reset_spec = expr "." ( "async" | "sync" ) ;
+clock_spec = expr "." edge ;
+edge = "posedge" | "negedge" ;
+reset_spec = expr "." reset_mode ;
+reset_mode = "async" | "sync" ;
+domain_attr = "@" identifier ;
 
 (* ===== 7. Finite State Machine (FSM) ===== *)
 
 fsm_block = "fsm" identifier "(" clock_spec [ "," reset_spec ] ")" "{"
-            state_enum transitions_block { output_block }
-            "}" ;
+            state_enum [ "initial" ":" identifier ] { signal_decl }
+            transitions_block { output_block } [ output_encoding ] "}" ;
 
-state_enum = "state" "enum" "{" state_item { "," state_item } "}" ;
+(* How the state register is encoded (spec 7.1). Advisory: it does not change
+   the behaviour of the machine, only the bits chosen for each state *)
+output_encoding = "output" "encoding" ":" encoding_type ;
+encoding_type = "binary" | "onehot" | "gray" ;
+
+state_enum = "state" "enum" "{" state_item { "," state_item } [ "," ] "}" ;
 
 state_item = identifier [ moore_outputs ] ;
 
 moore_outputs = "[" output_assign { "," output_assign } "]" ;
-
 output_assign = identifier "=" const_expr ;
 
 transitions_block = "transitions" "{" { transition_item } "}" ;
 
-transition_item = identifier "=>" "{" { when_clause } "}"
-                | "_" "=>" "{" statement "}" ;
+transition_item = ( identifier | "_" ) "=>" "{" { when_clause } "}" ;
 
 when_clause = "when" expr "{" { transition_action } "}" ;
 
-transition_action = "goto" identifier ";" | statement ;
+(* `goto` is not a statement, so the conditional form is spelled out here:
+   its branches hold transition actions, not statements *)
+transition_action = "goto" identifier ";" | fsm_if_stmt | assign_stmt ;
+fsm_if_stmt = "if" expr "{" { transition_action } "}"
+              [ "else" ( fsm_if_stmt | "{" { transition_action } "}" ) ] ;
 
 output_block = "output" identifier "{" { output_case } "}" ;
-
 output_case = identifier "=>" expr "," ;
 
-(* ===== 8. Statements ===== *)
+(* ===== 8. Interface Definition ===== *)
 
-statement = assign_stmt
-          | if_stmt
-          | match_stmt
-          | for_stmt
-          | while_stmt
-          | return_stmt
-          | block_stmt
-          | signal_decl ;
+interface_def = "interface" identifier [ generic_params ] [ "extends" identifier ]
+                [ where_clause ] "{" { interface_signal | view_def } "}" ;
+
+interface_signal = identifier ":" type_expr [ "," ] ;
+
+view_def = "view" view_name "{" { direction_list } "}" ;
+view_name = "initiator" | "target" | "monitor" | identifier ;
+direction_list = direction ":" signal_list ;
+direction = "inout" | "out" | "in" ;
+signal_list = identifier { "," identifier } [ "," ] ;
+
+(* ===== 9. Statements ===== *)
+
+statement = assert_stmt | cover_stmt | assign_stmt | let_local | if_stmt | match_stmt
+          | for_stmt | while_stmt | break_stmt | continue_stmt
+          | return_stmt | block_stmt ;
 
 assign_stmt = lvalue "=" expr ";" ;
 
-lvalue = identifier | index_expr | field_expr | "{" lvalue_list "}" ;
+(* A target may be a whole signal, one bit, a bit field, a memory word, or a
+   member reached through a dot (an interface port or a structure field) *)
+lvalue = identifier { "." identifier }
+       | index_expr | slice_expr | part_select_expr | field_expr
+       | "{" lvalue { "," lvalue } "}" ;
 
-lvalue_list = lvalue { "," lvalue } ;
+(* Loop control, valid in comb, sync and seq blocks *)
+break_stmt = "break" ";" ;
+continue_stmt = "continue" ";" ;
+let_local = "let" identifier [ ":" type_expr ] [ "=" expr ] ";" ;
 
 if_stmt = "if" expr "{" { statement } "}" [ "else" ( if_stmt | block_stmt ) ] ;
 
-match_stmt = "match" expr "{" { match_arm } "}" ;
-
-match_arm = pattern "=>" ( expr "," | block_stmt ) ;
-
-pattern = literal
-        | identifier
-        | "_"
-        | path
-        | range_pattern
-        | tuple_pattern
-        | struct_pattern ;
-
-range_pattern = const_expr ".." const_expr
-              | const_expr "..=" const_expr ;
-
-tuple_pattern = "(" pattern { "," pattern } ")" ;
-
-struct_pattern = path "{" [ field_pattern { "," field_pattern } ] "}" ;
-
-field_pattern = identifier [ ":" pattern ] ;
-
 for_stmt = "for" identifier "in" range_expr "{" { statement } "}" ;
-
-range_expr = expr ".." expr | expr "..=" expr ;
+(* Ordered longest first: ".." would otherwise hide "..=" *)
+range_expr = expr "..=" expr | expr ".." expr ;
 
 while_stmt = "while" expr "{" { statement } "}" ;
 
 return_stmt = "return" [ expr ] ";" ;
-
 block_stmt = "{" { statement } "}" ;
-
-(* ===== 9. Interface Definition ===== *)
-
-interface_def = "interface" identifier [ generic_params ] "{"
-                { interface_signal | view_def }
-                "}" ;
-
-interface_signal = [ "logic" ] identifier ":" type_expr ";" ;
-
-view_def = "view" identifier "{" { view_signal } "}" ;
-
-view_signal = view_direction identifier ";" ;
-
-view_direction = "in" | "out" | "inout" ;
 
 (* ===== 10. Test Definition ===== *)
 
 (* Test module: testbench-style top-level module without ports *)
-(* Equivalent to SystemVerilog testbench top hierarchy *)
 test_mod_def = "test" identifier "{" { test_item } "}" ;
 
-test_item = let_decl | var_decl | const_decl | inst_decl
+test_item = signal_decl | const_decl | inst_decl | mem_decl | fsm_block
           | comb_block | sync_block | initial_block | seq_block
+          | constraint_block
           | use_rust_decl | extern_rust_block | test_stmt ;
 
 initial_block = "initial" "{" { statement } "}" ;
@@ -264,12 +295,21 @@ initial_block = "initial" "{" { statement } "}" ;
 (* Sequential processing block: allows direct Rust code execution *)
 seq_block = "seq" [ identifier ] "{" { seq_statement } "}" ;
 
-seq_statement = rust_statement | signal_access | time_control | assert_stmt ;
+seq_statement = rust_statement | signal_access | time_control
+              | assert_stmt | cover_stmt
+              | seq_if_stmt | seq_for_stmt | seq_while_stmt
+              | break_stmt | continue_stmt | assign_stmt ;
+
+(* A sequential `if` holds sequential statements, so `await` and `break` work
+   inside it *)
+seq_if_stmt = "if" expr "{" { seq_statement } "}"
+              [ "else" ( seq_if_stmt | "{" { seq_statement } "}" ) ] ;
+seq_for_stmt = "for" identifier "in" range_expr "{" { seq_statement } "}" ;
+seq_while_stmt = "while" expr "{" { seq_statement } "}" ;
 
 signal_access = signal_read | signal_write ;
 
 signal_read = signal_path ".value()" ;
-
 signal_write = signal_path ".set(" expr ")" ;
 
 signal_path = identifier { "." identifier } ;
@@ -277,7 +317,6 @@ signal_path = identifier { "." identifier } ;
 time_control = await_stmt | delay_stmt ;
 
 await_stmt = "await" await_expr ";" ;
-
 await_expr = clock_edge | until_expr | event_expr | async_call ;
 
 clock_edge = expr "." ( "posedge" | "negedge" | "cycles" "(" expr ")" ) ;
@@ -314,20 +353,15 @@ rust_param = identifier ":" rust_type ;
 rust_type = identifier | generic_type | "&" rust_type | "&" "mut" rust_type ;
 
 (* Test function with #[test] attribute for unit testing *)
-test_def = "#[" test_attr "]" "fn" identifier "(" ")" "{" { test_stmt } "}" ;
+test_def = "#[" test_attr "]" "test" identifier "(" [ test_params ] ")" "{" { test_stmt } "}" ;
 
 test_attr = "test" [ "(" test_params ")" ] ;
-
 test_params = test_param { "," test_param } ;
-
 test_param = "timeout" "=" duration
            | "should_fail"
            | "ignore"
            | "parametric" "(" param_values ")" ;
 
-duration = integer_literal time_unit ;
-
-time_unit = "ps" | "ns" | "us" | "ms" | "s" ;
 
 param_values = "[" const_expr { "," const_expr } "]" ;
 
@@ -337,10 +371,20 @@ test_stmt = statement
           | drive_stmt
           | sample_stmt ;
 
-assert_stmt = "assert" expr [ "," string_literal ] ";" ;
+(* Three forms of check. `assert` fails the run; `expect` and `assume` report
+   and let it continue. *)
+assert_stmt = ( "assert" | "expect" | "assume" ) expr
+              [ ( "," string_literal ) | ( "else" assert_action ) ] ";" ;
+assert_action = assert_severity "(" [ string_literal ] ")" ;
+assert_severity = "error" | "warning" | "fatal" ;
+
+(* A coverage point: how often its condition held *)
+cover_stmt = "cover" expr [ "," string_literal ] ";" ;
+
+(* Constraints on the random variables of the enclosing module *)
+constraint_block = "constraint" identifier "{" { expr ";" } "}" ;
 
 wait_stmt = "wait" "(" wait_condition ")" ";" ;
-
 wait_condition = expr | duration | clock_spec ;
 
 drive_stmt = identifier "<=" expr ";" ;
@@ -353,7 +397,7 @@ package_decl = "package" package_path ";" { package_item } ;
 
 package_path = identifier { "::" identifier } ;
 
-package_item = visibility_modifier ( type_def | const_def | fn_def
+package_item = visibility_modifier ( type_def | const_decl | fn_def
              | mod_def | interface_def | enum_def | struct_def ) ;
 
 import_decl = "import" import_path [ "as" identifier ] ";" ;
@@ -364,13 +408,24 @@ import_list = import_item { "," import_item } ;
 
 import_item = identifier [ "as" identifier ] ;
 
+(* Offer a name this package can see on to the packages that import it *)
+export_decl = "export" identifier ";" ;
+
+(* ===== 11a. System Functions ===== *)
+
+(* `$clog2` and `$bits` are synthesisable; the rest are verification only and
+   may appear in a test module, a seq block or an initial block *)
+sys_func = "$" identifier [ "(" [ sys_func_arg { "," sys_func_arg } ] ")" ] ;
+sys_func_arg = string_literal | type_expr | expr ;
+
 (* ===== 12. Literals ===== *)
 
 literal = integer_literal | bool_literal | string_literal ;
 
-integer_literal = [ size ] [ "'" base ] digits ;
+integer_literal = [ literal_size ] [ "'" base ] digits ;
 
-size = decimal_digits ;
+(* The width in front of a based literal, as the 8 of 8'hFF *)
+literal_size = decimal_digits ;
 
 base = "b" | "o" | "d" | "h" ;
 
@@ -385,16 +440,17 @@ string_literal = '"' { string_char } '"' ;
 
 (* ===== 13. Identifiers and Paths ===== *)
 
-identifier = letter { letter | digit | "_" } ;
+(* An identifier may open with an underscore, which the reference accepts and
+   this grammar used to forbid. Ranges are written with "..." throughout; the
+   letters spelled out one by one said the same thing over six lines. *)
+identifier = identifier_start { identifier_continue } ;
 
-letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j"
-       | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t"
-       | "u" | "v" | "w" | "x" | "y" | "z"
-       | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J"
-       | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T"
-       | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+identifier_start = letter | "_" ;
+identifier_continue = letter | digit | "_" ;
 
-digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+letter = "a"..."z" | "A"..."Z" ;
+
+digit = "0"..."9" ;
 
 binary_digit = "0" | "1" ;
 
@@ -434,9 +490,7 @@ mem_decl = "mem" identifier ":" mem_type [ mem_config ] [ "=" initializer ] ";" 
 
 mem_type = element_type "[" depth "]" ;
 
-element_type = primitive_type | struct_type ;
-
-struct_type = path ;
+element_type = primitive_type | user_type ;
 
 depth = const_expr ;
 
@@ -446,7 +500,10 @@ config_item = config_key ":" config_value [ "," ] ;
 
 config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 
-config_value = literal | identifier ;
+config_value = literal | identifier | mem_type_value | read_mode_value ;
+
+mem_type_value = "ram" | "rom" ;
+read_mode_value = "sync" | "async" ;
 
 initializer = "{" [ init_item { "," init_item } ] "}"
             | string_literal ;
@@ -455,21 +512,32 @@ init_item = const_expr | "{" [ init_item { "," init_item } ] "}" ;
 
 (* ===== 16. Type and Function Definitions ===== *)
 
-type_def = enum_def | struct_def | type_alias ;
+type_def = enum_def | struct_def | union_def | type_alias ;
 
-enum_def = "enum" identifier [ generic_params ] "{" enum_variant { "," enum_variant } "}" ;
+enum_def = "enum" identifier [ generic_params ] [ ":" underlying_type ] "{" enum_variant { "," enum_variant } [ "," ] "}" ;
 
-enum_variant = identifier [ "=" const_expr ] ;
+underlying_type = type_expr ;
 
-struct_def = "struct" identifier [ generic_params ] "{" { struct_field } "}" ;
+enum_variant = identifier [ "=" const_expr ] [ "(" type_expr ")" ] ;
 
-struct_field = identifier ":" type_expr [ "," ] ;
+struct_def = "struct" identifier [ generic_params ] "{" struct_field { "," struct_field } [ "," ] "}" ;
 
+(* A union's fields share the same bits; the whole is as wide as the widest *)
+union_def = "union" identifier [ generic_params ] "{" struct_field { "," struct_field } [ "," ] "}" ;
+
+(* A function is a pure expression: bindings, then the value it returns *)
 fn_def = "fn" identifier [ generic_params ] "(" [ param_list ] ")" [ "->" type_expr ]
-         "{" { statement } "}" ;
+         "{" { fn_let } return_stmt "}" ;
+
+fn_let = "let" identifier [ ":" type_expr ] "=" expr ";" ;
 
 param_list = param { "," param } ;
 
 param = identifier ":" type_expr ;
+
+(* ===== 17. Struct Definition ===== *)
+
+(* Struct fields use comma separator, matching the spec *)
+struct_field = identifier ":" type_expr ;
 
 (* ===== End of IRIS Grammar ===== *)

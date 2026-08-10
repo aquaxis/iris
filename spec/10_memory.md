@@ -1,6 +1,6 @@
 # 第10章 メモリ
 
-[<< 演算子](./09_operators.md) | [目次](./iris_spec_0.1.0.md) | [検証機能 >>](./11_verification.md)
+[<< 演算子](./09_operators.md) | [目次](./iris_spec.md) | [検証機能 >>](./11_verification.md)
 
 ---
 
@@ -11,8 +11,8 @@
 ```ebnf
 mem_decl = "mem" identifier ":" mem_type [ mem_config ] [ "=" initializer ] ";" ;
 mem_type = element_type "[" depth "]" ;
-element_type = primitive_type | struct_type ;
-depth = constant_expr ;
+element_type = primitive_type | user_type ;
+depth = const_expr ;
 mem_config = "{" { config_item } "}" ;
 config_item = config_key ":" config_value [ "," ] ;
 config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
@@ -38,13 +38,13 @@ mem cache: bit[64][4][256];       // 4ウェイ × 256エントリ × 64ビッ�
 ### 10.2.1 RAM（読み書き可能）
 
 ```rust
-mod Ram[DataWidth: uint = 32, Depth: uint = 1024] {
+mod Ram[DataWidth: uint = 32, Depth: uint = 1024](
     in  clk: clock,
     in  we: bit,
     in  addr: bit[$clog2(Depth)],
     in  wdata: bit[DataWidth],
     out rdata: bit[DataWidth],
-
+) {
     mem storage: bit[DataWidth][Depth];
 
     sync(clk.posedge) {
@@ -59,11 +59,11 @@ mod Ram[DataWidth: uint = 32, Depth: uint = 1024] {
 ### 10.2.2 ROM（読み取り専用）
 
 ```rust
-mod Rom[DataWidth: uint = 8, Depth: uint = 256] {
+mod Rom[DataWidth: uint = 8, Depth: uint = 256](
     in  clk: clock,
     in  addr: bit[$clog2(Depth)],
     out data: bit[DataWidth],
-
+) {
     // 初期化付きROM
     const lookup: bit[DataWidth][Depth] = [
         8'h00, 8'h01, 8'h03, 8'h07,  // ...
@@ -150,7 +150,7 @@ sync(clk.posedge) {
 ### 10.4.2 シンプルデュアルポートRAM
 
 ```rust
-mod SimpleDualPort[Width: uint, Depth: uint] {
+mod SimpleDualPort[Width: uint, Depth: uint](
     in  clk: clock,
     // 書き込みポート
     in  wr_en: bit,
@@ -159,7 +159,7 @@ mod SimpleDualPort[Width: uint, Depth: uint] {
     // 読み出しポート
     in  rd_addr: bit[$clog2(Depth)],
     out rd_data: bit[Width],
-
+) {
     mem storage: bit[Width][Depth] {
         ports: 2,
         type: simple_dual_port
@@ -177,7 +177,7 @@ mod SimpleDualPort[Width: uint, Depth: uint] {
 ### 10.4.3 真デュアルポートRAM
 
 ```rust
-mod TrueDualPort[Width: uint, Depth: uint] {
+mod TrueDualPort[Width: uint, Depth: uint](
     in  clk: clock,
     // ポートA
     in  a_we: bit,
@@ -189,7 +189,7 @@ mod TrueDualPort[Width: uint, Depth: uint] {
     in  b_addr: bit[$clog2(Depth)],
     in  b_wdata: bit[Width],
     out b_rdata: bit[Width],
-
+) {
     mem storage: bit[Width][Depth] {
         ports: 2,
         type: true_dual_port,
@@ -215,7 +215,7 @@ mod TrueDualPort[Width: uint, Depth: uint] {
 ### 10.4.4 異なるクロックドメイン
 
 ```rust
-mod AsyncDualPort[Width: uint, Depth: uint] {
+mod AsyncDualPort[Width: uint, Depth: uint](
     in  wr_clk: clock,
     in  rd_clk: clock,
     in  wr_en: bit,
@@ -223,7 +223,7 @@ mod AsyncDualPort[Width: uint, Depth: uint] {
     in  wr_data: bit[Width],
     in  rd_addr: bit[$clog2(Depth)],
     out rd_data: bit[Width],
-
+) {
     mem storage: bit[Width][Depth] {
         ports: 2,
         type: simple_dual_port,
@@ -295,7 +295,7 @@ const rom_mif: bit[32][1024] {
 | スタイル | 説明 | 用途 |
 |----------|------|------|
 | `block` | ブロックRAM | 大容量メモリ |
-| `distributed` | 分散RAM（LUT） | 小容量・高速 |
+| `distributed` | 分散RAM（LUT） | 小容量で高速 |
 | `ultra` | UltraRAM | 超大容量（FPGA固有） |
 | `registers` | レジスタ配列 | 最小遅延 |
 | `auto` | 自動選択（デフォルト） | ツール判断 |
@@ -338,10 +338,24 @@ mem byte_addressable: bit[32][1024];
 
 | パターン | 推論結果 | 条件 |
 |----------|----------|------|
-| syncブロック内で読み書き | RAM | クロック同期 |
-| 書き込みのみsync、読み出しはlet | 非同期読み出しRAM | 分散RAM |
-| 読み出しのみ | ROM | 初期化必須 |
+| `mem` + syncブロック内で読み書き | RAM | クロック同期 |
+| `mem` + 書き込みのみsync、読み出しはlet | 非同期読み出しRAM | 分散RAM |
+| `const`配列 + 読み出しのみ | ROM | 初期化必須 |
+| `mem` + 読み出しのみ（書き込みなし） | ROM | 初期化必須 |
 | let文内でアクセス | 組み合わせ論理 | 分散RAM向け |
+
+**`const`配列と`mem`のROM推論:**
+
+IRISではROMを記述する方法が2つある。
+
+1. **`const`配列**: インラインリテラルまたは`init_file`で初期化された読み出し専用のデータ。
+10.2.2節の例のように、`const`配列として宣言し、`sync`ブロック内で読み出すとROMとして合成される。
+
+2. **`mem`**: 書き込みポートを持たない`mem`もROMとして合成される。
+初期値は宣言時または`init_file`で与える。
+
+どちらの場合も、書き込みがない読み出しのみのアクセスパターンは合成ツールによりROMとして推論される。
+小規模なROMには`const`配列を、大規模なROMには`mem` + `init_file`を使用することを推奨する。
 
 ### 10.7.2 サイズ推奨
 
@@ -353,4 +367,4 @@ mem byte_addressable: bit[32][1024];
 
 ---
 
-[<< 演算子](./09_operators.md) | [目次](./iris_spec_0.1.0.md) | [検証機能 >>](./11_verification.md)
+[<< 演算子](./09_operators.md) | [目次](./iris_spec.md) | [検証機能 >>](./11_verification.md)

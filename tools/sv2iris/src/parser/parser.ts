@@ -33,6 +33,10 @@ import type {
     SvEnumDecl,
     SvStructDecl,
     SvTypedefDecl,
+    SvUnionDecl,
+    SvFunctionDecl,
+    SvInterfaceDecl,
+    SvModportDecl,
     SvGenerateBlock,
     SvGenerateIf,
     SvGenerateFor,
@@ -76,11 +80,22 @@ export class Parser {
      */
     parse(): SvSourceFile {
         const modules: SvModuleDecl[] = [];
+        const typedefs: SvTypedefDecl[] = [];
+        const functions: SvFunctionDecl[] = [];
+        const interfaces: SvInterfaceDecl[] = [];
         const startPos = this.currentToken().location.start;
 
         while (!this.isAtEnd()) {
             if (this.check(TokenType.MODULE)) {
                 modules.push(this.parseModule());
+            } else if (this.check(TokenType.TYPEDEF)) {
+                typedefs.push(this.parseTypedef());
+            } else if (this.check(TokenType.INTERFACE)) {
+                const iface = this.parseInterfaceDecl();
+                if (iface) interfaces.push(iface);
+            } else if (this.check(TokenType.FUNCTION)) {
+                const fn = this.parseTopLevelFunction();
+                if (fn) functions.push(fn);
             } else if (this.check(TokenType.EOF)) {
                 break;
             } else {
@@ -95,9 +110,132 @@ export class Parser {
         const endPos = this.currentToken().location.end;
         return createSourceFile(
             modules,
-            createLocation(startPos, endPos, this.currentToken().location.file)
+            createLocation(startPos, endPos, this.currentToken().location.file),
+            typedefs,
+            functions,
+            interfaces
         );
     }
+
+    /**
+     * `interface Bus; logic valid; modport m (...); endinterface`
+     *
+     * IRIS says the same thing with `interface` and `view`. Only modules were
+     * accepted at the top level, so a file with one was rejected outright —
+     * including the files iris2sv now writes.
+     */
+    private parseInterfaceDecl(): SvInterfaceDecl | null {
+        const startPos = this.currentToken().location.start;
+        this.consume(TokenType.INTERFACE, "Expected 'interface'");
+        const nameToken = this.consume(TokenType.IDENTIFIER, 'Expected interface name');
+        this.match(TokenType.SEMICOLON);
+
+        const signals: SvVariableDecl[] = [];
+        const modports: SvModportDecl[] = [];
+
+        while (!this.check(TokenType.ENDINTERFACE) && !this.isAtEnd()) {
+            const before = this.pos;
+            if (this.check(TokenType.MODPORT)) {
+                modports.push(this.parseModport());
+            } else {
+                signals.push(this.parseVariableDecl());
+            }
+            if (this.pos === before) this.advance();  // never spin
+        }
+        this.consume(TokenType.ENDINTERFACE, "Expected 'endinterface'");
+
+        return {
+            kind: 'InterfaceDecl',
+            name: nameToken ? nameToken.value : '',
+            signals,
+            modports,
+            location: createLocation(startPos, this.previousToken().location.end, this.currentToken().location.file),
+        };
+    }
+
+    /** `modport initiator (output valid, input ready);` */
+    private parseModport(): SvModportDecl {
+        this.consume(TokenType.MODPORT, "Expected 'modport'");
+        const nameToken = this.consume(TokenType.IDENTIFIER, 'Expected modport name');
+        const signals: { name: string; direction: 'input' | 'output' | 'inout' }[] = [];
+
+        this.consume(TokenType.LPAREN, "Expected '('");
+        while (!this.check(TokenType.RPAREN) && !this.isAtEnd()) {
+            const direction = this.match(TokenType.INPUT)
+                ? ('input' as const)
+                : this.match(TokenType.OUTPUT)
+                  ? ('output' as const)
+                  : this.match(TokenType.INOUT)
+                    ? ('inout' as const)
+                    : ('input' as const);
+            const signalName = this.consume(TokenType.IDENTIFIER, 'Expected signal name');
+            signals.push({ name: signalName ? signalName.value : '', direction });
+            if (!this.match(TokenType.COMMA)) break;
+        }
+        this.consume(TokenType.RPAREN, "Expected ')'");
+        this.match(TokenType.SEMICOLON);
+
+        return { name: nameToken ? nameToken.value : '', signals };
+    }
+
+    /**
+     * `function automatic logic [7:0] add(input logic [7:0] a, ...); ... endfunction`
+     *
+     * IRIS spells the same thing `fn add(a: bit[8], ...) -> bit[8] { ... }`.
+     */
+    private parseTopLevelFunction(): SvFunctionDecl | null {
+        const startPos = this.currentToken().location.start;
+        this.consume(TokenType.FUNCTION, "Expected 'function'");
+
+        // `automatic` and `static` are lifetime qualifiers with no IRIS meaning.
+        // They are keywords in this lexer, not identifiers.
+        if (this.check(TokenType.AUTOMATIC)) {
+            this.advance();
+        }
+
+        // `function <type> name(...)`: a type precedes the name unless the very
+        // next token is the name itself.
+        let returnType: SvDataType | undefined;
+        if (!(this.check(TokenType.IDENTIFIER) && this.tokenAt(this.pos + 1).type === TokenType.LPAREN)) {
+            returnType = this.parseDataType();
+        }
+
+        const nameToken = this.consume(TokenType.IDENTIFIER, 'Expected function name');
+        const name = nameToken ? nameToken.value : '';
+
+        const args: { name: string; dataType: SvDataType }[] = [];
+        if (this.match(TokenType.LPAREN)) {
+            while (!this.check(TokenType.RPAREN) && !this.isAtEnd()) {
+                this.match(TokenType.INPUT);
+                const dataType = this.parseDataType();
+                const argToken = this.consume(TokenType.IDENTIFIER, 'Expected argument name');
+                args.push({ name: argToken ? argToken.value : '', dataType });
+                if (!this.match(TokenType.COMMA)) break;
+            }
+            this.consume(TokenType.RPAREN, "Expected ')'");
+        }
+        this.match(TokenType.SEMICOLON);
+
+        const body: SvStmt[] = [];
+        while (!this.check(TokenType.ENDFUNCTION) && !this.isAtEnd()) {
+            const before = this.pos;
+            body.push(this.parseStatement());
+            if (this.pos === before) this.advance();  // never spin
+        }
+        this.consume(TokenType.ENDFUNCTION, "Expected 'endfunction'");
+
+        return {
+            kind: 'FunctionDecl',
+            name,
+            ...(returnType ? { returnType } : {}),
+            args,
+            body,
+            location: createLocation(startPos, this.previousToken().location.end, this.currentToken().location.file),
+        };
+    }
+
+
+
 
     /**
      * Gets the error reporter
@@ -296,6 +434,20 @@ export class Parser {
             return this.parseVariableDecl();
         }
 
+        // `initial begin ... end` — a testbench's stimulus. IRIS says the same
+        // thing with an `initial` block, and iris2sv emits these for every
+        // testbench it converts, so refusing them broke the chain.
+        if (this.check(TokenType.INITIAL)) {
+            const startPos = this.currentToken().location.start;
+            this.advance();
+            const body = this.parseStatement();
+            return {
+                kind: 'InitialBlock',
+                body,
+                location: createLocation(startPos, this.previousToken().location.end, this.currentToken().location.file),
+            } as SvModuleItem;
+        }
+
         // Always blocks
         if (
             this.check(TokenType.ALWAYS) ||
@@ -336,8 +488,17 @@ export class Parser {
             return this.parseStructDecl();
         }
 
-        // Module instantiation
+        // `Name name (...)` instantiates a module; `Name name = ...;` or
+        // `Name name;` declares a signal of a user-defined type. Treating every
+        // identifier as an instantiation rejected the second outright, and
+        // iris2sv emits it for any signal whose type is an enum.
         if (this.check(TokenType.IDENTIFIER)) {
+            if (
+                this.tokenAt(this.pos + 1).type === TokenType.IDENTIFIER &&
+                this.tokenAt(this.pos + 2).type !== TokenType.LPAREN
+            ) {
+                return this.parseVariableDecl();
+            }
             return this.parseModuleInst();
         }
 
@@ -482,6 +643,7 @@ export class Parser {
     private parseDataType(): SvDataType {
         const startToken = this.currentToken();
         let baseType: BaseType = 'logic';
+        let userTypeName: string | undefined;
         let signed: boolean | undefined;
         let msb: SvExpr | undefined;
         let lsb: SvExpr | undefined;
@@ -536,6 +698,10 @@ export class Parser {
         } else if (this.check(TokenType.VOID)) {
             this.advance();
             baseType = 'void';
+        } else if (this.check(TokenType.IDENTIFIER)) {
+            // A user-defined type, as the `Op` of `Op op = Add;`.
+            baseType = 'user';
+            userTypeName = this.advance().value;
         }
 
         // Check for signed/unsigned after type
@@ -559,6 +725,7 @@ export class Parser {
         return {
             kind: 'DataType',
             baseType,
+            ...(userTypeName ? { typeName: userTypeName } : {}),
             signed,
             msb,
             lsb,
@@ -605,12 +772,14 @@ export class Parser {
     private parseTypedef(): SvTypedefDecl {
         const startToken = this.consume(TokenType.TYPEDEF, "Expected 'typedef'");
 
-        let targetType: SvDataType | SvEnumDecl | SvStructDecl;
+        let targetType: SvDataType | SvEnumDecl | SvStructDecl | SvUnionDecl;
 
         if (this.check(TokenType.ENUM)) {
             targetType = this.parseEnumDecl(true);
         } else if (this.check(TokenType.STRUCT)) {
             targetType = this.parseStructDecl(true);
+        } else if (this.check(TokenType.UNION)) {
+            targetType = this.parseUnionDecl(true);
         } else {
             targetType = this.parseDataType();
         }
@@ -679,6 +848,48 @@ export class Parser {
     /**
      * Parses a struct declaration
      */
+    /** `union packed { ... }` — the same shape as a struct. */
+    private parseUnionDecl(isInTypedef = false): SvUnionDecl {
+        const startToken = this.consume(TokenType.UNION, "Expected 'union'");
+
+        let packed: boolean | undefined;
+        if (this.match(TokenType.PACKED)) {
+            packed = true;
+        }
+
+        this.consume(TokenType.LBRACE, "Expected '{' in union");
+
+        const members: { name: string; dataType: SvDataType }[] = [];
+        while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+            const dataType = this.parseDataType();
+            const memberName = this.consume(TokenType.IDENTIFIER, 'Expected union member name');
+            this.consume(TokenType.SEMICOLON, "Expected ';' after union member");
+            members.push({ name: memberName.value, dataType });
+        }
+
+        this.consume(TokenType.RBRACE, "Expected '}' after union members");
+
+        let name: string | undefined;
+        if (!isInTypedef && this.check(TokenType.IDENTIFIER)) {
+            name = this.advance().value;
+            this.consume(TokenType.SEMICOLON, "Expected ';' after union");
+        } else if (!isInTypedef) {
+            this.consume(TokenType.SEMICOLON, "Expected ';' after union");
+        }
+
+        return {
+            kind: 'UnionDecl',
+            name,
+            packed,
+            members,
+            location: createLocation(
+                startToken.location.start,
+                this.previousToken().location.end,
+                startToken.location.file
+            ),
+        };
+    }
+
     private parseStructDecl(isInTypedef = false): SvStructDecl {
         const startToken = this.consume(TokenType.STRUCT, "Expected 'struct'");
 
@@ -869,6 +1080,84 @@ export class Parser {
      * Parses a statement
      */
     private parseStatement(): SvStmt {
+        // `assert (cond) else $error("...");` — an immediate assertion. IRIS
+        // spells it `assert cond else error("...")`, and iris2sv emits the
+        // SystemVerilog form for every testbench it converts.
+        if (this.check(TokenType.ASSERT)) {
+            const startPos = this.currentToken().location.start;
+            this.advance();
+            this.consume(TokenType.LPAREN, "Expected '(' after assert");
+            const condition = this.parseExpression();
+            this.consume(TokenType.RPAREN, "Expected ')' after assertion condition");
+
+            let message: string | undefined;
+            if (this.match(TokenType.ELSE)) {
+                // `$error`, `$warning` or `$fatal`, then its message.
+                if (this.check(TokenType.SYSTEM_IDENTIFIER)) this.advance();
+                if (this.match(TokenType.LPAREN)) {
+                    if (this.check(TokenType.STRING)) {
+                        message = this.advance().value.slice(1, -1);
+                    }
+                    while (!this.check(TokenType.RPAREN) && !this.isAtEnd()) this.advance();
+                    this.consume(TokenType.RPAREN, "Expected ')'");
+                }
+            }
+            this.match(TokenType.SEMICOLON);
+
+            return {
+                kind: 'AssertStmt',
+                condition,
+                ...(message !== undefined ? { message } : {}),
+                location: createLocation(startPos, this.previousToken().location.end, this.currentToken().location.file),
+            } as SvStmt;
+        }
+
+        // `#5ns;` — a delay. iris2sv writes these into every testbench it
+        // converts, to drive the clock the IRIS declaration only described.
+        if (this.check(TokenType.HASH)) {
+            const startPos = this.currentToken().location.start;
+            this.advance();
+            let delay = '';
+            if (this.check(TokenType.NUMBER) || this.check(TokenType.IDENTIFIER)) {
+                delay = this.advance().value;
+            }
+            // A time unit may follow with no space, as `5ns`.
+            if (this.check(TokenType.IDENTIFIER)) {
+                delay += this.advance().value;
+            }
+            this.match(TokenType.SEMICOLON);
+            return {
+                kind: 'DelayStmt',
+                delay,
+                location: createLocation(startPos, this.previousToken().location.end, this.currentToken().location.file),
+            } as SvStmt;
+        }
+
+        // `$display("...");` is a call, not an assignment. Falling through to
+        // the assignment parser produced `$display(..) = $display(..)`.
+        if (this.check(TokenType.SYSTEM_IDENTIFIER)) {
+            const startPos = this.currentToken().location.start;
+            const call = this.parseExpression();
+            this.match(TokenType.SEMICOLON);
+            return {
+                kind: 'ExprStmt',
+                expr: call,
+                location: createLocation(startPos, this.previousToken().location.end, this.currentToken().location.file),
+            } as SvStmt;
+        }
+
+        if (this.check(TokenType.RETURN)) {
+            const startPos = this.currentToken().location.start;
+            this.advance();
+            const value = this.parseExpression();
+            this.match(TokenType.SEMICOLON);
+            return {
+                kind: 'ReturnStmt',
+                value,
+                location: createLocation(startPos, this.previousToken().location.end, this.currentToken().location.file),
+            } as SvStmt;
+        }
+
         // Block statement
         if (this.check(TokenType.BEGIN)) {
             return this.parseBlockStmt();
@@ -1633,6 +1922,32 @@ export class Parser {
         this.consume(TokenType.LBRACKET, "Expected '['");
         const index = this.parseExpression();
 
+        // `base[i +: 8]` selects a window whose position varies. Both languages
+        // spell it the same way; without this the `+` was taken as addition and
+        // the parse stopped at the colon.
+        const partSelect = this.check(TokenType.PLUS_COLON)
+            ? '+:'
+            : this.check(TokenType.MINUS_COLON)
+              ? '-:'
+              : undefined;
+        if (partSelect) {
+            this.advance();
+            const width = this.parseExpression();
+            this.consume(TokenType.RBRACKET, "Expected ']'");
+            return {
+                kind: 'SliceExpr',
+                base,
+                msb: index,
+                lsb: width,
+                partSelect,
+                location: createLocation(
+                    base.location.start,
+                    this.previousToken().location.end,
+                    base.location.file
+                ),
+            };
+        }
+
         if (this.match(TokenType.COLON)) {
             // Slice: base[msb:lsb]
             const lsb = this.parseExpression();
@@ -1673,6 +1988,21 @@ export class Parser {
         if (this.check(TokenType.NUMBER)) {
             this.advance();
             return this.parseNumberLiteral(token);
+        }
+
+        // Size cast: `8'(expr)`. IRIS spells the same thing with the width on
+        // the type, so the cast becomes a truncation to that many bits.
+        if (this.check(TokenType.SIZE_CAST)) {
+            this.advance();
+            this.consume(TokenType.LPAREN, "Expected '(' after size cast");
+            const inner = this.parseExpression();
+            this.consume(TokenType.RPAREN, "Expected ')' after size cast");
+            return {
+                kind: 'CastExpr',
+                width: token.value,
+                expr: inner,
+                location: token.location,
+            };
         }
 
         // String literal
@@ -1829,6 +2159,14 @@ export class Parser {
             return this.tokens[this.tokens.length - 1]; // EOF token
         }
         return this.tokens[this.pos];
+    }
+
+    /** Token at an absolute position, clamped to the end of the stream. */
+    private tokenAt(index: number): Token {
+        if (index >= this.tokens.length) {
+            return this.tokens[this.tokens.length - 1];
+        }
+        return this.tokens[index];
     }
 
     /**

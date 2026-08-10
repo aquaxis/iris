@@ -456,15 +456,15 @@ mod Timer(
 ) {
     var counter: bit[16] = 0;
     var active: bit = 0;
-    var target: bit[16] = 0;
+    var target_count: bit[16] = 0;
 
     sync(clk.posedge, rst.async) {
         if start && !active {
             counter = 16'd0;
-            target = period;
+            target_count = period;
             active = 1;
         } else if active {
-            if counter >= target {
+            if counter >= target_count {
                 active = 0;
             } else {
                 counter = counter + 1;
@@ -473,7 +473,7 @@ mod Timer(
     }
 
     comb {
-        expired = !active && (counter >= target) && (target != 16'd0);
+        expired = !active && (counter >= target_count) && (target_count != 16'd0);
         running = active;
     }
 }
@@ -743,10 +743,12 @@ mod TrafficLight(
     var ped_request: bit = 0;
 
     fsm controller(clk.posedge, rst.async) {
-        state Red[red=1, yellow=0, green=0, walk=0];
-        state Green[red=0, yellow=0, green=1, walk=0];
-        state Yellow[red=0, yellow=1, green=0, walk=0];
-        state Walk[red=1, yellow=0, green=0, walk=1];
+        state enum {
+            Red[red=1, yellow=0, green=0, walk=0],
+            Green[red=0, yellow=0, green=1, walk=0],
+            Yellow[red=0, yellow=1, green=0, walk=0],
+            Walk[red=1, yellow=0, green=0, walk=1]
+        }
 
         transitions {
             Red => {
@@ -801,8 +803,10 @@ mod UartTx(
     let BAUD_DIV: bit[8] = 8'd104;  // 例: 10MHz / 9600bps
 
     fsm tx_fsm(clk.posedge, rst.async) {
-        state Idle[busy=0];
-        state Transmit[busy=1];
+        state enum {
+            Idle[busy=0],
+            Transmit[busy=1]
+        }
 
         transitions {
             Idle => {
@@ -858,10 +862,12 @@ mod VendingMachine(
     let PRICE: bit[8] = 8'd120;
 
     fsm controller(clk.posedge, rst.async) {
-        state Idle[dispense=0, change=0];
-        state Accepting[dispense=0, change=0];
-        state Dispensing[dispense=1, change=0];
-        state ReturnChange[dispense=0];
+        state enum {
+            Idle[dispense=0, change=0],
+            Accepting[dispense=0, change=0],
+            Dispensing[dispense=1, change=0],
+            ReturnChange[dispense=0]
+        }
 
         transitions {
             Idle => {
@@ -876,8 +882,8 @@ mod VendingMachine(
                 }
             }
             Dispensing => {
-                // 1サイクル後に遷移
-                goto ReturnChange;
+                // 遷移は必ず when 節の中に書く。無条件なら条件を 1 にする
+                when 1 { goto ReturnChange; }
             }
             ReturnChange => {
                 when balance == 8'd0 {
@@ -984,7 +990,7 @@ mod I2CMaster(
     out done: bit,
     out ack: bit,
 ) {
-    var state: bit[4] = 0;
+    var phase: bit[4] = 0;
     var bit_cnt: bit[4] = 0;
     var shift_reg: bit[8] = 0;
     var scl_reg: bit = 1;
@@ -1005,14 +1011,14 @@ mod I2CMaster(
 
         if clk_div == 4'd0 {
             // SCLトグル
-            if state != ST_IDLE {
+            if phase != ST_IDLE {
                 scl_reg = !scl_reg;
             }
         }
 
         // 状態遷移（簡略化）
-        if state == ST_IDLE && start {
-            state = ST_START;
+        if phase == ST_IDLE && start {
+            phase = ST_START;
             shift_reg = {addr, rw};
         }
         // ... (省略: 完全な実装は長くなる)
@@ -1021,9 +1027,9 @@ mod I2CMaster(
     comb {
         scl = scl_reg;
         sda_out = sda_reg;
-        sda_oe = (state != ST_ACK1) && (state != ST_ACK2);
+        sda_oe = (phase != ST_ACK1) && (phase != ST_ACK2);
         data_out = shift_reg;
-        done = (state == ST_IDLE);
+        done = (phase == ST_IDLE);
         ack = !sda_in;
     }
 }
@@ -1092,7 +1098,7 @@ mod DirectMapCache(
     // 256エントリ、各エントリ: tag(8bit) + data(8bit) + valid(1bit)
     mem cache_data: bit[8][256] { type: ram, read_mode: async };
     mem cache_tag: bit[8][256] { type: ram, read_mode: async };
-    mem cache_valid: bit[256] { type: ram, read_mode: async };
+    mem cache_valid: bit[1][256] { type: ram, read_mode: async };
 
     let index: bit[8];
     let tag: bit[8];
@@ -1284,15 +1290,15 @@ test BasicTestbench {
     let clk: clock;
     let rst: reset;
 
-    var test_input: bit[8] = 0;
+    var test_enable: bit = 0;
     var cycle_count: bit[16] = 0;
     var test_phase: bit[4] = 0;
 
     // DUTのインスタンス化
-    inst dut = MyModule {
+    inst dut = Counter8 {
         clk: clk,
         rst: rst,
-        input: test_input,
+        enable: test_enable,
     };
 
     // テストシーケンス
@@ -1304,13 +1310,13 @@ test BasicTestbench {
             // 初期化フェーズ
             if cycle_count > 16'd10 {
                 test_phase = 4'd1;
-                test_input = 8'hAA;
+                test_enable = 1;
             }
         } else if test_phase == 4'd1 {
             // テストフェーズ1
             if cycle_count > 16'd20 {
                 test_phase = 4'd2;
-                test_input = 8'h55;
+                test_enable = 0;
             }
         } else if test_phase == 4'd2 {
             // テストフェーズ2
@@ -1329,31 +1335,19 @@ test AssertionTest {
     let clk: clock;
     let rst: reset;
 
-    var input_val: bit[8] = 0;
-    var expected: bit[8] = 0;
-
     inst dut = Counter8 {
         clk: clk,
         rst: rst,
         enable: 1'b1,
     };
 
-    sync(clk.posedge, rst.async) {
-        expected = expected + 1;
-    }
-
-    // シーケンシャルテスト
+    // シーケンシャルテスト。await の間も設計は動き続ける。
     seq {
-        // リセット解除を待つ
-        await clk.cycles(5);
-
-        // 10サイクル後にカウント値を確認
         await clk.cycles(10);
-        assert dut.count == 8'd10, "Count should be 10";
+        assert dut.count == 8'd11, "Count should be 11";
 
-        // さらに10サイクル後
         await clk.cycles(10);
-        assert dut.count == 8'd20, "Count should be 20";
+        assert dut.count == 8'd21, "Count should be 21";
     }
 }
 ```
@@ -1376,10 +1370,10 @@ test RandomTest {
         load_seed: 1'b0,
     };
 
-    inst dut = MyModule {
-        clk: clk,
-        rst: rst,
-        input: random_input,
+    inst dut = BarrelShifter8 {
+        din: random_input,
+        shamt: 3'd3,
+        dir: 1'b0,
     };
 
     sync(clk.posedge, rst.async) {
@@ -1401,10 +1395,10 @@ test CoverageTest {
     var all_zeros_seen: bit = 0;
     var pattern_count: bit[16] = 0;
 
-    inst dut = MyModule {
-        clk: clk,
-        rst: rst,
-        input: test_vec,
+    inst dut = BarrelShifter8 {
+        din: test_vec,
+        shamt: 3'd1,
+        dir: 1'b0,
     };
 
     sync(clk.posedge, rst.async) {
@@ -1413,16 +1407,17 @@ test CoverageTest {
         pattern_count = pattern_count + 1;
 
         // カバレッジ追跡
-        if dut.output == 8'hFF {
+        if dut.dout == 8'hFE {
             all_ones_seen = 1;
         }
-        if dut.output == 8'h00 {
+        if dut.dout == 8'h00 {
             all_zeros_seen = 1;
         }
+
     }
 
     seq {
-        // 256パターン全てをテスト
+        // 256パターン全てをテストする
         await clk.cycles(260);
         assert pattern_count >= 16'd256, "All patterns tested";
     }
@@ -1443,7 +1438,7 @@ iris-sim -i alu.iris -i cpu.iris -i memory.iris -i top.iris -i testbench.iris \
 
 # 高速シミュレーション（大規模設計向け）
 iris-compile -i design.iris -o compiled_sim --release -v
-./compiled_sim/target/release/compiled-sim 1000000 output.vcd
+./compiled_sim/target_count/release/compiled-sim 1000000 output.vcd
 ```
 
 ---

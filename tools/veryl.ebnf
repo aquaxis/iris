@@ -1,0 +1,599 @@
+(* ============================================================================ *)
+(* Veryl Language Grammar - Extended Backus-Naur Form (EBNF)                    *)
+(* ============================================================================ *)
+(* Veryl version: 0.20.3 (633a884, 2026-08-03)                                  *)
+(* Derived from: veryl-lang/veryl, crates/parser/veryl.par                      *)
+(* Specification: ISO/IEC 14977                                                 *)
+(*                                                                              *)
+(* Veryl's own grammar is written for parol, whose notation already uses        *)
+(* { } for repetition, [ ] for optional and | for alternation. This file is a   *)
+(* transcription of it: the token layers are resolved down to their literals,   *)
+(* rule names are lowered to snake_case, and ':' becomes '='.                   *)
+(*                                                                              *)
+(* Veryl moves quickly. This was taken from the release named above; check the  *)
+(* upstream grammar before relying on it for a later version.                   *)
+(* ============================================================================ *)
+
+
+(* ===== Number ===== *)
+
+number = integral_number
+       | real_number
+       ;
+
+integral_number = based
+                | base_less
+                | all_bit
+                ;
+
+real_number = fixed_point
+            | exponent
+            ;
+
+(* ===== Complex Identifier ===== *)
+
+hierarchical_identifier = identifier { select } { "." identifier { select } };
+scoped_identifier = ( dollar_identifier | identifier [ with_generic_argument ] ) { "::" identifier [ with_generic_argument ] };
+expression_identifier = scoped_identifier [ width ] { select } { "." identifier { select } };
+generic_arg_identifier = scoped_identifier { "." identifier };
+
+(* ===== Expression ===== *)
+
+expression = if_expression;
+if_expression = { "if" expression "?" expression ":" } expression01;
+expression01 = expression02 { expression01_op expression02 };
+expression02 = { expression02_op } factor [ "as" casting_type ];
+
+expression01_op = operator01 | operator02 | operator03 | operator04 | operator05 | operator06 | operator07 | "*" | operator08;
+expression02_op = unary_operator | operator06 | operator05 | operator03 | operator04;
+
+factor = number
+       | boolean_literal
+       | identifier_factor
+       | "(" expression ")"
+       | "{" concatenation_list "}"
+       | quote_l_brace array_literal_list "}"
+       | case_expression
+       | switch_expression
+       | string_literal
+       | ( "msb" | "lsb" )
+       | inside_expression
+       | outside_expression
+       | type_expression
+       | factor_type_factor
+       ;
+
+boolean_literal = "true" | "false";
+
+identifier_factor = expression_identifier [ function_call | struct_constructor ];
+
+factor_type_factor = { type_modifier } factor_type;
+
+function_call = "(" [ argument_list ] ")";
+
+argument_list = argument_item { "," argument_item } [ "," ];
+
+argument_item = argument_expression [ ":" expression ];
+
+argument_expression = expression;
+
+struct_constructor = quote_l_brace struct_constructor_list [ ".." "default" "(" expression ")" ] "}";
+
+struct_constructor_list = struct_constructor_item { "," struct_constructor_item } [ "," ];
+
+struct_constructor_item = identifier ":" expression;
+
+concatenation_list = concatenation_item { "," concatenation_item } [ "," ];
+
+concatenation_item = expression [ "repeat" expression ];
+
+array_literal_list = array_literal_item { "," array_literal_item } [ "," ];
+
+array_literal_item = ( expression [ "repeat" expression ] | "default" ":" expression );
+
+case_expression = "case" expression "{" case_condition ":" expression "," { case_condition ":" expression "," } "default" ":" expression [ "," ] "}";
+
+switch_expression = "switch" "{" switch_condition ":" expression "," { switch_condition ":" expression "," } "default" ":" expression [ "," ] "}";
+
+type_expression = "type" "(" expression ")";
+
+inside_expression = "inside" expression "{" range_list "}";
+
+outside_expression = "outside" expression "{" range_list "}";
+
+range_list = range_item { "," range_item } [ "," ];
+
+range_item = range;
+
+(* ===== Select / Width / Array / Range ===== *)
+
+select = "[" expression [ select_operator expression ] "]";
+
+select_operator = ":"
+                | "+:"
+                | "-:"
+                | "step"
+                ;
+
+width = "<" expression { "," expression } ">";
+
+array = "[" expression { "," expression } "]";
+
+range = expression [ range_operator expression ];
+
+range_operator = ".."
+               | "..="
+               ;
+
+(* ===== ScalarType / ArrayType / CastingType ===== *)
+
+fixed_type = "p8" | "p16" | "p32" | "p64" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16"| "i32" | "i64" | "f32" | "f64" | "bbool" | "lbool" | "string";
+
+variable_type = "clock"
+              | "clock_posedge"
+              | "clock_negedge"
+              | "reset"
+              | "reset_async_high"
+              | "reset_async_low"
+              | "reset_sync_high"
+              | "reset_sync_low"
+              | "logic"
+              | "bit";
+
+user_defined_type = scoped_identifier;
+
+type_modifier = "tri" | "signed" | "default";
+
+factor_type = ( variable_type [ width ] | fixed_type );
+
+scalar_type = { type_modifier } ( user_defined_type [ width ] | factor_type );
+
+array_type = scalar_type [ array ];
+
+casting_type = "u8"
+             | "u16"
+             | "u32"
+             | "u64"
+             | "p8"
+             | "p16"
+             | "p32"
+             | "p64"
+             | "i8"
+             | "i16"
+             | "i32"
+             | "i64"
+             | "f32"
+             | "f64"
+             | "bbool"
+             | "lbool"
+             | "clock"
+             | "clock_posedge"
+             | "clock_negedge"
+             | "reset"
+             | "reset_async_high"
+             | "reset_async_low"
+             | "reset_sync_high"
+             | "reset_sync_low"
+             | user_defined_type
+             | based
+             | base_less
+             ;
+
+(* ===== ClockDomain ===== *)
+
+clock_domain = quote identifier;
+
+(* ===== Statement ===== *)
+
+statement_block = "{" { statement_block_group } "}";
+
+statement_block_group = { attribute } ( "block" "{" { statement_block_group } "}" | statement_block_item );
+
+statement_block_item = var_declaration
+                     | let_statement
+                     | const_declaration
+                     | gen_declaration
+                     | statement
+                     | concatenation_assignment
+                     ;
+
+statement = identifier_statement
+          | if_statement
+          | if_reset_statement
+          | return_statement
+          | break_statement
+          | for_statement
+          | case_statement
+          | switch_statement
+          ;
+
+let_statement = "let" identifier [ ":" [ clock_domain ] array_type ] "=" expression ";";
+
+identifier_statement = expression_identifier ( function_call | assignment ) ";";
+
+concatenation_assignment = "{" assign_concatenation_list "}" "=" expression ";";
+
+assignment = ( "=" | assignment_operator | "<>" ) expression;
+
+if_statement = "if" expression statement_block { "else" "if" expression statement_block } [ "else" statement_block ];
+
+if_reset_statement = "if_reset" statement_block { "else" "if" expression statement_block } [ "else" statement_block ];
+
+return_statement = "return" expression ";";
+
+break_statement = "break" ";";
+
+for_statement = "for" identifier "in" [ "rev" ] range [ "step" assignment_operator expression ] statement_block;
+
+case_statement = "case" expression "{" { case_item } "}";
+
+case_item = ( case_condition | "default" ) ":" ( statement | statement_block );
+
+case_condition = range_item { "," range_item } ;
+
+switch_statement = "switch" "{" { switch_item } "}";
+
+switch_item = ( switch_condition | "default" ) ":" ( statement | statement_block );
+
+switch_condition = expression { "," expression } ;
+
+(* ===== Attribute ===== *)
+
+attribute = "#[" identifier [ "(" attribute_list ")" ] "]" ;
+
+attribute_list = attribute_item { "," attribute_item } [ "," ];
+
+attribute_item = identifier
+               | string_literal
+               ;
+
+(* ===== Declaration ===== *)
+
+let_declaration = "let" identifier [ ":" [ clock_domain ] array_type ] "=" expression ";";
+
+var_declaration = "var" identifier [ ":" [ clock_domain ] array_type ] ";";
+
+const_declaration = "const" identifier [ ":" ( array_type | "type" ) ] "=" expression ";";
+
+gen_declaration = "gen" identifier ":" ( generic_proto_bound | "type" ) "=" expression ";";
+
+type_def_declaration = "type" identifier "=" array_type ";";
+
+always_ff_declaration = "always_ff" [ always_ff_event_list ] statement_block;
+
+always_ff_event_list = "(" always_ff_clock [ "," always_ff_reset ] ")";
+
+always_ff_clock = hierarchical_identifier;
+
+always_ff_reset = hierarchical_identifier;
+
+always_comb_declaration = "always_comb" statement_block;
+
+assign_declaration = "assign" assign_destination "=" expression ";";
+
+assign_destination = hierarchical_identifier
+                   | "{" assign_concatenation_list "}";
+
+assign_concatenation_list = assign_concatenation_item { "," assign_concatenation_item } [ "," ];
+
+assign_concatenation_item = hierarchical_identifier;
+
+connect_declaration = "connect" hierarchical_identifier "<>" expression ";";
+
+modport_declaration = "modport" identifier "{" [ modport_list ] [ ".." modport_default ] "}";
+
+modport_list = modport_group { "," modport_group } [ "," ];
+
+modport_group = { attribute } ( "{" modport_list "}" | modport_item );
+
+modport_item = identifier ":" direction;
+
+modport_default = "input"
+                | "output"
+                | "same" "(" modport_default_list ")"
+                | "converse" "(" modport_default_list ")";
+
+modport_default_list = identifier { "," identifier } [ "," ];
+
+enum_declaration = "enum" identifier [ ":" scalar_type ] "{" enum_list "}";
+
+enum_list = enum_group { "," enum_group } [ "," ];
+
+enum_group = { attribute } ( "{" enum_list "}" | enum_item );
+
+enum_item = identifier [ "=" expression ];
+
+struct_union = "struct" | "union";
+
+struct_union_declaration = struct_union identifier [ with_generic_parameter ] "{" struct_union_list "}";
+
+struct_union_list = struct_union_group { "," struct_union_group } [ "," ];
+
+struct_union_group = { attribute } ( "{" struct_union_list "}" | struct_union_item );
+
+struct_union_item = identifier ":" scalar_type;
+
+initial_declaration = "initial" statement_block;
+
+final_declaration = "final" statement_block;
+
+(* ===== InstDeclaration/BindDeclaration ===== *)
+
+inst_declaration = "inst" component_instantiation ";";
+
+bind_declaration = "bind" scoped_identifier "<-" component_instantiation ";";
+
+component_instantiation = identifier ":" [ clock_domain ] scoped_identifier [ array ] [ inst_parameter ] [ inst_port ];
+
+inst_parameter = "#" "(" [ inst_parameter_list ] ")";
+
+inst_parameter_list = inst_parameter_group { "," inst_parameter_group } [ "," ];
+
+inst_parameter_group = { attribute } ( "{" inst_parameter_list "}" | inst_parameter_item );
+
+inst_parameter_item = identifier [ ":" expression ];
+
+inst_port = "(" [ inst_port_list ] ")";
+
+inst_port_list = inst_port_group { "," inst_port_group } [ "," ];
+
+inst_port_group = { attribute } ( "{" inst_port_list "}" | inst_port_item );
+
+inst_port_item = identifier [ ":" expression ];
+
+(* ===== WithParameter ===== *)
+
+with_parameter = "#" "(" [ with_parameter_list ] ")";
+
+with_parameter_list = with_parameter_group { "," with_parameter_group } [ "," ];
+
+with_parameter_group = { attribute } ( "{" with_parameter_list "}" | with_parameter_item );
+
+with_parameter_item = ( "param" | "const" ) identifier ":" ( array_type | "type" ) [ "=" expression ];
+
+(* ===== WithGenericParameter ===== *)
+
+generic_bound = "type"
+              | "inst" scoped_identifier
+              | generic_proto_bound;
+
+with_generic_parameter = "::<" with_generic_parameter_list ">";
+
+with_generic_parameter_list = with_generic_parameter_item { "," with_generic_parameter_item } [ "," ];
+
+with_generic_parameter_item = identifier ":" generic_bound [ "=" with_generic_argument_item ];
+
+generic_proto_bound = scoped_identifier | fixed_type;
+
+(* ===== WithGenericArgument ===== *)
+
+with_generic_argument = "::<" [ with_generic_argument_list ] ">";
+
+with_generic_argument_list = with_generic_argument_item { "," with_generic_argument_item } [ "," ];
+
+with_generic_argument_item = generic_arg_identifier
+                           | fixed_type
+                           | number
+                           | boolean_literal
+                           ;
+
+(* ===== PortDeclaration ===== *)
+
+port_declaration = "(" [ port_declaration_list ] ")";
+
+port_declaration_list = port_declaration_group { "," port_declaration_group } [ "," ];
+
+port_declaration_group = { attribute } ( "{" port_declaration_list "}" | port_declaration_item );
+
+port_declaration_item = identifier ":" ( port_type_concrete | port_type_abstract );
+
+port_type_concrete = direction [ clock_domain ] array_type [ "=" port_default_value ];
+
+port_default_value = expression;
+
+port_type_abstract = [ clock_domain ] "interface" [ "::" identifier ] [ array ];
+
+direction = "input"
+          | "output"
+          | "inout"
+          | "modport"
+          | "import"
+          ;
+
+(* ===== Function ===== *)
+
+function_declaration = "function" identifier [ with_generic_parameter ] [ port_declaration ] [ "->" scalar_type ] statement_block;
+
+(* ===== Import ===== *)
+
+import_declaration = "import" scoped_identifier [ "::" ( "*" | multiple_import_list )] ";";
+
+multiple_import_list = "{" multiple_import_item { "," multiple_import_item } [ "," ] "}";
+
+multiple_import_item = identifier;
+
+(* ===== Mixin ===== *)
+
+mixin_declaration = "mixin" scoped_identifier ";";
+
+(* ===== Unsafe ===== *)
+
+unsafe_block = "unsafe" "(" identifier ")" "{" { generate_group } "}";
+
+(* ===== Module/Interface ===== *)
+
+module_declaration = "module" identifier [ with_generic_parameter ] [ "for" scoped_identifier ] [ with_parameter ] [ port_declaration ] "{" { module_group } "}";
+
+module_group = { attribute } ( "{" { module_group } "}" | module_item );
+
+module_item = generate_item;
+
+interface_declaration = "interface" identifier [ with_generic_parameter ] [ "for" scoped_identifier ] [ with_parameter ] "{" { interface_group } "}";
+
+interface_group = { attribute } ( "{" { interface_group } "}" | interface_item );
+
+interface_item = generate_item | mixin_declaration | modport_declaration;
+
+generate_if_declaration = "if" expression generate_named_block { "else" "if" expression generate_optional_named_block } [ "else" generate_optional_named_block ];
+
+generate_for_declaration = "for" identifier "in" [ "rev" ] range [ "step" assignment_operator expression ] generate_named_block;
+
+generate_block_declaration = generate_named_block;
+
+generate_named_block = ":" identifier "{" { generate_group } "}";
+
+generate_optional_named_block = [ ":" identifier ] "{" { generate_group } "}";
+
+generate_group = { attribute } ( "{" { generate_group } "}" | generate_item );
+
+generate_item = let_declaration
+              | var_declaration
+              | inst_declaration
+              | bind_declaration
+              | const_declaration
+              | gen_declaration
+              | always_ff_declaration
+              | always_comb_declaration
+              | assign_declaration
+              | connect_declaration
+              | function_declaration
+              | generate_if_declaration
+              | generate_for_declaration
+              | generate_block_declaration
+              | type_def_declaration
+              | enum_declaration
+              | struct_union_declaration
+              | import_declaration
+              | alias_declaration
+              | initial_declaration
+              | final_declaration
+              | unsafe_block
+              | embed_declaration
+              ;
+
+(* ===== Package ===== *)
+
+package_declaration = "package" identifier [ with_generic_parameter ] [ "for" scoped_identifier ] "{" { package_group } "}";
+
+package_group = { attribute } ( "{" { package_group } "}" | package_item );
+
+package_item = const_declaration
+             | gen_declaration
+             | type_def_declaration
+             | enum_declaration
+             | struct_union_declaration
+             | function_declaration
+             | import_declaration
+             | alias_declaration
+             | embed_declaration
+             ;
+
+(* ===== Alias ===== *)
+
+alias_declaration = "alias" ( "module" | "interface" | "package" ) identifier "=" scoped_identifier ";";
+
+(* ===== Proto ===== *)
+
+proto_declaration = "proto" ( proto_module_declaration | proto_interface_declaration | proto_package_declaration );
+
+proto_module_declaration = "module" identifier [ with_parameter ] [ port_declaration ] ";";
+
+proto_interface_declaration = "interface" identifier [ with_parameter ] "{" { proto_interface_item } "}";
+
+proto_interface_item = var_declaration
+                     | proto_const_declaration
+                     | proto_function_declaration
+                     | proto_type_def_declaration
+                     | proto_alias_declaration
+                     | modport_declaration
+                     | import_declaration
+                     ;
+
+proto_package_declaration = "package" identifier "{" { proto_pacakge_item } "}";
+
+proto_pacakge_item = proto_const_declaration
+                   | proto_type_def_declaration
+                   | enum_declaration
+                   | struct_union_declaration
+                   | proto_function_declaration
+                   | proto_alias_declaration
+                   | import_declaration
+                   ;
+
+proto_const_declaration = "const" identifier ":" ( array_type | "type" ) ";";
+
+proto_type_def_declaration = "type" identifier [ "=" array_type ] ";";
+
+proto_function_declaration = "function" identifier [ with_generic_parameter ] [ port_declaration ] [ "->" scalar_type ] ";";
+
+proto_alias_declaration = "alias" ( "module" | "interface" | "package" ) identifier ":" scoped_identifier ";";
+
+(* ===== Embed ===== *)
+
+embed_declaration = "embed" "(" identifier ")" identifier embed_content;
+
+embed_content = "{{{" { embed_item } "}}}";
+
+embed_scoped_identifier = "{" scoped_identifier "}";
+
+embed_item = "{" { embed_item } "}"
+           | embed_scoped_identifier
+           | any;
+
+(* ===== Include ===== *)
+
+include_declaration = "include" "(" identifier "," string_literal ")" ";";
+
+(* ===== Description ===== *)
+
+description_group = { attribute } ( "{" { description_group } "}" | description_item );
+
+description_item = [ "pub" ] public_description_item
+                 | import_declaration
+                 | bind_declaration
+                 | embed_declaration
+                 | include_declaration
+                 ;
+
+public_description_item = module_declaration
+                        | interface_declaration
+                        | package_declaration
+                        | alias_declaration
+                        | proto_declaration
+                        | function_declaration
+                        ;
+
+(* ===== SourceCode ===== *)
+
+veryl = start { description_group };
+
+(* ===== Lexical elements ===== *)
+
+(* `start` carries any comments standing at the head of the file before   *)
+(* the first item. It matches no text of its own.                         *)
+start = ;
+
+(* These are regular expressions in the source grammar. EBNF has no       *)
+(* notation for them, so they appear between ? ? as special sequences.    *)
+
+all_bit = ? (?:[0-9]+(?:_[0-9]+)*)?'[01xzXZ] ? ;
+any = ? (?:[^{}\\]|\\[^{])+ ? ;
+assignment_operator = ? \+=|-=|\*=|/=|%=|&=|\|=|\^=|<<=|>>=|<<<=|>>>= ? ;
+base_less = ? [0-9]+(?:_[0-9]+)* ? ;
+based = ? (?:[0-9]+(?:_[0-9]+)*)?'s?[bodh][0-9a-fA-FxzXZ]+(?:_[0-9a-fA-FxzXZ]+)* ? ;
+dollar_identifier = ? \$[a-zA-Z_][0-9a-zA-Z_$]* ? ;
+exponent = ? [0-9]+(?:_[0-9]+)*\.[0-9]+(?:_[0-9]+)*[eE][+-]?[0-9]+(?:_[0-9]+)* ? ;
+fixed_point = ? [0-9]+(?:_[0-9]+)*\.[0-9]+(?:_[0-9]+)* ? ;
+identifier = ? (?:r#)?[a-zA-Z_][0-9a-zA-Z_$]* ? ;
+operator01 = ? \|\||&& ? ;
+operator02 = ? <<<|>>>|<<|>>|==\?|!=\?|==|!=|<=|>=|<:|>: ? ;
+operator03 = ? \| ? ;
+operator04 = ? \^|~\^ ? ;
+operator05 = ? & ? ;
+operator06 = ? \+|- ? ;
+operator07 = ? /|% ? ;
+operator08 = ? \*\* ? ;
+quote = ? ' ? ;
+quote_l_brace = ? '\{ ? ;
+string_literal = ? \u{0022}(?:\\[\u{0022}\\fnt]|[^\u{0022}\\\u0000-\u001F])*\u{0022} ? ;
+unary_operator = ? ~&|~\||!|~ ? ;

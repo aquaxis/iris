@@ -1,6 +1,6 @@
 # 第5章 組み合わせ論理
 
-[<< モジュール定義](./04_module_definition.md) | [目次](./iris_spec_0.1.0.md) | [順序論理 >>](./06_sequential_logic.md)
+[<< モジュール定義](./04_module_definition.md) | [目次](./iris_spec.md) | [順序論理 >>](./06_sequential_logic.md)
 
 ---
 
@@ -13,9 +13,11 @@ IRISでは、組み合わせ論理は2つの方法で記述できます：
 
 `comb`ブロック内で代入された信号は組み合わせ回路として合成されます（Verilogの`wire` + `assign`または`always_comb`に相当）。
 
-**注意:** `let`で宣言した信号でも、`sync`や`fsm`ブロック内で代入された場合は順序回路（レジスタ）として合成されます。詳細は[第6章 順序論理](./06_sequential_logic.md)を参照してください。
+**注意:** `let`で宣言した信号でも、`sync`や`fsm`ブロック内で代入された場合は順序回路（レジスタ）として合成されます。
+詳細は[第6章 順序論理](./06_sequential_logic.md)を参照してください。
 
-**重要:** `var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。組み合わせ論理（`let`直接代入や`comb`ブロック）で`var`を使用するとコンパイルエラーになります。
+**重要:** `var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。
+組み合わせ論理（`let`直接代入や`comb`ブロック）で`var`を使用するとコンパイルエラーになります。
 
 ---
 
@@ -54,7 +56,7 @@ let z = x == y;          // 型: bool
 
 ```rust
 let x: bit[8] = 8'hFF;
-let sum: bit[16] = a.extend[16] + b.extend[16];
+let sum: bit[16] = a.extend[16]() + b.extend[16]();
 ```
 
 ---
@@ -65,8 +67,13 @@ let sum: bit[16] = a.extend[16] + b.extend[16];
 
 ```ebnf
 comb_block = "comb" [ default_spec ] "{" { statement } "}" ;
-default_spec = "default" "(" identifier_list ")" ;
+default_spec = "default" "(" default_assign { "," default_assign } ")" ;
+default_assign = identifier "=" expr ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+**`comb`の`default`は基準実装がまだ読めない。**
 
 ### 5.3.2 基本形式
 
@@ -199,6 +206,10 @@ comb {
 | `enum` のmatch | すべてのバリアント、または `_` |
 | `bool` のmatch | `true` と `false`、または `_` |
 
+**大きなビット幅の網羅性:** `bit[N]`の`N`が4以上（16パターン以上）の場合、`_`ワイルドカードパターンを使用しなければならない。
+2^4 = 16パターンを超える`match`は実用的でないため、コンパイラは`N >= 4`の`bit[N]`に対して`_`パターンの使用を推奨する警告を出力する。
+将来的には範囲パターン構文（`[0:255] => ...`）の追加が検討されている。
+
 ### 5.6.3 ワイルドカードの使用
 
 ```rust
@@ -221,13 +232,18 @@ enum State {
     Done
 }
 
-comb {
-    // 列挙型のmatch
-    led = match state {
-        State::Idle => 3'b001,
-        State::Running => 3'b010,
-        State::Done => 3'b100,
-    };
+mod StatusLed(
+    in  st: State,
+    out led: bit[3],
+) {
+    comb {
+        // 列挙型のmatch
+        led = match st {
+            State::Idle => 3'b001,
+            State::Running => 3'b010,
+            State::Done => 3'b100,
+        };
+    }
 }
 ```
 
@@ -278,7 +294,7 @@ mod Adder(
     out carry: bit,
 ) {
     comb {
-        let extended_sum = a.extend[9] + b.extend[9];
+        let extended_sum = a.extend[9]() + b.extend[9]();
         sum = extended_sum[7:0];
         carry = extended_sum[8];
     }
@@ -329,10 +345,10 @@ mod Mux4(
     in  d1: bit[8],
     in  d2: bit[8],
     in  d3: bit[8],
-    out out: bit[8],
+    out y: bit[8],
 ) {
     comb {
-        out = match sel {
+        y = match sel {
             2'b00 => d0,
             2'b01 => d1,
             2'b10 => d2,
@@ -351,14 +367,14 @@ module Mux4 (
     input  logic [7:0] d1,
     input  logic [7:0] d2,
     input  logic [7:0] d3,
-    output logic [7:0] out
+    output logic [7:0] y
 );
     always_comb begin
         case (sel)
-            2'b00: out = d0;
-            2'b01: out = d1;
-            2'b10: out = d2;
-            2'b11: out = d3;
+            2'b00: y = d0;
+            2'b01: y = d1;
+            2'b10: y = d2;
+            2'b11: y = d3;
         endcase
     end
 endmodule
@@ -366,4 +382,4 @@ endmodule
 
 ---
 
-[<< モジュール定義](./04_module_definition.md) | [目次](./iris_spec_0.1.0.md) | [順序論理 >>](./06_sequential_logic.md)
+[<< モジュール定義](./04_module_definition.md) | [目次](./iris_spec.md) | [順序論理 >>](./06_sequential_logic.md)

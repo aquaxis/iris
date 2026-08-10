@@ -1,0 +1,20 @@
+/// カウンタ
+/// IRISシミュレータの単一クロック動作の確認と速度比較に使う
+mod Counter(
+    in clk: clock,
+    in rst: reset,
+    in enable: bit,
+    out count: bit[8],
+) {
+    var counter: bit[8] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if enable {
+            counter = counter + 1;
+        }
+    }
+
+    comb {
+        count = counter;
+    }
+}

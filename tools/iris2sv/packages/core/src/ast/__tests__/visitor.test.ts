@@ -286,7 +286,7 @@ describe('Visitor Pattern', () => {
       const source = `mod Test() {
         let a: bit[8];
         let b: bit[8];
-        inst sub: SubModule(.in_port(a), .out_port(b));
+        inst sub = SubModule { in_port: a, out_port: b };
       }`;
       const ast = parse(source);
       let instName = '';

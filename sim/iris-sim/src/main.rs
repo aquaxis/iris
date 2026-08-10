@@ -8,7 +8,8 @@ use std::path::PathBuf;
 
 use iris_sim::fst::{VcdWriter, WaveWriter};
 use iris_sim::project::Project;
-use iris_sim::sim::{AssertionFailure, HierarchicalSimulator, MetastabilityWarning, Simulator};
+use iris_sim::parser::AssertSeverity;
+use iris_sim::sim::{AssertionFailure, HierarchicalSimulator, MetastabilityWarning};
 
 /// IRIS-SIM: A simulator for IRIS hardware description language
 #[derive(ClapParser, Debug)]
@@ -93,9 +94,14 @@ fn print_assertion_failures(failures: &[AssertionFailure], input_files: &[PathBu
 
     for (i, failure) in failures.iter().enumerate() {
         let time_ns = failure.time as f64 / 1000.0;
+        // A warning is reported but does not fail the run
+        let kind = match failure.severity {
+            AssertSeverity::Warning => "warning",
+            _ => "error",
+        };
 
         eprintln!();
-        eprintln!("error[A{:03}]: assertion failed", i + 1);
+        eprintln!("{}[A{:03}]: assertion failed", kind, i + 1);
 
         // Print source location if available
         if let Some(ref span) = failure.span {
@@ -126,11 +132,21 @@ fn print_assertion_failures(failures: &[AssertionFailure], input_files: &[PathBu
         eprintln!("   = time: {:.1}ns ({} ps)", time_ns, failure.time);
     }
 
+    let fatal = failures
+        .iter()
+        .filter(|f| f.severity != AssertSeverity::Warning)
+        .count();
+    let warnings = failures.len() - fatal;
+
     eprintln!();
-    eprintln!("assertion failure summary: {} assertion(s) failed", failures.len());
+    eprintln!(
+        "assertion failure summary: {} failed, {} warning(s)",
+        fatal, warnings
+    );
     eprintln!();
 
-    true // had failures
+    // Warnings alone do not fail the run
+    fatal > 0
 }
 
 fn main() -> Result<()> {
@@ -178,6 +194,24 @@ fn main() -> Result<()> {
     project.check_circular_instantiation()
         .with_context(|| "Circular instantiation detected")?;
 
+    // Static checks defined by the specification (generic constraints, match
+    // exhaustiveness, verification-only system functions)
+    let diagnostics = iris_sim::check::check_project(&project);
+    if !diagnostics.is_empty() {
+        eprint!("{}", iris_sim::check::format_diagnostics(&diagnostics));
+        eprintln!();
+        let errors = diagnostics
+            .iter()
+            .filter(|d| d.severity == iris_sim::check::Severity::Error)
+            .count();
+        let warnings = diagnostics.len() - errors;
+        eprintln!("check summary: {} error(s), {} warning(s)", errors, warnings);
+        eprintln!();
+    }
+    if iris_sim::check::has_errors(&diagnostics) {
+        anyhow::bail!("static checks failed; simulation not started");
+    }
+
     // Get top module for simulation
     let module = project.get_top_module()
         .with_context(|| "Failed to get top module")?
@@ -201,15 +235,10 @@ fn main() -> Result<()> {
         println!("Running simulation for {} cycles...", args.cycles);
     }
 
-    // Check if we need hierarchical simulation (has instances, seq_blocks, initial_blocks, fsm_blocks, or memories)
-    let has_instances = module.instances.len() > 0
-        || project.modules.len() > 1
-        || !module.seq_blocks.is_empty()
-        || !module.initial_blocks.is_empty()
-        || !module.fsm_blocks.is_empty()
-        || !module.memories.is_empty();
-
-    if has_instances {
+    // The hierarchical simulator is used for every design. It is a superset of the
+    // flat engine: memories, block-local `let`, `match`, `assert` and multiple clock
+    // domains are only implemented there.
+    {
         // Use hierarchical simulator
         let mut simulator = HierarchicalSimulator::with_options(project.clone(), args.warn_metastability);
 
@@ -238,6 +267,30 @@ fn main() -> Result<()> {
             print_metastability_warnings(warnings);
         }
 
+        // An expression the evaluator could not handle used to leave its target
+        // untouched, so an unsupported construct read as zero. Report it.
+        let eval_failures = simulator.get_eval_failures().to_vec();
+        if !eval_failures.is_empty() {
+            eprintln!();
+            for message in &eval_failures {
+                // Chapter 14 already names the unknown-call diagnostic
+                let code = if message.contains("unknown method")
+                    || message.contains("unknown function")
+                {
+                    "O1006"
+                } else {
+                    "O3001"
+                };
+                eprintln!("error[{}]: could not evaluate {}", code, message);
+            }
+            eprintln!();
+            eprintln!(
+                "evaluation failure summary: {} expression(s) could not be evaluated",
+                eval_failures.len()
+            );
+            eprintln!();
+        }
+
         if args.verbose {
             println!("  Simulation time: {} ps", simulator.get_time());
             println!();
@@ -260,6 +313,9 @@ fn main() -> Result<()> {
                 println!("  Signals recorded: {}", simulator.get_trace().signal_names().count());
             }
         }
+
+        // Report coverage before the verdict
+        iris_runtime::engine::report_coverage(simulator.get_coverage());
 
         // Check and report assertion failures
         let failures = simulator.get_assertion_failures();
@@ -285,58 +341,6 @@ fn main() -> Result<()> {
         // Return non-zero exit code if assertions failed
         if has_failures {
             std::process::exit(1);
-        }
-    } else {
-        // Use simple simulator for single module
-        let mut simulator = Simulator::new(module.clone());
-
-        // Reset sequence
-        simulator.assert_reset();
-        simulator.run_cycles(5);
-        simulator.deassert_reset();
-
-        // Set enable signal if it exists
-        if simulator.get_signal("enable").is_some() {
-            simulator.set_signal("enable", iris_sim::types::SignalValue::from_u64(1, 1));
-        }
-
-        // Run simulation
-        simulator.run_cycles(args.cycles);
-
-        if args.verbose {
-            println!("  Simulation time: {} ps", simulator.get_time());
-            println!();
-        }
-
-        // Output waveform (VCD format)
-        if let Some(ref output_path) = args.output {
-            if args.verbose {
-                println!("Writing waveform to {}...", output_path.display());
-            }
-
-            let mut writer = VcdWriter::new(output_path)
-                .with_context(|| format!("Failed to create VCD file: {}", output_path.display()))?;
-            writer
-                .write_trace(simulator.get_trace(), &module.name)
-                .with_context(|| "Failed to write VCD waveform")?;
-            writer.close().with_context(|| "Failed to close VCD file")?;
-
-            if args.verbose {
-                println!("  Signals recorded: {}", simulator.get_trace().signal_names().count());
-            }
-        }
-
-        println!("Simulation completed successfully.");
-
-        // Print final signal values
-        if args.verbose {
-            println!();
-            println!("Final signal values:");
-            for name in simulator.get_trace().signal_names() {
-                if let Some(value) = simulator.get_signal(name) {
-                    println!("  {}: {}", name, value);
-                }
-            }
         }
     }
 

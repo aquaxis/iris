@@ -1,17 +1,26 @@
 //! IRIS Runtime Library
 //!
-//! Support library for compiled IRIS simulations.
-//! Provides Clock, Reset, BitVec, and WaveTracer types.
+//! Support library for compiled IRIS simulations. The value type, the
+//! operations on it and the waveform recorder are shared with the interpreter
+//! so that a design behaves the same whether it is interpreted or compiled.
 
-mod clock;
-mod reset;
 mod bitvec;
+mod clock;
+pub mod engine;
+pub mod ops;
+pub mod random;
+mod reset;
 mod tracer;
+pub mod trace;
+pub mod value;
 
-pub use clock::Clock;
-pub use reset::Reset;
 pub use bitvec::BitVec;
+pub use clock::Clock;
+pub use engine::{Runtime, SlotDef, Wait};
+pub use reset::Reset;
+pub use trace::SignalTrace;
 pub use tracer::WaveTracer;
+pub use value::{BitValue, SignalValue};
 
 /// Simulation time in picoseconds
 pub type SimTime = u64;

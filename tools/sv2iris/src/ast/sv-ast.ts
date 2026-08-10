@@ -58,6 +58,15 @@ export type SvNodeKind =
     | 'MemberExpr'
     | 'CallExpr'
     | 'ParenExpr'
+    | 'CastExpr'
+    | 'FunctionDecl'
+    | 'ReturnStmt'
+    | 'UnionDecl'
+    | 'InterfaceDecl'
+    | 'AssertStmt'
+    | 'ExprStmt'
+    | 'DelayStmt'
+    | 'InitialBlock'
     // Sensitivity
     | 'SensitivityList'
     | 'SensitivityItem'
@@ -79,6 +88,16 @@ export interface SvAstNode {
 export interface SvSourceFile extends SvAstNode {
     kind: 'SourceFile';
     modules: SvModuleDecl[];
+    /**
+     * Declarations that sit outside any module.
+     *
+     * Only modules were kept, so a file opening with `typedef enum ...` was
+     * rejected outright. iris2sv now emits exactly such files, so the two
+     * transpilers could not be chained on a design using an enum or a function.
+     */
+    typedefs: SvTypedefDecl[];
+    functions: SvFunctionDecl[];
+    interfaces: SvInterfaceDecl[];
 }
 
 // ============================================================================
@@ -103,6 +122,7 @@ export type SvModuleItem =
     | SvEnumDecl
     | SvStructDecl
     | SvTypedefDecl
+    | SvInitialBlock
     | SvGenerateBlock;
 
 export interface SvParameterDecl extends SvAstNode {
@@ -170,6 +190,14 @@ export interface SvEnumMember {
     value?: SvExpr;
 }
 
+/** `union packed { ... }` — the same members as a struct, overlaid. */
+export interface SvUnionDecl extends SvAstNode {
+    kind: 'UnionDecl';
+    name?: string;
+    packed?: boolean;
+    members: SvStructMember[];
+}
+
 export interface SvStructDecl extends SvAstNode {
     kind: 'StructDecl';
     name?: string;
@@ -182,10 +210,64 @@ export interface SvStructMember {
     dataType: SvDataType;
 }
 
+/** `initial begin ... end` — a testbench's stimulus. */
+export interface SvInitialBlock extends SvAstNode {
+    kind: 'InitialBlock';
+    body: SvStmt;
+}
+
+/** `#5ns;` — a delay. iris2sv emits these to drive a testbench's clock. */
+export interface SvDelayStmt extends SvAstNode {
+    kind: 'DelayStmt';
+    delay: string;
+}
+
+/** A statement that is only a call, as `$display("...");` */
+export interface SvExprStmt extends SvAstNode {
+    kind: 'ExprStmt';
+    expr: SvExpr;
+}
+
+/** `assert (cond) else $error("...");` — an immediate assertion. */
+export interface SvAssertStmt extends SvAstNode {
+    kind: 'AssertStmt';
+    condition: SvExpr;
+    message?: string;
+}
+
+/** `return expr;` inside a function body. */
+export interface SvReturnStmt extends SvAstNode {
+    kind: 'ReturnStmt';
+    value: SvExpr;
+}
+
+/** One direction group of a `modport`. */
+export interface SvModportDecl {
+    name: string;
+    signals: { name: string; direction: 'input' | 'output' | 'inout' }[];
+}
+
+/** `interface Bus; logic valid; modport ...; endinterface` */
+export interface SvInterfaceDecl extends SvAstNode {
+    kind: 'InterfaceDecl';
+    name: string;
+    signals: SvVariableDecl[];
+    modports: SvModportDecl[];
+}
+
+/** A `function ... endfunction` declared outside a module. */
+export interface SvFunctionDecl extends SvAstNode {
+    kind: 'FunctionDecl';
+    name: string;
+    returnType?: SvDataType;
+    args: { name: string; dataType: SvDataType }[];
+    body: SvStmt[];
+}
+
 export interface SvTypedefDecl extends SvAstNode {
     kind: 'TypedefDecl';
     name: string;
-    targetType: SvDataType | SvEnumDecl | SvStructDecl;
+    targetType: SvDataType | SvEnumDecl | SvStructDecl | SvUnionDecl;
 }
 
 // ============================================================================
@@ -226,6 +308,10 @@ export type SvStmt =
     | SvCaseStmt
     | SvForStmt
     | SvWhileStmt
+    | SvReturnStmt
+    | SvAssertStmt
+    | SvExprStmt
+    | SvDelayStmt
     | SvVariableDecl;
 
 export type AlwaysType = 'always' | 'always_ff' | 'always_comb' | 'always_latch';
@@ -382,11 +468,19 @@ export type SvExpr =
     | SvSliceExpr
     | SvMemberExpr
     | SvCallExpr
+    | SvCastExpr
     | SvParenExpr;
 
 export interface SvIdentifier extends SvAstNode {
     kind: 'Identifier';
     name: string;
+}
+
+/** `8'(expr)` — a cast that resizes its operand to `width` bits. */
+export interface SvCastExpr extends SvAstNode {
+    kind: 'CastExpr';
+    width: string;
+    expr: SvExpr;
 }
 
 export interface SvNumberLiteral extends SvAstNode {
@@ -478,6 +572,8 @@ export interface SvSliceExpr extends SvAstNode {
     base: SvExpr;
     msb: SvExpr;
     lsb: SvExpr;
+    /** `+:` or `-:` for an indexed part select; absent for a plain slice. */
+    partSelect?: '+:' | '-:';
 }
 
 export interface SvMemberExpr extends SvAstNode {
@@ -501,8 +597,14 @@ export interface SvParenExpr extends SvAstNode {
 // AST Factory Functions
 // ============================================================================
 
-export function createSourceFile(modules: SvModuleDecl[], location: SourceLocation): SvSourceFile {
-    return { kind: 'SourceFile', modules, location };
+export function createSourceFile(
+    modules: SvModuleDecl[],
+    location: SourceLocation,
+    typedefs: SvTypedefDecl[] = [],
+    functions: SvFunctionDecl[] = [],
+    interfaces: SvInterfaceDecl[] = []
+): SvSourceFile {
+    return { kind: 'SourceFile', modules, typedefs, functions, interfaces, location };
 }
 
 export function createIdentifier(name: string, location: SourceLocation): SvIdentifier {

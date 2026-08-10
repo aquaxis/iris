@@ -72,6 +72,8 @@ import type {
   AstNode,
   TestModDef,
   TestModItem,
+  UnionDef,
+  ExternModDef,
   InitialBlock,
   SeqBlock,
   SeqStatement,
@@ -317,6 +319,12 @@ export class Printer {
       case 'InterfaceDef':
         this.printInterfaceDef(item);
         break;
+      case 'UnionDef':
+        this.printUnionDef(item);
+        break;
+      case 'ExternModDef':
+        this.printExternModDef(item);
+        break;
       case 'PackageDecl':
         this.printPackageDecl(item);
         break;
@@ -468,14 +476,21 @@ export class Printer {
     }
   }
 
+  /**
+   * The port list opens on the line after the constraints. Printed on one line
+   * the clause would run into the `(` and turn the last constraint into a call.
+   */
   private printWhereClause(node: WhereClause): void {
-    this.write(' where ');
-    for (let i = 0; i < node.constraints.length; i++) {
-      if (i > 0) {
-        this.write(', ');
-      }
-      this.printConstraint(node.constraints[i]!);
+    this.newline();
+    this.write('where');
+    this.newline();
+    this.indent();
+    for (const constraint of node.constraints) {
+      this.printConstraint(constraint);
+      this.write(',');
+      this.newline();
     }
+    this.dedent();
   }
 
   private printConstraint(node: Constraint): void {
@@ -611,6 +626,10 @@ export class Printer {
     if (node.genericParams) {
       this.printGenericParams(node.genericParams);
     }
+    if (node.extends) {
+      this.write(' extends ');
+      this.printIdentifier(node.extends);
+    }
     this.write(' {');
     this.newline();
     this.indent();
@@ -631,10 +650,11 @@ export class Printer {
     if (node.isLogic) {
       this.write('logic ');
     }
+    // interface_signal = identifier ~ ":" ~ type_expr ~ ","?
     this.printIdentifier(node.name);
     this.write(': ');
     this.printTypeExpr(node.typeExpr);
-    this.write(';');
+    this.write(',');
   }
 
   private printViewDef(node: ViewDef): void {
@@ -644,44 +664,95 @@ export class Printer {
     if (node.signals.length > 0) {
       this.newline();
       this.indent();
-      for (const signal of node.signals) {
-        this.printViewSignal(signal);
+      // direction_list = view_direction ~ ":" ~ signal_list
+      // Signals sharing a direction are written on one line, in the order they
+      // were given, rather than one per line with a semicolon.
+      let index = 0;
+      while (index < node.signals.length) {
+        const direction = node.signals[index]!.direction;
+        let end = index;
+        while (end < node.signals.length && node.signals[end]!.direction === direction) {
+          end++;
+        }
+        this.write(direction);
+        this.write(': ');
+        for (let i = index; i < end; i++) {
+          if (i > index) {
+            this.write(', ');
+          }
+          this.printIdentifier(node.signals[i]!.name);
+        }
+        this.write(',');
         this.newline();
+        index = end;
       }
       this.dedent();
     }
     this.write('}');
-  }
-
-  private printViewSignal(node: ViewSignal): void {
-    this.write(node.direction);
-    this.write(' ');
-    this.printIdentifier(node.name);
-    this.write(';');
   }
 
   // ========================================
   // Package and Import
   // ========================================
 
-  private printPackageDecl(node: PackageDecl): void {
-    this.write('package ');
-    this.printPath(node.path);
+  /** `union U { a: bit[8], b: bit[8], }` */
+  private printUnionDef(node: UnionDef): void {
+    this.printVisibility(node.visibility);
+    this.write('union ');
+    this.printIdentifier(node.name);
     this.write(' {');
-    if (node.items.length > 0) {
+    this.newline();
+    this.indent();
+    for (const field of node.fields) {
+      this.printIdentifier(field.name);
+      this.write(': ');
+      this.printTypeExpr(field.typeExpr);
+      this.write(',');
+      this.newline();
+    }
+    this.dedent();
+    this.write('}');
+  }
+
+  /** `extern mod Name(ports);` */
+  private printExternModDef(node: ExternModDef): void {
+    this.printVisibility(node.visibility);
+    this.write('extern mod ');
+    this.printIdentifier(node.name);
+    if (node.genericParams) {
+      this.printGenericParams(node.genericParams);
+    }
+    this.write('(');
+    if (node.ports.length > 0) {
       this.newline();
       this.indent();
-      for (let i = 0; i < node.items.length; i++) {
-        if (i > 0) {
-          this.newline();
-          this.newline();
-        }
-        this.printItem(node.items[i]!);
+      for (const port of node.ports) {
+        this.printPortDecl(port);
+        this.write(',');
+        this.newline();
       }
-      this.newline();
       this.dedent();
     }
-    this.write('}');
+    this.write(');');
+  }
+
+  private printPackageDecl(node: PackageDecl): void {
+    // package_decl = "package" ~ package_path ~ ";"
+    //
+    // A package names the file it heads; it does not enclose anything. The
+    // braced form printed here was not IRIS, so a file beginning with
+    // `package demo;` came out unreadable.
+    this.write('package ');
+    this.printPath(node.path);
+    this.write(';');
+
+    // The parser gathers everything after the declaration as the package's
+    // items. They sit at file level, so they are printed without indentation.
+    for (const item of node.items) {
+      this.newline();
+      this.newline();
+      this.printItem(item);
+    }
   }
 
   private printImportDecl(node: ImportDecl): void {
@@ -787,7 +858,18 @@ export class Printer {
   private printAssertStmt(node: AssertStmt): void {
     this.write('assert ');
     this.printExpr(node.condition);
-    if (node.message) {
+    if (node.severity) {
+      // `assert cond else error("...")`
+      this.write(' else ');
+      this.write(node.severity);
+      this.write('(');
+      if (node.message) {
+        this.write('"');
+        this.write(node.message);
+        this.write('"');
+      }
+      this.write(')');
+    } else if (node.message) {
       this.write(', "');
       this.write(node.message);
       this.write('"');
@@ -834,7 +916,7 @@ export class Printer {
   // ========================================
 
   private printTestModDef(node: TestModDef): void {
-    this.write('test mod ');
+    this.write('test ');
     this.printIdentifier(node.name);
     this.write(' {');
     this.newline();
@@ -1151,6 +1233,23 @@ export class Printer {
     // State enum
     this.printStateEnum(node.stateEnum);
     this.newline();
+
+    // initial_state = "initial" ~ ":" ~ identifier
+    if (node.initialState) {
+      this.write('initial: ');
+      this.printIdentifier(node.initialState);
+      this.newline();
+    }
+
+    // Signals declared inside the machine
+    if (node.signals && node.signals.length > 0) {
+      this.newline();
+      for (const signal of node.signals) {
+        this.printModItem(signal);
+        this.newline();
+      }
+    }
+
     this.newline();
 
     // Transitions
@@ -1164,12 +1263,21 @@ export class Printer {
       this.newline();
     }
 
+    // output_encoding = "output" ~ "encoding" ~ ":" ~ encoding_type
+    if (node.encoding) {
+      this.newline();
+      this.write('output encoding: ');
+      this.write(node.encoding);
+      this.newline();
+    }
+
     this.dedent();
     this.write('}');
   }
 
   private printStateEnum(node: StateEnum): void {
-    this.write('state {');
+    // state_enum = "state" ~ "enum" ~ "{" ~ state_item ~ ("," ~ state_item)* ~ ","? ~ "}"
+    this.write('state enum {');
     this.newline();
     this.indent();
     for (const state of node.states) {
@@ -1183,25 +1291,24 @@ export class Printer {
   private printStateItem(node: StateItem): void {
     this.printIdentifier(node.name);
     if (node.mooreOutputs && node.mooreOutputs.length > 0) {
-      this.write(' {');
-      this.newline();
-      this.indent();
-      for (const output of node.mooreOutputs) {
-        this.printOutputAssign(output);
-        this.newline();
+      // moore_outputs = "[" ~ output_assign ~ ("," ~ output_assign)* ~ "]"
+      this.write(' [');
+      for (let i = 0; i < node.mooreOutputs.length; i++) {
+        if (i > 0) {
+          this.write(', ');
+        }
+        this.printOutputAssign(node.mooreOutputs[i]!);
       }
-      this.dedent();
-      this.write('}');
-    } else {
-      this.write(',');
+      this.write(']');
     }
+    this.write(',');
   }
 
   private printOutputAssign(node: OutputAssign): void {
+    // output_assign = identifier ~ "=" ~ expr
     this.printIdentifier(node.name);
     this.write(' = ');
     this.printExpr(node.value);
-    this.write(';');
   }
 
   private printTransitionsBlock(node: TransitionsBlock): void {
@@ -1222,7 +1329,7 @@ export class Printer {
     } else {
       this.printIdentifier(node.fromState);
     }
-    this.write(' {');
+    this.write(' => {');
     this.newline();
     this.indent();
     for (const when of node.whenClauses) {
@@ -1234,22 +1341,20 @@ export class Printer {
   }
 
   private printWhenClause(node: WhenClause): void {
+    // when_clause = "when" ~ expr ~ "{" ~ transition_action* ~ "}"
+    // The braces are not optional, and `when c => goto S;` is not a form the
+    // language has.
     this.write('when ');
     this.printExpr(node.condition);
-    this.write(' => ');
-    if (node.actions.length === 1) {
-      this.printTransitionAction(node.actions[0]!);
-    } else {
-      this.write('{');
+    this.write(' {');
+    this.newline();
+    this.indent();
+    for (const action of node.actions) {
+      this.printTransitionAction(action);
       this.newline();
-      this.indent();
-      for (const action of node.actions) {
-        this.printTransitionAction(action);
-        this.newline();
-      }
-      this.dedent();
-      this.write('}');
     }
+    this.dedent();
+    this.write('}');
   }
 
   private printTransitionAction(action: TransitionAction): void {
@@ -1280,10 +1385,11 @@ export class Printer {
   }
 
   private printOutputCase(node: OutputCase): void {
+    // output_case = identifier ~ "=>" ~ expr ~ ","
     this.printIdentifier(node.state);
     this.write(' => ');
     this.printExpr(node.value);
-    this.write(';');
+    this.write(',');
   }
 
   // ========================================
@@ -1291,11 +1397,12 @@ export class Printer {
   // ========================================
 
   private printInstDecl(node: InstDecl): void {
+    this.write('inst ');
     this.printIdentifier(node.name);
-    this.write(': ');
+    this.write(' = ');
     this.printPath(node.modulePath);
     if (node.genericArgs && node.genericArgs.length > 0) {
-      this.write('<');
+      this.write('[');
       for (let i = 0; i < node.genericArgs.length; i++) {
         if (i > 0) {
           this.write(', ');
@@ -1303,7 +1410,7 @@ export class Printer {
         const arg = node.genericArgs[i]!;
         if (arg.name) {
           this.printIdentifier(arg.name);
-          this.write(' = ');
+          this.write(': ');
         }
         if ('kind' in arg.value && typeof arg.value.kind === 'string') {
           if (this.isTypeExpr(arg.value)) {
@@ -1313,30 +1420,26 @@ export class Printer {
           }
         }
       }
-      this.write('>');
+      this.write(']');
     }
-    this.write('(');
+    this.write(' {');
     if (node.connections.length > 0) {
       this.newline();
       this.indent();
-      for (let i = 0; i < node.connections.length; i++) {
-        this.printConnection(node.connections[i]!);
-        if (i < node.connections.length - 1) {
-          this.write(',');
-        }
+      for (const connection of node.connections) {
+        this.printConnection(connection);
+        this.write(',');
         this.newline();
       }
       this.dedent();
     }
-    this.write(');');
+    this.write('};');
   }
 
   private printConnection(node: Connection): void {
-    this.write('.');
     this.printIdentifier(node.port);
-    this.write('(');
+    this.write(': ');
     this.printExpr(node.expr);
-    this.write(')');
   }
 
   private printMemDecl(node: MemDecl): void {
@@ -1409,6 +1512,11 @@ export class Printer {
         break;
       case 'ExprStmt':
         this.printExprStmt(stmt);
+        break;
+      case 'AssertStmt':
+        // A check inside a sync, initial or seq block. Without this the
+        // statement is printed as nothing and the assertion is lost.
+        this.printAssertStmt(stmt);
         break;
     }
   }
@@ -1707,7 +1815,10 @@ export class Printer {
         this.write('[');
         this.printExpr(expr.index);
         if (expr.rangeEnd) {
-          this.write(':');
+          // `a[i +: 8]` is a part select and `a[7:0]` a slice. Printing both
+          // with a colon turned the first into the second, which selects a
+          // different set of bits.
+          this.write(expr.partSelect ? ` ${expr.partSelect} ` : ':');
           this.printExpr(expr.rangeEnd);
         }
         this.write(']');
@@ -1801,9 +1912,26 @@ export class Printer {
       case 'PrimitiveType':
         this.write(typeExpr.name);
         if (typeExpr.width) {
-          this.write('<');
+          this.write('[');
           this.printExpr(typeExpr.width);
-          this.write('>');
+          this.write(']');
+        }
+        if (typeExpr.attrs && typeExpr.attrs.length > 0) {
+          // `clock(period: 10ns)`, `reset(active_low: true)`
+          this.write('(');
+          for (let i = 0; i < typeExpr.attrs.length; i++) {
+            if (i > 0) {
+              this.write(', ');
+            }
+            const attr = typeExpr.attrs[i]!;
+            this.printIdentifier(attr.name);
+            this.write(': ');
+            this.printExpr(attr.value);
+            if (attr.unit) {
+              this.write(attr.unit);
+            }
+          }
+          this.write(')');
         }
         break;
       case 'ArrayType':

@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -37,13 +38,24 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(restartCommand);
 }
 
+/**
+ * Where the language server lives
+ *
+ * Packaged, it is bundled into the extension under `server/`. In the monorepo
+ * it is a sibling package that has just been built. The sibling path is not in
+ * the .vsix, so an installed extension must find the bundled copy or it will
+ * try to start a file that is not there.
+ */
+function resolveServerModule(context: vscode.ExtensionContext): string {
+  const bundled = context.asAbsolutePath(path.join('server', 'server.js'));
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+  return context.asAbsolutePath(path.join('..', 'ls', 'dist', 'server.js'));
+}
+
 function startLanguageClient(context: vscode.ExtensionContext): void {
-  // Path to the language server
-  // In development, use the workspace path
-  // In production, use the bundled server
-  const serverModule = context.asAbsolutePath(
-    path.join('..', 'ls', 'dist', 'server.js')
-  );
+  const serverModule = resolveServerModule(context);
 
   // Server options
   const serverOptions: ServerOptions = {

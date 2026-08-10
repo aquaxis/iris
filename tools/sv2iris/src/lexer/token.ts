@@ -40,6 +40,7 @@ export enum TokenType {
     UNSIGNED = 'UNSIGNED',
     ENUM = 'ENUM',
     STRUCT = 'STRUCT',
+    UNION = 'UNION',
     TYPEDEF = 'TYPEDEF',
     PACKED = 'PACKED',
 
@@ -58,6 +59,7 @@ export enum TokenType {
     ASSIGN = 'ASSIGN',
     IF = 'IF',
     ELSE = 'ELSE',
+    ASSERT = 'ASSERT',
     CASE = 'CASE',
     CASEZ = 'CASEZ',
     CASEX = 'CASEX',
@@ -90,12 +92,17 @@ export enum TokenType {
 
     // === Literals ===
     NUMBER = 'NUMBER',
+    // `8'(expr)` — a size cast. The token carries the width; the parenthesised
+    // expression that follows is parsed as an ordinary primary.
+    SIZE_CAST = 'SIZE_CAST',
     STRING = 'STRING',
     IDENTIFIER = 'IDENTIFIER',
     SYSTEM_IDENTIFIER = 'SYSTEM_IDENTIFIER',
 
     // === Operators - Arithmetic ===
     PLUS = 'PLUS', // +
+    PLUS_COLON = 'PLUS_COLON', // +: of a part select
+    MINUS_COLON = 'MINUS_COLON', // -: of a part select
     MINUS = 'MINUS', // -
     STAR = 'STAR', // *
     SLASH = 'SLASH', // /

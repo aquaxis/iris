@@ -97,7 +97,7 @@ describe('SymbolTableBuilder', () => {
     it('should build symbol table for module with instance', () => {
       const source = `
         mod Top(in clk: clock) {
-          inst counter0: Counter();
+          inst counter0 = Counter { };
         }
       `;
       const result = buildFromSource(source);

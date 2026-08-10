@@ -1,6 +1,6 @@
 # 第13章 アトリビュート
 
-[<< パッケージシステム](./12_package_system.md) | [目次](./iris_spec_0.1.0.md) | [エラーメッセージ >>](./14_error_messages.md)
+[<< パッケージシステム](./12_package_system.md) | [目次](./iris_spec.md) | [エラーメッセージ >>](./14_error_messages.md)
 
 ---
 
@@ -231,11 +231,11 @@ in gpio: bit[8];
 #[io(standard = "LVDS_25", diff_term = true)]
 in lvds_clk: clock;
 
-// スルーレート・ドライブ強度
+// スルーレートとドライブ強度
 #[io(standard = "LVCMOS18", slew = "fast", drive = 12)]
 out high_speed_out: bit;
 
-// プルアップ・プルダウン
+// プルアップとプルダウン
 #[io(pullup)]
 in button: bit;
 
@@ -437,4 +437,4 @@ mod Conflicting(...) { ... }
 
 ---
 
-[<< パッケージシステム](./12_package_system.md) | [目次](./iris_spec_0.1.0.md) | [エラーメッセージ >>](./14_error_messages.md)
+[<< パッケージシステム](./12_package_system.md) | [目次](./iris_spec.md) | [エラーメッセージ >>](./14_error_messages.md)

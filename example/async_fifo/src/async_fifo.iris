@@ -1,0 +1,121 @@
+/// 非同期FIFO（Async FIFO）
+///
+/// 異なるクロックドメイン間でデータを転送するFIFOバッファ。
+/// 書き込み側（wr_clk）と読み出し側（rd_clk）の2つのクロックドメインを持つ。
+/// GRAY符号を用いたポインタ同期によりメタステーブル性を回避する。
+///
+/// ジェネリックパラメータ:
+/// - DataWidth: データ幅（既定8ビット、1以上）
+/// - Depth:     深さ（既定16エントリ、4以上の2のべき乗であること）
+///
+/// 2のべき乗という条件は比較のみのwhere句では表せないため、呼び出し側の責任とする。
+///
+/// AddrWidthとPtrWidthはDepthから導出する。
+/// ポインタはアドレスより1ビット広く、最上位ビットをラップビットとして使う。
+mod AsyncFifo[
+    DataWidth: uint = 8,
+    Depth: uint = 16,
+    AddrWidth: uint = $clog2(Depth),
+    PtrWidth: uint = $clog2(Depth) + 1,
+]
+where
+    DataWidth >= 1,
+    // 深さが4未満だとPtrWidthが3に満たず、フル判定のスライスが成り立たない
+    Depth >= 4,
+(
+    // ===== 書き込み側ポート =====
+    in  wr_clk: clock,
+    in  wr_rst_n: reset(active_low: true),
+    in  wr_en: bit,
+    in  wr_data: bit[DataWidth],
+
+    // ===== 読み出し側ポート =====
+    in  rd_clk: clock,
+    in  rd_rst_n: reset(active_low: true),
+    in  rd_en: bit,
+
+    // ===== 出力ポート =====
+    out full: bit,
+    out empty: bit,
+    out rd_data: bit[DataWidth],
+) {
+    // ===== 書き込み側ポインタ（2進 + GRAY符号） =====
+    var wr_ptr: bit[PtrWidth] = 0;
+    var wr_ptr_gray: bit[PtrWidth] = 0;
+    var rd_ptr_gray_sync1: bit[PtrWidth] = 0;
+    var rd_ptr_gray_sync2: bit[PtrWidth] = 0;
+
+    // ===== 読み出し側ポインタ（2進 + GRAY符号） =====
+    var rd_ptr: bit[PtrWidth] = 0;
+    var rd_ptr_gray: bit[PtrWidth] = 0;
+    var wr_ptr_gray_sync1: bit[PtrWidth] = 0;
+    var wr_ptr_gray_sync2: bit[PtrWidth] = 0;
+
+    // ===== FIFOストレージ =====
+    mem storage: bit[DataWidth][Depth];
+
+    // ===== 書き込みクロックドメイン =====
+    sync(wr_clk.posedge, wr_rst_n.async) {
+        if ~wr_rst_n {
+            wr_ptr = 0;
+            wr_ptr_gray = 0;
+            rd_ptr_gray_sync1 = 0;
+            rd_ptr_gray_sync2 = 0;
+        } else {
+            // 読み出し側GRAYポインタの2段シンクロナイザ
+            rd_ptr_gray_sync1 = rd_ptr_gray;
+            rd_ptr_gray_sync2 = rd_ptr_gray_sync1;
+
+            // フルでないときのみ書き込む
+            if wr_en {
+                if ~full {
+                    // 下位AddrWidthビットをストレージのアドレスとして使用する
+                    storage[wr_ptr[AddrWidth - 1 : 0]] = wr_data;
+                    wr_ptr = wr_ptr + 1;
+
+                    // 更新後の値を2進 → GRAY符号変換: gray = binary ^ (binary >> 1)
+                    wr_ptr_gray = (wr_ptr + 1) ^ ((wr_ptr + 1) >> 1);
+                }
+            }
+        }
+    }
+
+    // ===== 読み出しクロックドメイン =====
+    sync(rd_clk.posedge, rd_rst_n.async) {
+        if ~rd_rst_n {
+            rd_ptr = 0;
+            rd_ptr_gray = 0;
+            wr_ptr_gray_sync1 = 0;
+            wr_ptr_gray_sync2 = 0;
+        } else {
+            // 書き込み側GRAYポインタの2段シンクロナイザ
+            wr_ptr_gray_sync1 = wr_ptr_gray;
+            wr_ptr_gray_sync2 = wr_ptr_gray_sync1;
+
+            // エンプティでないときのみ読み出す
+            if rd_en {
+                if ~empty {
+                    rd_ptr = rd_ptr + 1;
+
+                    // 更新後の値を2進 → GRAY符号変換
+                    rd_ptr_gray = (rd_ptr + 1) ^ ((rd_ptr + 1) >> 1);
+                }
+            }
+        }
+    }
+
+    // ===== 出力の組み合わせ論理 =====
+    comb {
+        // 読み出しデータ（非同期読み出し、下位AddrWidthビットがアドレス）
+        rd_data = storage[rd_ptr[AddrWidth - 1 : 0]];
+
+        // エンプティ判定: 読み出し側GRAY == 同期済み書き込み側GRAY
+        empty = (rd_ptr_gray == wr_ptr_gray_sync2);
+
+        // フル判定: 上位2ビットが反転し、残りが一致したとき
+        full = (wr_ptr_gray == {
+            ~rd_ptr_gray_sync2[PtrWidth - 1 : PtrWidth - 2],
+            rd_ptr_gray_sync2[PtrWidth - 3 : 0]
+        });
+    }
+}

@@ -40,6 +40,8 @@ import type {
   SvInstance,
   SvEnumDef,
   SvStructDef,
+  SvUnionDef,
+  SvInterface,
   SvTypeDef,
   SvFunction,
   SvTask,
@@ -120,6 +122,47 @@ export class SvEmitter {
     return this.getOutput();
   }
 
+  /** `interface Name; ... endinterface` */
+  emitInterfaceStandalone(iface: SvInterface): string {
+    this.reset();
+    this.writeIndent();
+    this.write('interface ');
+    this.write(iface.name);
+    this.writeLine(';');
+    this.indentLevel++;
+
+    for (const signal of iface.signals) {
+      this.emitSignal(signal);
+    }
+
+    for (const modport of iface.modports) {
+      this.writeLine('');
+      this.writeIndent();
+      this.write('modport ');
+      this.write(modport.name);
+      this.write(' (');
+      this.write(
+        modport.signals.map((s) => `${s.direction} ${s.name}`).join(', ')
+      );
+      this.writeLine(');');
+    }
+
+    this.indentLevel--;
+    this.writeIndent();
+    this.writeLine('endinterface');
+    return this.getOutput();
+  }
+
+  /**
+   * Emit one module item on its own, for a declaration that sits outside any
+   * module.
+   */
+  emitModuleItemStandalone(item: SvModuleItem): string {
+    this.reset();
+    this.emitModuleItem(item);
+    return this.getOutput();
+  }
+
   /**
    * Emit a module
    */
@@ -186,7 +229,7 @@ export class SvEmitter {
 
     // Group items by type for better organization
     const signals: SvSignal[] = [];
-    const typeDefs: (SvEnumDef | SvStructDef | SvTypeDef)[] = [];
+    const typeDefs: (SvEnumDef | SvStructDef | SvUnionDef | SvTypeDef)[] = [];
     const alwaysBlocks: SvAlwaysBlock[] = [];
     const initialBlocks: SvInitialBlock[] = [];
     const assigns: SvAssign[] = [];
@@ -202,6 +245,7 @@ export class SvEmitter {
           break;
         case 'SvEnumDef':
         case 'SvStructDef':
+        case 'SvUnionDef':
         case 'SvTypeDef':
           typeDefs.push(item);
           break;
@@ -398,9 +442,21 @@ export class SvEmitter {
 
   private emitSignal(signal: SvSignal): void {
     this.writeIndent();
-    this.write(this.emitDataTypeInternal(signal.dataType));
-    this.write(' ');
-    this.write(signal.name);
+
+    if (signal.dataType.kind === 'SvArrayType') {
+      // An unpacked array carries its dimensions after the name:
+      //   logic [Width-1:0] storage [Depth];
+      this.write(this.emitDataTypeInternal(signal.dataType.elementType));
+      this.write(' ');
+      this.write(signal.name);
+      for (const dim of signal.dataType.dimensions) {
+        this.write(` [${this.emitWidthValue(dim)}]`);
+      }
+    } else {
+      this.write(this.emitDataTypeInternal(signal.dataType));
+      this.write(' ');
+      this.write(signal.name);
+    }
 
     if (signal.initialValue) {
       this.write(' = ');
@@ -412,7 +468,7 @@ export class SvEmitter {
 
   // ==================== Type Definitions ====================
 
-  private emitTypeDef(typeDef: SvEnumDef | SvStructDef | SvTypeDef): void {
+  private emitTypeDef(typeDef: SvEnumDef | SvStructDef | SvUnionDef | SvTypeDef): void {
     switch (typeDef.kind) {
       case 'SvEnumDef':
         this.emitEnumDef(typeDef);
@@ -420,10 +476,38 @@ export class SvEmitter {
       case 'SvStructDef':
         this.emitStructDef(typeDef);
         break;
+      case 'SvUnionDef':
+        this.emitUnionDef(typeDef);
+        break;
       case 'SvTypeDef':
         this.emitTypeAlias(typeDef);
         break;
     }
+  }
+
+  private emitUnionDef(unionDef: SvUnionDef): void {
+    this.writeIndent();
+    this.write('typedef union ');
+    if (unionDef.isPacked) {
+      this.write('packed ');
+    }
+    this.write('{');
+    this.writeLine('');
+    this.indentLevel++;
+
+    for (const field of unionDef.fields) {
+      this.writeIndent();
+      this.write(this.emitDataTypeInternal(field.dataType));
+      this.write(' ');
+      this.write(field.name);
+      this.writeLine(';');
+    }
+
+    this.indentLevel--;
+    this.writeIndent();
+    this.write('} ');
+    this.write(unionDef.name);
+    this.writeLine(';');
   }
 
   private emitEnumDef(enumDef: SvEnumDef): void {
@@ -916,7 +1000,10 @@ export class SvEmitter {
       case 'SvIndexExpr':
         return `${this.emitExprInternal(expr.base)}[${this.emitExprInternal(expr.index)}]`;
       case 'SvSliceExpr':
-        return `${this.emitExprInternal(expr.base)}[${this.emitExprInternal(expr.high)}:${this.emitExprInternal(expr.low)}]`;
+        // SystemVerilog writes a part select the same way IRIS does.
+        return expr.partSelect
+          ? `${this.emitExprInternal(expr.base)}[${this.emitExprInternal(expr.high)} ${expr.partSelect} ${this.emitExprInternal(expr.low)}]`
+          : `${this.emitExprInternal(expr.base)}[${this.emitExprInternal(expr.high)}:${this.emitExprInternal(expr.low)}]`;
       case 'SvMemberExpr':
         return `${this.emitExprInternal(expr.base)}.${expr.member}`;
       case 'SvConcatExpr':
@@ -925,6 +1012,8 @@ export class SvEmitter {
         return `{${this.emitExprInternal(expr.count)}{${this.emitExprInternal(expr.expr)}}}`;
       case 'SvCastExpr':
         return `${this.emitDataTypeInternal(expr.targetType)}'(${this.emitExprInternal(expr.expr)})`;
+      case 'SvSizeCastExpr':
+        return `${this.emitWidthValue(expr.width)}'(${this.emitExprInternal(expr.expr)})`;
       case 'SvParenExpr':
         return `(${this.emitExprInternal(expr.expr)})`;
       default: {
@@ -992,9 +1081,51 @@ export class SvEmitter {
     }
   }
 
+  /**
+   * Binding strength of a SystemVerilog operator; smaller binds tighter.
+   *
+   * IRIS has no precedence at all: `expr = unary_expr ~ (bin_op ~ unary_expr)*`
+   * folds strictly left to right, so `a ^ b >> 1` means `(a ^ b) >> 1` there and
+   * `a ^ (b >> 1)` here. Emitting the operands unbracketed silently regrouped
+   * every mixed expression.
+   */
+  private static readonly SV_PRECEDENCE: Record<string, number> = {
+    '**': 1,
+    '*': 2, '/': 2, '%': 2,
+    '+': 3, '-': 3,
+    '<<': 4, '>>': 4, '<<<': 4, '>>>': 4,
+    '<': 5, '<=': 5, '>': 5, '>=': 5,
+    '==': 6, '!=': 6, '===': 6, '!==': 6,
+    '&': 7,
+    '^': 8, '~^': 8, '^~': 8,
+    '|': 9,
+    '&&': 10,
+    '||': 11,
+  };
+
+  private precedenceOf(expr: SvExpr): number {
+    return expr.kind === 'SvBinaryExpr'
+      ? (SvEmitter.SV_PRECEDENCE[expr.op] ?? 0)
+      : 0;
+  }
+
   private emitBinaryExpr(expr: SvBinaryExpr): string {
-    const left = this.emitExprInternal(expr.left);
-    const right = this.emitExprInternal(expr.right);
+    const own = SvEmitter.SV_PRECEDENCE[expr.op] ?? 0;
+    const leftPrec = this.precedenceOf(expr.left);
+    const rightPrec = this.precedenceOf(expr.right);
+
+    let left = this.emitExprInternal(expr.left);
+    let right = this.emitExprInternal(expr.right);
+
+    // Every operator here is left-associative, so an equal-strength operand on
+    // the right also has to be bracketed to keep the tree it came from.
+    if (leftPrec > own) {
+      left = `(${left})`;
+    }
+    if (rightPrec >= own && rightPrec > 0) {
+      right = `(${right})`;
+    }
+
     return `${left} ${expr.op} ${right}`;
   }
 
@@ -1010,6 +1141,12 @@ export class SvEmitter {
 
   private emitStmtInternal(stmt: SvStmt): void {
     switch (stmt.kind) {
+      case 'SvExprStmt':
+        this.writeIndent();
+        this.write(this.emitExprInternal(stmt.expr));
+        this.writeLine(';');
+        break;
+
       case 'SvBlockingAssignStmt':
         this.writeIndent();
         this.write(this.emitExprInternal(stmt.lhs));
@@ -1398,6 +1535,32 @@ export function createEmitter(options?: Partial<EmitterOptions>): SvEmitter {
 /**
  * Emit a module to string
  */
+export function emitInterface(
+  iface: SvInterface,
+  options?: Partial<EmitterOptions>
+): string {
+  const emitter = new SvEmitter(options);
+  return emitter.emitInterfaceStandalone(iface);
+}
+
+export function emitTypeDef(
+  typeDef: SvEnumDef | SvStructDef | SvUnionDef | SvTypeDef,
+  options?: Partial<EmitterOptions>
+): string {
+  const emitter = new SvEmitter(options);
+  return emitter.emitSourceFile({
+    kind: 'SvSourceFile',
+    timescale: undefined,
+    modules: [],
+    typeDefs: [typeDef],
+  });
+}
+
+export function emitFunction(fn: SvFunction, options?: Partial<EmitterOptions>): string {
+  const emitter = new SvEmitter(options);
+  return emitter.emitModuleItemStandalone(fn);
+}
+
 export function emitModule(module: SvModule, options?: Partial<EmitterOptions>): string {
   return createEmitter(options).emitModule(module);
 }

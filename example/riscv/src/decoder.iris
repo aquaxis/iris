@@ -1,0 +1,178 @@
+/// デコーダ（RV32I）
+///
+/// 命令語を制御信号と即値に分解する。純粋な組み合わせ論理である。
+///
+/// 即値の組み立ては形式ごとにビットの並びが違う。
+/// とくにB形式とJ形式は、分岐先が2バイト境界であることを利用して
+/// 最下位ビットを省き、残りを飛び飛びに詰めてある。
+/// ここを間違えると、分岐だけが違う場所へ飛ぶコアになる。
+///
+///   I形式  instr[31:20]
+///   S形式  instr[31:25] instr[11:7]
+///   B形式  instr[31] instr[7] instr[30:25] instr[11:8] 0
+///   U形式  instr[31:12] を上位に置き下位12ビットは0
+///   J形式  instr[31] instr[19:12] instr[20] instr[30:21] 0
+///
+/// 符号拡張は`.sign_extend[32]()`で行う。
+/// 仕様9.7.2は`{{20{instr[31]}}, ...}`という反復の書き方を載せているが、
+/// 反復はiris-simが受け付けない。
+mod Decoder(
+    in  instr: bit[32],
+
+    // 命令フィールド
+    out rd: bit[5],
+    out rs1: bit[5],
+    out rs2: bit[5],
+    out funct3: bit[3],
+
+    // 即値
+    out imm: bit[32],
+
+    // 制御
+    out alu_op: bit[4],
+    out alu_a_pc: bit,      // 第1オペランドにPCを使う（AUIPC、JAL、JALR、分岐）
+    out alu_b_imm: bit,     // 第2オペランドに即値を使う
+    out reg_write: bit,
+    out mem_read: bit,
+    out mem_write: bit,
+    out is_branch: bit,
+    out is_jal: bit,
+    out is_jalr: bit,
+    out is_lui: bit,
+    out is_system: bit,     // ECALL / EBREAK
+    out is_fence: bit,
+    out illegal: bit,
+) {
+    var opcode: bit[7] = 0;
+    var funct7: bit[7] = 0;
+
+    // 形式ごとの即値
+    var imm_i: bit[32] = 0;
+    var imm_s: bit[32] = 0;
+    var imm_b: bit[32] = 0;
+    var imm_u: bit[32] = 0;
+    var imm_j: bit[32] = 0;
+
+    // R形式とI形式のALU演算選択
+    var alu_rtype: bit[4] = 0;
+    var alu_itype: bit[4] = 0;
+
+    comb {
+        opcode = instr[6:0];
+        funct7 = instr[31:25];
+        rd     = instr[11:7];
+        funct3 = instr[14:12];
+        rs1    = instr[19:15];
+        rs2    = instr[24:20];
+
+        // ---- 即値 ----
+        imm_i = instr[31:20].sign_extend[32]();
+        imm_s = {instr[31:25], instr[11:7]}.sign_extend[32]();
+        imm_b = {instr[31], instr[7], instr[30:25], instr[11:8], 1'b0}.sign_extend[32]();
+        imm_u = {instr[31:12], 12'b0};
+        imm_j = {instr[31], instr[19:12], instr[20], instr[30:21], 1'b0}.sign_extend[32]();
+
+        imm = match opcode {
+            7'b0010011 => imm_i,   // OP-IMM
+            7'b0000011 => imm_i,   // LOAD
+            7'b1100111 => imm_i,   // JALR
+            7'b1110011 => imm_i,   // SYSTEM
+            7'b0100011 => imm_s,   // STORE
+            7'b1100011 => imm_b,   // BRANCH
+            7'b0110111 => imm_u,   // LUI
+            7'b0010111 => imm_u,   // AUIPC
+            7'b1101111 => imm_j,   // JAL
+            _          => 32'd0,
+        };
+
+        // ---- ALU演算の選択 ----
+        // R形式はfunct3とfunct7[5]で決まる
+        alu_rtype = match funct3 {
+            3'b000 => if funct7[5] { 4'd1 } else { 4'd0 },   // SUB / ADD
+            3'b001 => 4'd2,                                   // SLL
+            3'b010 => 4'd3,                                   // SLT
+            3'b011 => 4'd4,                                   // SLTU
+            3'b100 => 4'd5,                                   // XOR
+            3'b101 => if funct7[5] { 4'd7 } else { 4'd6 },   // SRA / SRL
+            3'b110 => 4'd8,                                   // OR
+            _      => 4'd9,                                   // AND
+        };
+
+        // I形式は、シフト以外はfunct7を見ない。
+        // ADDIに減算はなく、SRAIだけがfunct7[5]で区別される。
+        alu_itype = match funct3 {
+            3'b000 => 4'd0,                                   // ADDI
+            3'b001 => 4'd2,                                   // SLLI
+            3'b010 => 4'd3,                                   // SLTI
+            3'b011 => 4'd4,                                   // SLTIU
+            3'b100 => 4'd5,                                   // XORI
+            3'b101 => if funct7[5] { 4'd7 } else { 4'd6 },   // SRAI / SRLI
+            3'b110 => 4'd8,                                   // ORI
+            _      => 4'd9,                                   // ANDI
+        };
+
+        alu_op = match opcode {
+            7'b0110011 => alu_rtype,
+            7'b0010011 => alu_itype,
+            _          => 4'd0,      // 加算（アドレス計算、PC相対）
+        };
+
+        // ---- 制御信号 ----
+        alu_a_pc = match opcode {
+            7'b0010111 => 1'b1,      // AUIPC
+            7'b1101111 => 1'b1,      // JAL
+            _          => 1'b0,
+        };
+
+        alu_b_imm = match opcode {
+            7'b0010011 => 1'b1,      // OP-IMM
+            7'b0000011 => 1'b1,      // LOAD
+            7'b0100011 => 1'b1,      // STORE
+            7'b1100111 => 1'b1,      // JALR
+            7'b0010111 => 1'b1,      // AUIPC
+            7'b1101111 => 1'b1,      // JAL
+            _          => 1'b0,
+        };
+
+        reg_write = match opcode {
+            7'b0110011 => 1'b1,      // R形式
+            7'b0010011 => 1'b1,      // OP-IMM
+            7'b0000011 => 1'b1,      // LOAD
+            7'b1101111 => 1'b1,      // JAL
+            7'b1100111 => 1'b1,      // JALR
+            7'b0110111 => 1'b1,      // LUI
+            7'b0010111 => 1'b1,      // AUIPC
+            _          => 1'b0,
+        };
+
+        mem_read  = if opcode == 7'b0000011 { 1'b1 } else { 1'b0 };
+        mem_write = if opcode == 7'b0100011 { 1'b1 } else { 1'b0 };
+        is_branch = if opcode == 7'b1100011 { 1'b1 } else { 1'b0 };
+        is_jal    = if opcode == 7'b1101111 { 1'b1 } else { 1'b0 };
+        is_jalr   = if opcode == 7'b1100111 { 1'b1 } else { 1'b0 };
+        is_lui    = if opcode == 7'b0110111 { 1'b1 } else { 1'b0 };
+        is_fence  = if opcode == 7'b0001111 { 1'b1 } else { 1'b0 };
+
+        // SYSTEMのうちECALLとEBREAKだけを扱う。
+        // どちらもfunct3が0で、imm[11:0]が0か1である。
+        is_system = if opcode == 7'b1110011 {
+            if funct3 == 3'b000 { 1'b1 } else { 1'b0 }
+        } else { 1'b0 };
+
+        // 上のいずれにも当てはまらない命令語
+        illegal = match opcode {
+            7'b0110011 => 1'b0,
+            7'b0010011 => 1'b0,
+            7'b0000011 => 1'b0,
+            7'b0100011 => 1'b0,
+            7'b1100011 => 1'b0,
+            7'b1101111 => 1'b0,
+            7'b1100111 => 1'b0,
+            7'b0110111 => 1'b0,
+            7'b0010111 => 1'b0,
+            7'b0001111 => 1'b0,
+            7'b1110011 => 1'b0,
+            _          => 1'b1,
+        };
+    }
+}

@@ -8,6 +8,7 @@ import {
   DiagnosticSeverity,
   CodeActionKind,
   CompletionItemKind,
+  SymbolKind,
 } from 'vscode-languageserver/node.js';
 import type {
   InitializeParams,
@@ -23,8 +24,17 @@ import type {
   Hover,
   CompletionParams,
   CompletionItem,
+  DefinitionParams,
+  Location,
+  ReferenceParams,
+  DocumentSymbolParams,
+  DocumentSymbol,
+  RenameParams,
+  WorkspaceEdit,
 } from 'vscode-languageserver/node.js';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Lexer, Parser, buildSymbolTable, resolve } from '@irisfmt/core';
+import type { SymbolTable, SymbolDef } from '@irisfmt/core';
 import { format } from '@irisfmt/format';
 import { lint } from '@irisfmt/lint';
 import type { Diagnostic as LintDiagnostic, Fix } from '@irisfmt/lint';
@@ -59,6 +69,10 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
         codeActionKinds: [CodeActionKind.QuickFix],
       },
       hoverProvider: true,
+      definitionProvider: true,
+      referencesProvider: true,
+      documentSymbolProvider: true,
+      renameProvider: true,
       completionProvider: {
         triggerCharacters: ['.', ':', '<'],
         resolveProvider: false,
@@ -74,22 +88,22 @@ connection.onInitialized(() => {
 // IRIS keyword documentation for hover
 const KEYWORD_DOCS: Record<string, string> = {
   // Module-related
-  mod: '**mod** - Module definition\n\nDefines a hardware module with ports and internal logic.\n\n```iris\nmod Counter(in clk: clock, out count: bit<8>) {\n  // module body\n}\n```',
+  mod: '**mod** - Module definition\n\nDefines a hardware module with ports and internal logic.\n\n```iris\nmod Counter(in clk: clock, out count: bit[8]) {\n  // module body\n}\n```',
   pub: '**pub** - Public visibility\n\nMarks an item as publicly visible outside the current module.',
 
   // Variables and signals
-  let: '**let** - Immutable binding\n\nDeclares an immutable variable or wire signal.\n\n```iris\nlet x: bit<8> = 42;\n```',
-  var: '**var** - Mutable signal\n\nDeclares a mutable register signal (only valid in sync blocks).\n\n```iris\nvar counter: bit<8> = 0;\n```',
+  let: '**let** - Immutable binding\n\nDeclares an immutable variable or wire signal.\n\n```iris\nlet x: bit[8] = 42;\n```',
+  var: '**var** - Mutable signal\n\nDeclares a mutable register signal (only valid in sync blocks).\n\n```iris\nvar counter: bit[8] = 0;\n```',
   const: '**const** - Constant definition\n\nDeclares a compile-time constant value.\n\n```iris\nconst WIDTH: uint = 8;\n```',
 
   // Types
-  type: '**type** - Type alias\n\nDefines a type alias.\n\n```iris\ntype Word = bit<32>;\n```',
+  type: '**type** - Type alias\n\nDefines a type alias.\n\n```iris\ntype Word = bit[32];\n```',
   struct: '**struct** - Structure type\n\nDefines a composite data type with named fields.\n\n```iris\nstruct Point {\n  x: int<32>,\n  y: int<32>,\n}\n```',
   enum: '**enum** - Enumeration type\n\nDefines an enumeration with named variants.\n\n```iris\nenum State {\n  Idle,\n  Running,\n  Done,\n}\n```',
   interface: '**interface** - Interface definition\n\nDefines a reusable port bundle.\n\n```iris\ninterface AXI4Lite {\n  logic awvalid: bit,\n  logic awready: bit,\n  // ...\n}\n```',
 
   // Primitive types
-  bit: '**bit** - Bit vector type\n\nFixed-width unsigned bit vector.\n\n```iris\nlet x: bit<8> = 0xFF;\n```',
+  bit: '**bit** - Bit vector type\n\nFixed-width unsigned bit vector.\n\n```iris\nlet x: bit[8] = 0xFF;\n```',
   int: '**int** - Signed integer type\n\nFixed-width signed integer.\n\n```iris\nlet x: int<32> = -42;\n```',
   uint: '**uint** - Unsigned integer type\n\nFixed-width unsigned integer.\n\n```iris\nlet x: uint<16> = 1000;\n```',
   bool: '**bool** - Boolean type\n\nBoolean value (true or false).',
@@ -98,8 +112,8 @@ const KEYWORD_DOCS: Record<string, string> = {
   string: '**string** - String type\n\nText string (mainly for simulation/testing).',
 
   // Port directions
-  in: '**in** - Input port direction\n\nDeclares an input port.\n\n```iris\nmod Foo(in data: bit<8>) { }\n```',
-  out: '**out** - Output port direction\n\nDeclares an output port.\n\n```iris\nmod Foo(out result: bit<8>) { }\n```',
+  in: '**in** - Input port direction\n\nDeclares an input port.\n\n```iris\nmod Foo(in data: bit[8]) { }\n```',
+  out: '**out** - Output port direction\n\nDeclares an output port.\n\n```iris\nmod Foo(out result: bit[8]) { }\n```',
   inout: '**inout** - Bidirectional port\n\nDeclares a bidirectional port.',
 
   // Control flow
@@ -122,7 +136,7 @@ const KEYWORD_DOCS: Record<string, string> = {
   goto: '**goto** - State transition\n\nTransitions to another state in an FSM.',
 
   // Memory
-  mem: '**mem** - Memory declaration\n\nDeclares a memory array.\n\n```iris\nmem ram: bit<32>[1024];\n```',
+  mem: '**mem** - Memory declaration\n\nDeclares a memory array.\n\n```iris\nmem ram: bit[32][1024];\n```',
 
   // Functions
   fn: '**fn** - Function definition\n\nDefines a function.\n\n```iris\nfn add(a: int<32>, b: int<32>) -> int<32> {\n  return a + b;\n}\n```',
@@ -141,6 +155,40 @@ const KEYWORD_DOCS: Record<string, string> = {
 
   // Test
   test: '**test** - Test definition\n\nDefines a test case.\n\n```iris\n#[test]\ntest my_test {\n  // test body\n}\n```',
+  // Instances
+  inst: '**inst** - Module instantiation\n\nCreates an instance of another module.\n\n```iris\ninst u_counter = Counter { clk: clk, count: count };\n```',
+
+  // Verification
+  assert: '**assert** - Immediate assertion\n\nChecks a condition and fails the simulation when it does not hold.\n\n```iris\nassert data == expected else error("mismatch");\n```',
+  expect: '**expect** - Concurrent assertion\n\nChecks a property without stopping the run.',
+  assume: '**assume** - Assumption\n\nStates a condition the environment guarantees. Does not stop the run.',
+  cover: '**cover** - Coverage point\n\nRecords whether a condition was reached during the run.',
+  constraint: '**constraint** - Constraint block\n\nRestricts the values a `rand` signal may take.\n\n```iris\nconstraint valid_size {\n  size >= 16\'d64;\n}\n```',
+  await: '**await** - Wait\n\nSuspends a `seq` block until an edge, a condition or a delay.\n\n```iris\nawait clk.posedge;\nawait until(done, 1us);\n```',
+  seq: '**seq** - Sequential block\n\nA procedural block for testbenches. Runs once and may suspend on `await`.',
+
+  // Control flow
+  break: '**break** - Leave a loop\n\nStops the innermost `for` or `while`.',
+  continue: '**continue** - Next iteration\n\nSkips to the next iteration of the innermost loop.',
+  default: '**default** - Default branch\n\nThe fallback arm of a `match`.',
+
+  // Modules and packages
+  extern: '**extern** - External declaration\n\nDeclares a module implemented outside IRIS.\n\n```iris\nextern mod legacy_uart(in clk: clock, out tx: bit);\n```',
+  export: '**export** - Re-export\n\nPasses an imported item on to importers of this package.',
+
+  // Types
+  union: '**union** - Union definition\n\nFields share the same storage; the whole is as wide as the widest field.\n\n```iris\nunion DataView {\n  as_byte: bit[8],\n  as_word: bit[32]\n}\n```',
+  mut: '**mut** - Mutable modifier\n\n`let mut` is the same as `var`.',
+
+  // FSM
+  initial: '**initial** - Initial state\n\nNames the state an FSM starts in.\n\n```iris\ninitial Idle;\n```',
+
+  // Interfaces
+  extends: '**extends** - Interface inheritance\n\nAn interface inherits the members of another.\n\n```iris\ninterface AxiStream extends StreamBase { ... }\n```',
+  initiator: '**initiator** - Initiator view\n\nThe driving side of an interface.',
+  target: '**target** - Target view\n\nThe receiving side of an interface.',
+  monitor: '**monitor** - Monitor view\n\nAn observe-only view of an interface.',
+  view: '**view** - Interface view\n\nNames a direction set for an interface.',
 };
 
 // Hover handler
@@ -432,6 +480,222 @@ function getPrimitiveTypeCompletions(): CompletionItem[] {
 }
 
 // Document formatting
+
+// ============================================================
+// Navigation
+//
+// Formatting and hover work on tokens. Going to a definition, finding
+// references and renaming need to know what a name *is*, which is what the
+// symbol table in @irisfmt/core provides.
+// ============================================================
+
+/** Parse a document and collect its symbols */
+function symbolsOf(text: string): SymbolTable | null {
+  try {
+    const { tokens } = new Lexer(text).tokenize();
+    const { ast } = new Parser(tokens).parse();
+    return buildSymbolTable(ast);
+  } catch {
+    // A document being typed into is often not parseable. Navigation simply
+    // has nothing to offer until it is, which is better than a crash.
+    return null;
+  }
+}
+
+/**
+ * The full dotted name at an offset
+ *
+ * `rf.rdata1` is one name, not two. Reading only the word under the cursor
+ * would resolve `rdata1` in the wrong module.
+ */
+function dottedNameAt(text: string, offset: number): string | null {
+  const here = getWordAtPosition(text, offset);
+  if (!here) return null;
+
+  let start = here.start;
+  while (start > 0 && text.charAt(start - 1) === '.') {
+    const before = getWordAtPosition(text, start - 2);
+    if (!before) break;
+    start = before.start;
+  }
+
+  let end = here.end;
+  while (end < text.length && text.charAt(end) === '.') {
+    const after = getWordAtPosition(text, end + 1);
+    if (!after) break;
+    end = after.end;
+  }
+
+  return text.substring(start, end);
+}
+
+/**
+ * Which module an offset falls inside.
+ *
+ * A test module is a module for this purpose: the names inside `test T { ... }`
+ * belong to `T`. The older spelling `test mod T` is matched first, so that its
+ * name is `T` and not `mod`.
+ */
+function moduleAt(text: string, offset: number): string | undefined {
+  const before = text.substring(0, offset);
+  const matches = [...before.matchAll(/\b(?:test\s+mod|mod|test)\s+([A-Za-z_]\w*)/g)];
+  const last = matches[matches.length - 1];
+  return last?.[1];
+}
+
+function toRange(def: { span: { start: { line: number; column: number }; end: { line: number; column: number } } }): Range {
+  return {
+    start: { line: def.span.start.line - 1, character: def.span.start.column - 1 },
+    end: { line: def.span.end.line - 1, character: def.span.end.column - 1 },
+  };
+}
+
+connection.onDefinition((params: DefinitionParams): Location | null => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return null;
+
+  const text = doc.getText();
+  const offset = doc.offsetAt(params.position);
+  const name = dottedNameAt(text, offset);
+  if (!name) return null;
+
+  const table = symbolsOf(text);
+  if (!table) return null;
+
+  const def = resolve(table, name, moduleAt(text, offset));
+  if (!def) return null;
+
+  return { uri: params.textDocument.uri, range: toRange(def) };
+});
+
+connection.onReferences((params: ReferenceParams): Location[] => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return [];
+
+  const text = doc.getText();
+  const offset = doc.offsetAt(params.position);
+  const here = getWordAtPosition(text, offset);
+  if (!here) return [];
+
+  const table = symbolsOf(text);
+  if (!table) return [];
+
+  const locations: Location[] = [];
+
+  // The declaration itself, when the name is declared here
+  for (const def of table.definitions) {
+    if (def.name === here.word) {
+      locations.push({ uri: params.textDocument.uri, range: toRange(def) });
+    }
+  }
+
+  // Every place the text uses the name as a whole word
+  const pattern = new RegExp(`\\b${escapeRegExp(here.word)}\\b`, 'g');
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    locations.push({
+      uri: params.textDocument.uri,
+      range: { start: doc.positionAt(start), end: doc.positionAt(start + here.word.length) },
+    });
+  }
+
+  return dedupeLocations(locations);
+});
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function dedupeLocations(locations: Location[]): Location[] {
+  const seen = new Set<string>();
+  const out: Location[] = [];
+  for (const loc of locations) {
+    const key = `${loc.range.start.line}:${loc.range.start.character}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(loc);
+    }
+  }
+  return out;
+}
+
+const SYMBOL_KINDS: Record<string, SymbolKind> = {
+  module: SymbolKind.Class,
+  port: SymbolKind.Field,
+  signal: SymbolKind.Variable,
+  memory: SymbolKind.Array,
+  instance: SymbolKind.Object,
+  parameter: SymbolKind.TypeParameter,
+};
+
+connection.onDocumentSymbol((params: DocumentSymbolParams): DocumentSymbol[] => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return [];
+
+  const table = symbolsOf(doc.getText());
+  if (!table) return [];
+
+  // Modules at the top, their members nested beneath
+  const modules = new Map<string, DocumentSymbol>();
+  for (const def of table.definitions) {
+    if (def.kind !== 'module') continue;
+    modules.set(def.name, {
+      name: def.name,
+      kind: SymbolKind.Class,
+      range: toRange(def),
+      selectionRange: toRange(def),
+      children: [],
+    });
+  }
+
+  for (const def of table.definitions) {
+    if (def.kind === 'module' || !def.owner) continue;
+    const parent = modules.get(def.owner);
+    if (!parent) continue;
+    parent.children?.push({
+      name: def.name,
+      detail: def.kind,
+      kind: SYMBOL_KINDS[def.kind] ?? SymbolKind.Variable,
+      range: toRange(def),
+      selectionRange: toRange(def),
+    });
+  }
+
+  return [...modules.values()];
+});
+
+connection.onRenameRequest((params: RenameParams): WorkspaceEdit | null => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return null;
+
+  const text = doc.getText();
+  const offset = doc.offsetAt(params.position);
+  const here = getWordAtPosition(text, offset);
+  if (!here) return null;
+
+  // Renaming a signal to a reserved word would produce something that does not
+  // parse, so the request is refused rather than silently breaking the file.
+  if (RESERVED_WORDS.has(params.newName)) {
+    throw new Error(`'${params.newName}' is a reserved word`);
+  }
+
+  const edits: TextEdit[] = [];
+  const pattern = new RegExp(`\\b${escapeRegExp(here.word)}\\b`, 'g');
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    edits.push({
+      range: { start: doc.positionAt(start), end: doc.positionAt(start + here.word.length) },
+      newText: params.newName,
+    });
+  }
+
+  if (edits.length === 0) return null;
+
+  return { changes: { [params.textDocument.uri]: edits } };
+});
+
+const RESERVED_WORDS = new Set(Object.keys(KEYWORD_DOCS));
+
 connection.onDocumentFormatting(
   (params: DocumentFormattingParams): TextEdit[] => {
     const document = documents.get(params.textDocument.uri);

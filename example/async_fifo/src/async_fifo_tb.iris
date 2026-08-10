@@ -1,0 +1,122 @@
+/// AsyncFifo TB（非同期FIFOテストベンチ）
+///
+/// 書き込みクロック（10ns周期）と読み出しクロック（25ns周期）の
+/// 2つの独立したクロックドメインでDUTを駆動する。
+/// 読み出し側が2.5倍遅いため、FIFOは途中でフルに達し、書き込みが停止する。
+///
+/// 書き込みパターン:
+///   - リセット期間: wr_en = 0
+///   - リセット解除後: wr_en = 1を保持し、DUTが受理したときだけ
+///     wr_dataを1ずつインクリメントする（0x01から0x28までの40語）
+///
+/// 読み出しパターン:
+///   - リセット期間: rd_en = 0
+///   - リセット解除後: rd_en = 1を保持し、エンプティでなければ読み出す
+///
+/// 検証方法:
+///   - 読み出したデータを期待値expectedと比較する
+///   - 不一致があればmismatchを1にラッチする（VCDで確認できる）
+///   - 同時にassertでも比較し、不一致ならシミュレーションを失敗させる
+///   - 40語すべてを検証したら$finishで終了する
+test AsyncFifoTB {
+    // ===== クロック・リセット信号 =====
+    let wr_clk: clock(period: 10ns);
+    let rd_clk: clock(period: 25ns);
+    let wr_rst_n: reset(active_low: true);
+    let rd_rst_n: reset(active_low: true);
+
+    // ===== 書き込み側のテスト信号 =====
+    var wr_en: bit = 0;
+    var wr_data: bit[8] = 1;
+    var wr_count: bit[8] = 0;
+
+    // ===== 読み出し側のテスト信号 =====
+    var rd_en: bit = 0;
+    var rd_data_obs: bit[8] = 0;
+    var expected: bit[8] = 1;
+    var rd_count: bit[8] = 0;
+    var mismatch: bit = 0;
+
+    // ===== DUTインスタンス =====
+    inst dut = AsyncFifo {
+        wr_clk: wr_clk,
+        wr_rst_n: wr_rst_n,
+        wr_en: wr_en,
+        wr_data: wr_data,
+        rd_clk: rd_clk,
+        rd_rst_n: rd_rst_n,
+        rd_en: rd_en,
+    };
+
+    // ===== 書き込みドメイン =====
+    // wr_enを保持し、DUTが受理した（wr_enかつフルでない）エッジでのみ
+    // 次のデータへ進む。これによりフル期間中もデータが欠落しない。
+    sync(wr_clk.posedge, wr_rst_n.async) {
+        if ~wr_rst_n {
+            wr_en = 0;
+            wr_data = 1;
+            wr_count = 0;
+        } else {
+            if wr_en {
+                if ~dut.full {
+                    // このエッジでDUTがwr_dataを受理した
+                    wr_data = wr_data + 1;
+                    wr_count = wr_count + 1;
+
+                    // 受理した語数（wr_count + 1）が40に達したら書き込みを終了する
+                    if (wr_count + 1) < 40 {
+                        wr_en = 1;
+                    } else {
+                        wr_en = 0;
+                    }
+                } else {
+                    // フル期間中はwr_enを保持し、データを取りこぼさない
+                    wr_en = 1;
+                }
+            } else {
+                // リセット解除直後の立ち上げ
+                if wr_count < 40 {
+                    wr_en = 1;
+                } else {
+                    wr_en = 0;
+                }
+            }
+        }
+    }
+
+    // ===== 読み出しドメイン =====
+    // rd_enを保持し、エンプティでないエッジで読み出しデータを検証する。
+    sync(rd_clk.posedge, rd_rst_n.async) {
+        if ~rd_rst_n {
+            rd_en = 0;
+            rd_data_obs = 0;
+            expected = 1;
+            rd_count = 0;
+            mismatch = 0;
+        } else {
+            if rd_en {
+                if ~dut.empty {
+                    rd_data_obs = dut.rd_data;
+
+                    // 波形で追えるようにフラグにも残し、assertで実行を失敗させる
+                    if dut.rd_data != expected {
+                        mismatch = 1;
+                    }
+                    assert dut.rd_data == expected
+                        else error("読み出しデータが期待値と一致しない");
+
+                    expected = expected + 1;
+                    rd_count = rd_count + 1;
+
+                    // 全語を読み終えたら結果を表示して終了する
+                    if (rd_count + 1) == 40 {
+                        $display("all %0d words verified at %0d", rd_count + 1, rd_count + 1);
+                        $finish;
+                    }
+                }
+            }
+
+            rd_en = 1;
+        }
+    }
+}

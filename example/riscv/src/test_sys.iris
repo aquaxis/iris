@@ -1,0 +1,150 @@
+/// RV32I システム命令のテスト
+///
+/// FENCEがnopとして退役し、ECALLが観測できる形で停止することを検証する。
+/// ECALLの後ろに置いた命令が実行されないことで、停止したことを確かめる。
+///
+/// 命令の符号化はriscv64-unknown-elf-asで組み立てたものである。
+/// 期待値はRISC-Vの仕様から導いたものであり、このコアが出した値ではない。
+///
+/// 検証の進め方:
+///   コアが停止したら、レジスタx0からx31までを1サイクルに1本ずつ読み、
+///   期待値表と突き合わせる。
+///   レジスタの中身は検証用ポート（dbg_addr／dbg_data）で見る。
+///   テストベンチから階層越しにmemを読むと診断なしで0が返るためである。
+
+/// 命令ROM
+///
+/// memの初期化子が使えないため、アドレスに対するmatchでプログラムを表す。
+mod RomSys(
+    in  addr: bit[32],
+    out rdata: bit[32],
+) {
+    comb {
+        rdata = match addr[9:2] {
+            8'd0   => 32'h00100093,  // addi  x1 = 1
+            8'd1   => 32'h0FF0000F,  // fence nopとして退役する
+            8'd2   => 32'h00200113,  // addi  fenceの後も進むこと
+            8'd3   => 32'h00000073,  // ecall 停止する
+            8'd4   => 32'h06300193,  //       毒。ecallで止まるので実行されない
+            _      => 32'h00000013,  // nop
+        };
+    }
+}
+
+test TestSys {
+    let clk: clock(period: 10ns);
+    let rst_n: reset(active_low: true);
+
+    var idx: bit[6] = 0;
+    var fails: bit[8] = 0;
+    var done: bit = 0;
+
+    // 打ち切り。
+    // コアが停止しないと検証そのものが走らず、
+    // 何も報告しないまま成功扱いで終わってしまう。
+    var cycles: bit[16] = 0;
+
+    var expected: bit[32] = 0;
+    var matched: bit = 0;
+
+    inst rom = RomSys {
+        addr: core.imem_addr,
+    };
+
+    inst core = RiscvCore {
+        clk: clk,
+        rst_n: rst_n,
+        imem_rdata: rom.rdata,
+        dbg_addr: idx[4:0],
+    };
+
+    comb {
+        // 期待値表。プログラムが書き換えないレジスタは0のままである。
+        expected = match idx {
+            6'd0  => 32'h00000000,
+            6'd1  => 32'h00000001,
+            6'd2  => 32'h00000002,
+            6'd3  => 32'h00000000,
+            6'd4  => 32'h00000000,
+            6'd5  => 32'h00000000,
+            6'd6  => 32'h00000000,
+            6'd7  => 32'h00000000,
+            6'd8  => 32'h00000000,
+            6'd9  => 32'h00000000,
+            6'd10 => 32'h00000000,
+            6'd11 => 32'h00000000,
+            6'd12 => 32'h00000000,
+            6'd13 => 32'h00000000,
+            6'd14 => 32'h00000000,
+            6'd15 => 32'h00000000,
+            6'd16 => 32'h00000000,
+            6'd17 => 32'h00000000,
+            6'd18 => 32'h00000000,
+            6'd19 => 32'h00000000,
+            6'd20 => 32'h00000000,
+            6'd21 => 32'h00000000,
+            6'd22 => 32'h00000000,
+            6'd23 => 32'h00000000,
+            6'd24 => 32'h00000000,
+            6'd25 => 32'h00000000,
+            6'd26 => 32'h00000000,
+            6'd27 => 32'h00000000,
+            6'd28 => 32'h00000000,
+            6'd29 => 32'h00000000,
+            6'd30 => 32'h00000000,
+            6'd31 => 32'h00000000,
+            _      => 32'h00000000,
+        };
+        matched = if core.dbg_data == expected { 1'b1 } else { 1'b0 };
+    }
+
+    sync(clk.posedge, rst_n.async) {
+        if ~rst_n {
+            idx = 0;
+            fails = 0;
+            done = 0;
+            cycles = 0;
+        } else {
+            cycles = cycles + 1;
+
+            if ~core.halted {
+                if cycles == 16'd400 {
+                    $display("");
+                    $display("=== TestSys ===");
+                    $display("  RESULT: FAIL - core did not halt within 400 cycles");
+                    $display("  pc = %0d", core.pc_out);
+                    assert 1'b0 else error("core did not halt");
+                    $finish;
+                }
+            }
+
+            if core.halted {
+                if ~done {
+                    if ~matched {
+                        fails = fails + 1;
+                        $display("FAIL x%0d: expected %0d, got %0d",
+                                 idx, expected, core.dbg_data);
+                    }
+                    assert matched else error("register does not match the expected value");
+
+                    if idx == 6'd31 {
+                        done = 1;
+                        $display("");
+                        $display("=== TestSys ===");
+                        $display("  instructions verified: 2");
+                        $display("  registers checked:     32");
+                        $display("  mismatches:            %0d", fails);
+                        if fails == 8'd0 {
+                            $display("  RESULT: PASS");
+                        } else {
+                            $display("  RESULT: FAIL");
+                        }
+                        $finish;
+                    } else {
+                        idx = idx + 1;
+                    }
+                }
+            }
+        }
+    }
+}

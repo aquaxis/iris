@@ -30,6 +30,8 @@ import type {
     SvExpr,
     SvStmt,
     SvTypedefDecl,
+    SvFunctionDecl,
+    SvInterfaceDecl,
     SvGenerateBlock,
     SvGenerateIf,
     SvGenerateFor,
@@ -50,11 +52,14 @@ import type {
     IrClockSpec,
     IrResetSpec,
     IrLetDecl,
+    IrMemDecl,
     IrInstDecl,
     IrConnection,
     IrMatchArm,
     IrPattern,
-    IrItem} from '../ast/iris-ast.js';
+    IrItem,
+    IrWhereConstraint,
+} from '../ast/iris-ast.js';
 import {
     createIrSourceFile,
     createIrModDef,
@@ -106,6 +111,18 @@ export class Transformer {
     private outputPortsWithReads: Set<string> = new Set();
     // Track all declared signal names (for name collision avoidance)
     private allSignalNames: Set<string> = new Set();
+    // Track active_low reset signal names (negedge in sensitivity list)
+    private activeLowResets: Set<string> = new Set();
+    /**
+     * Enum each member belongs to, so `Add` can be written `Op::Add`.
+     *
+     * SystemVerilog puts enum members in the enclosing scope; IRIS names them
+     * through their enum. Passing the bare name through produced
+     * `Undefined signal: Add`.
+     */
+    private enumOfMember: Map<string, string> = new Map();
+    // Track clock signal names (the edge a sync block is driven by)
+    private clockSignals: Set<string> = new Set();
 
     constructor(reporter?: ErrorReporter, options?: TransformerOptions) {
         this.reporter = reporter ?? new ErrorReporter();
@@ -118,11 +135,141 @@ export class Transformer {
     transform(svFile: SvSourceFile): IrSourceFile {
         const items: IrItem[] = [];
 
+        // Declarations outside a module come first, since the modules below
+        // refer to them.
+        // Collected before anything is transformed, since a module may use a
+        // member of an enum declared after it.
+        this.enumOfMember.clear();
+        for (const typedef of svFile.typedefs ?? []) {
+            const target = typedef.targetType;
+            if ('kind' in target && target.kind === 'EnumDecl') {
+                for (const member of target.members) {
+                    this.enumOfMember.set(member.name, typedef.name);
+                }
+            }
+        }
+
+        for (const typedef of svFile.typedefs ?? []) {
+            const item = this.transformTopLevelTypedef(typedef);
+            if (item) {
+                items.push(item);
+            }
+        }
+
+        for (const iface of svFile.interfaces ?? []) {
+            items.push(this.transformInterfaceDecl(iface));
+        }
+
+        for (const fn of svFile.functions ?? []) {
+            items.push(this.transformTopLevelFunction(fn));
+        }
+
         for (const module of svFile.modules) {
             items.push(this.transformModule(module));
         }
 
         return createIrSourceFile(items, svFile.location);
+    }
+
+    /** `interface ... endinterface` becomes an IRIS `interface` with views. */
+    private transformInterfaceDecl(iface: SvInterfaceDecl): IrItem {
+        return {
+            kind: 'InterfaceDef',
+            name: iface.name,
+            isPublic: false,
+            signals: iface.signals.flatMap((decl: SvVariableDecl) =>
+                decl.names.map((name: string) => ({
+                    name,
+                    typeExpr: this.transformType(decl.dataType),
+                }))
+            ),
+            views: iface.modports.map((m) => ({
+                name: m.name,
+                signals: m.signals.map((s) => ({
+                    name: s.name,
+                    direction:
+                        s.direction === 'input'
+                            ? ('in' as const)
+                            : s.direction === 'output'
+                              ? ('out' as const)
+                              : ('inout' as const),
+                })),
+            })),
+            location: iface.location,
+        } as IrItem;
+    }
+
+    /** `function ... endfunction` becomes an IRIS `fn`. */
+    private transformTopLevelFunction(fn: SvFunctionDecl): IrItem {
+        return {
+            kind: 'FnDef',
+            name: fn.name,
+            isPublic: false,
+            params: fn.args.map((a: { name: string; dataType: SvDataType }) => ({
+                name: a.name,
+                typeExpr: this.transformType(a.dataType),
+            })),
+            ...(fn.returnType ? { returnType: this.transformType(fn.returnType) } : {}),
+            body: fn.body.flatMap((stmt: SvStmt) => this.transformStatement(stmt)),
+            location: fn.location,
+        } as IrItem;
+    }
+
+    /**
+     * Turn a `typedef enum` or `typedef struct` outside a module into the IRIS
+     * `enum` or `struct` it corresponds to.
+     */
+    private transformTopLevelTypedef(typedef: SvTypedefDecl): IrItem | null {
+        const target = typedef.targetType;
+
+        if ('kind' in target && target.kind === 'EnumDecl') {
+            return {
+                kind: 'EnumDef',
+                name: typedef.name,
+                isPublic: false,
+                generics: [],
+                variants: target.members.map((m) => ({
+                    name: m.name,
+                    ...(m.value ? { value: this.transformExpr(m.value) } : {}),
+                })),
+                location: typedef.location,
+            } as IrItem;
+        }
+
+        if ('kind' in target && target.kind === 'UnionDecl') {
+            return {
+                kind: 'UnionDef',
+                name: typedef.name,
+                isPublic: false,
+                generics: [],
+                fields: target.members.map((m) => ({
+                    name: m.name,
+                    typeExpr: this.transformType(m.dataType),
+                })),
+                location: typedef.location,
+            } as IrItem;
+        }
+
+        if ('kind' in target && target.kind === 'StructDecl') {
+            return {
+                kind: 'StructDef',
+                name: typedef.name,
+                isPublic: false,
+                generics: [],
+                fields: target.members.map((m) => ({
+                    name: m.name,
+                    typeExpr: this.transformType(m.dataType),
+                })),
+                location: typedef.location,
+            } as IrItem;
+        }
+
+        this.reportError(
+            TransformErrorCodes.UNSUPPORTED_CONSTRUCT,
+            `typedef '${typedef.name}' outside a module was not converted`,
+            typedef.location
+        );
+        return null;
     }
 
     /**
@@ -145,6 +292,8 @@ export class Transformer {
         this.outputPortNames.clear();
         this.outputPortsWithReads.clear();
         this.allSignalNames.clear();
+        this.activeLowResets.clear();
+        this.clockSignals.clear();
 
         // Collect port names for later reference
         for (const port of module.ports) {
@@ -154,6 +303,14 @@ export class Transformer {
                 this.outputPortNames.add(port.name);
             }
         }
+
+        // Detect active_low reset signals from sensitivity lists
+        this.detectActiveLowResets(module.items);
+
+        // Detect clocks the same way. A signal a sync block is edge-triggered on
+        // is a clock, and IRIS has a type for that; leaving it `bit` loses the
+        // one fact the declaration was carrying.
+        this.detectClocks(module.items);
 
         // Collect all declared signal names
         this.collectAllSignalNames(module.items);
@@ -170,13 +327,19 @@ export class Transformer {
         const ports = module.ports.map((p) => this.transformPort(p));
         let items = this.transformModuleItems(module.items);
 
+        // Strip explicit reset if-else patterns for active_low reset signals
+        items = this.stripActiveLowResetIf(items);
+
         // If auto-output-wire is enabled and there are output ports with reads,
         // add internal wire declarations and output assignments
         if (this.options.autoOutputWire && this.outputPortsWithReads.size > 0) {
             items = this.addOutputWireTransforms(items, module);
         }
 
-        return createIrModDef(module.name, generics, ports, items, module.location);
+        // Extract where clause constraints from parameters
+        const whereClause = this.extractWhereConstraints(module.parameters);
+
+        return createIrModDef(module.name, generics, ports, items, module.location, false, whereClause);
     }
 
     /**
@@ -654,6 +817,350 @@ export class Transformer {
         }
     }
 
+    // ========== Active Low Reset Detection ==========
+
+    /**
+     * Detects active_low reset signals from sensitivity lists.
+     * A negedge reset signal (e.g., negedge rst_n) indicates active_low reset.
+     */
+    /**
+     * Collects the signals that clock a sequential block.
+     *
+     * The first edge in a sensitivity list is the clock; any further edge is an
+     * asynchronous reset, which `detectActiveLowResets` claims separately.
+     */
+    private detectClocks(items: SvModuleItem[]): void {
+        for (const item of items) {
+            if (item.kind === 'AlwaysStmt') {
+                if (item.sensitivity && !item.sensitivity.isWildcard) {
+                    const edges = item.sensitivity.items.filter((i) => i.edge !== 'none');
+                    const first = edges[0];
+                    if (first && first.signal.kind === 'Identifier') {
+                        this.clockSignals.add(first.signal.name);
+                    }
+                }
+            } else if (item.kind === 'GenerateBlock') {
+                this.detectClocksFromGenerate(item.items);
+            }
+        }
+    }
+
+    private detectClocksFromGenerate(items: SvGenerateItem[]): void {
+        for (const item of items) {
+            if (item.kind === 'AlwaysStmt') {
+                if (item.sensitivity && !item.sensitivity.isWildcard) {
+                    const edges = item.sensitivity.items.filter((i) => i.edge !== 'none');
+                    const first = edges[0];
+                    if (first && first.signal.kind === 'Identifier') {
+                        this.clockSignals.add(first.signal.name);
+                    }
+                }
+            } else if (item.kind === 'GenerateIf') {
+                this.detectClocksFromGenerate(item.thenBlock);
+                if (item.elseBlock) {
+                    this.detectClocksFromGenerate(item.elseBlock);
+                }
+            } else if (item.kind === 'GenerateFor') {
+                this.detectClocksFromGenerate(item.body);
+            }
+        }
+    }
+
+    private detectActiveLowResets(items: SvModuleItem[]): void {
+        for (const item of items) {
+            if (item.kind === 'AlwaysStmt') {
+                if (item.sensitivity && !item.sensitivity.isWildcard) {
+                    // Find negedge items that are likely reset signals
+                    // (second edge-triggered signal, or any negedge signal with _n suffix)
+                    const edgeItems = item.sensitivity.items.filter((i) => i.edge !== 'none');
+                    for (const edgeItem of edgeItems) {
+                        if (edgeItem.edge === 'negedge' && edgeItem.signal.kind === 'Identifier') {
+                            const name = edgeItem.signal.name;
+                            // Common active_low naming patterns: rst_n, reset_n, arst_n, rst_b, rst_l
+                            if (name.endsWith('_n') || name.endsWith('_b') || name.endsWith('_l') ||
+                                name.startsWith('nrst') || name.startsWith('nreset')) {
+                                this.activeLowResets.add(name);
+                            }
+                        }
+                    }
+                }
+            } else if (item.kind === 'GenerateBlock') {
+                this.detectActiveLowResetsFromGenerate(item.items);
+            }
+        }
+    }
+
+    /**
+     * Recursively detects active_low resets from generate items
+     */
+    private detectActiveLowResetsFromGenerate(items: SvGenerateItem[]): void {
+        for (const item of items) {
+            if (item.kind === 'AlwaysStmt') {
+                if (item.sensitivity && !item.sensitivity.isWildcard) {
+                    const edgeItems = item.sensitivity.items.filter((i) => i.edge !== 'none');
+                    for (const edgeItem of edgeItems) {
+                        if (edgeItem.edge === 'negedge' && edgeItem.signal.kind === 'Identifier') {
+                            const name = edgeItem.signal.name;
+                            if (name.endsWith('_n') || name.endsWith('_b') || name.endsWith('_l') ||
+                                name.startsWith('nrst') || name.startsWith('nreset')) {
+                                this.activeLowResets.add(name);
+                            }
+                        }
+                    }
+                }
+            } else if (item.kind === 'GenerateIf') {
+                this.detectActiveLowResetsFromGenerate(item.thenBlock);
+                if (item.elseBlock) {
+                    this.detectActiveLowResetsFromGenerate(item.elseBlock);
+                }
+            } else if (item.kind === 'GenerateFor') {
+                this.detectActiveLowResetsFromGenerate(item.body);
+            }
+        }
+    }
+
+    // ========== Active Low Reset If-Pattern Stripping ==========
+
+    /**
+     * Strips explicit reset if-else patterns from sync blocks when the reset
+     * signal is declared as active_low.
+     *
+     * When a reset signal is active_low (e.g., rst_n with negedge sensitivity),
+     * SV code typically has:
+     *   always_ff @(posedge clk or negedge rst_n) begin
+     *     if (!rst_n) count <= 0; else count <= count + 1; end
+     *
+     * In IRIS, this becomes:
+     *   var count: bit[8] = 0;  // reset value from initial declaration
+     *   sync(clk.posedge, rst_n.async) { count = count + 1; }
+     *
+     * The reset values are moved to the var declaration's initial value,
+     * and the explicit if(!rst_n) is removed from the sync block.
+     */
+    private stripActiveLowResetIf(items: IrModItem[]): IrModItem[] {
+        // Reset assignments taken out of the sync blocks, by target signal.
+        // They are not discarded: IRIS carries a reset value on the declaration,
+        // so each one has to land there. Dropping them lost the reset entirely
+        // and the transpiler still reported success.
+        const resetValues = new Map<string, IrExpr>();
+
+        const result: IrModItem[] = [];
+        for (const item of items) {
+            if (item.kind === 'SyncBlock' && item.reset) {
+                const resetSignalName = this.getExprIdentifierName(item.reset.signal);
+                if (resetSignalName && this.activeLowResets.has(resetSignalName)) {
+                    // Try to extract reset values from the sync block statements
+                    const stripped = this.stripResetPatternFromSync(item, resetValues);
+                    result.push(stripped);
+                } else {
+                    result.push(item);
+                }
+            } else {
+                result.push(item);
+            }
+        }
+        return this.applyResetValues(result, resetValues);
+    }
+
+    /**
+     * Moves each captured reset value onto the declaration of its signal.
+     *
+     * A signal that is written on a clock edge is mutable, so a `let` holding a
+     * reset value becomes a `var`. Anything with no declaration to carry the
+     * value is reported rather than dropped: an IRIS port cannot hold an
+     * initial value (`port_decl = port_dir ~ identifier ~ ":" ~ type_expr`), so
+     * that reset has nowhere to go and the user has to know.
+     */
+    private applyResetValues(items: IrModItem[], resetValues: Map<string, IrExpr>): IrModItem[] {
+        if (resetValues.size === 0) return items;
+
+        const placed = new Set<string>();
+        const result = items.map((item): IrModItem => {
+            if (item.kind !== 'LetDecl' && item.kind !== 'VarDecl') return item;
+            const value = resetValues.get(item.name);
+            if (value === undefined) return item;
+            placed.add(item.name);
+            return {
+                kind: 'VarDecl',
+                name: item.name,
+                ...(item.typeExpr ? { typeExpr: item.typeExpr } : {}),
+                initialValue: value,
+                location: item.location,
+            };
+        });
+
+        for (const [name, value] of resetValues) {
+            if (placed.has(name)) continue;
+            this.reportError(
+                2001,
+                `reset value for '${name}' has no declaration to hold it. ` +
+                    `IRIS keeps a reset value on the signal declaration, and a port cannot ` +
+                    `carry one. Declare an internal signal for '${name}' and drive the port from it.`,
+                value.location
+            );
+        }
+
+        return result;
+    }
+
+    /**
+     * Strips the reset if-else pattern from a sync block.
+     * Pattern: if (!reset_signal) { reset_assignments } else { normal_assignments }
+     * Result: only normal_assignments remain in the sync block.
+     * Reset assignment values are applied to the initial values of var declarations.
+     */
+    private stripResetPatternFromSync(
+        syncBlock: IrSyncBlock,
+        resetValues: Map<string, IrExpr>
+    ): IrSyncBlock {
+        const resetSignalName = this.getExprIdentifierName(syncBlock.reset!.signal);
+        if (!resetSignalName) return syncBlock;
+
+        const newStatements: IrStmt[] = [];
+        for (const stmt of syncBlock.statements) {
+            const stripped = this.tryStripResetIf(stmt, resetSignalName, resetValues);
+            if (stripped !== null) {
+                // The else branch (normal assignments) is returned
+                if (Array.isArray(stripped)) {
+                    newStatements.push(...stripped);
+                } else {
+                    newStatements.push(stripped);
+                }
+            }
+            // If stripped is null, the statement was entirely a reset pattern and is removed
+        }
+
+        return {
+            ...syncBlock,
+            statements: newStatements.length > 0 ? newStatements : syncBlock.statements,
+        };
+    }
+
+    /**
+     * Attempts to strip a reset if-else pattern from a statement.
+     * Returns the else branch if the statement matches the reset pattern,
+     * null if the entire statement is the reset pattern (then branch only),
+     * or the original statement if it doesn't match.
+     */
+    private tryStripResetIf(
+        stmt: IrStmt,
+        resetSignalName: string,
+        resetValues: Map<string, IrExpr>
+    ): IrStmt[] | IrStmt | null {
+        if (stmt.kind !== 'IfStmt') return stmt;
+
+        // Check if condition is "!resetSignalName" or "~resetSignalName"
+        if (this.isResetCondition(stmt.condition, resetSignalName)) {
+            // This is a reset if-else pattern.
+            // The then-branch contains reset assignments (move to initial values).
+            // The else-branch contains the normal sync logic (keep in sync block).
+            this.collectResetValues(stmt.thenBlock, resetValues);
+            return stmt.elseBlock ? stmt.elseBlock : null;
+        }
+
+        return stmt;
+    }
+
+    /**
+     * Records the value each signal takes while reset is asserted.
+     *
+     * Only plain assignments carry over. A reset branch that does anything else
+     * has no equivalent in a declaration's initial value, so it is reported
+     * instead of being thrown away.
+     */
+    private collectResetValues(block: IrStmt[], resetValues: Map<string, IrExpr>): void {
+        for (const stmt of block) {
+            if (stmt.kind === 'AssignStmt') {
+                const target = this.getExprIdentifierName(stmt.target);
+                if (target !== null && target !== undefined) {
+                    resetValues.set(target, stmt.value);
+                    continue;
+                }
+            }
+            this.reportError(
+                2002,
+                'this statement in the reset branch has no equivalent as a reset value ' +
+                    'and was not converted. IRIS resets a signal through the initial value ' +
+                    'on its declaration, which can only be an expression.',
+                stmt.location
+            );
+        }
+    }
+
+    /**
+     * Checks if an expression is a reset condition for the given signal.
+     * Matches patterns: !rst_n, ~rst_n, rst_n == 0, !rst_n (active low)
+     */
+    private isResetCondition(expr: IrExpr, resetSignalName: string): boolean {
+        if (expr.kind === 'UnaryExpr') {
+            if (expr.operator === '!' || expr.operator === '~') {
+                const operandName = this.getExprIdentifierName(expr.operand);
+                return operandName === resetSignalName;
+            }
+        }
+        if (expr.kind === 'BinaryExpr') {
+            // SV '===' is mapped to '==' in IRIS, so we only check '=='
+            if (expr.operator === '==') {
+                const leftName = this.getExprIdentifierName(expr.left);
+                const rightVal = this.getLiteralValue(expr.right);
+                return leftName === resetSignalName && rightVal === '0';
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Gets the identifier name from an expression, if it's a simple identifier.
+     */
+    private getExprIdentifierName(expr: IrExpr): string | undefined {
+        if (expr.kind === 'Identifier') {
+            return expr.name;
+        }
+        return undefined;
+    }
+
+    /**
+     * Gets the literal value from an expression, if it's a simple literal.
+     */
+    private getLiteralValue(expr: IrExpr): string | undefined {
+        if (expr.kind === 'Literal') {
+            return expr.value;
+        }
+        return undefined;
+    }
+
+    // ========== Where Clause Extraction ==========
+
+    /**
+     * Extracts where clause constraints from SystemVerilog parameter declarations.
+     * Generates comparison constraints for parameter range bounds.
+     * SV does not have native constraint syntax, so this derives constraints
+     * from parameter type widths (e.g., [7:0] => >= 1).
+     */
+    private extractWhereConstraints(params: SvParameterDecl[]): IrWhereConstraint[] | undefined {
+        const constraints: IrWhereConstraint[] = [];
+
+        for (const param of params) {
+            if (param.dataType) {
+                const dt = param.dataType;
+                if (dt.msb && dt.lsb) {
+                    const paramName = createIrIdentifier(param.name, param.location);
+                    const minVal = createIrLiteral('integer', '1', param.location);
+                    constraints.push({
+                        kind: 'ComparisonConstraint',
+                        left: paramName,
+                        operator: '>=',
+                        right: minVal,
+                    });
+                }
+            }
+        }
+
+        return constraints.length > 0 ? constraints : undefined;
+    }
+
+    // ========== Original Transformations ==========
+
     /**
      * Transforms a parameter to a generic parameter
      */
@@ -675,11 +1182,29 @@ export class Transformer {
 
     /**
      * Transforms a port declaration
+     *
+     * When a port is detected as an active_low reset signal (e.g., `input rst_n`
+     * appearing as `negedge rst_n` in a sensitivity list), its type is converted
+     * from `bit` (SV `logic`) to `reset(active_low: true)`.
      */
     private transformPort(port: SvPortDecl): IrPortDecl {
         const direction = this.transformPortDirection(port.direction);
-        const typeExpr = this.transformType(port.dataType);
 
+        // A signal that a sync block is clocked on is a clock.
+        if (this.clockSignals.has(port.name) && !this.activeLowResets.has(port.name)) {
+            const typeExpr = createIrTypeExpr('clock', port.dataType.location);
+            return createIrPortDecl(direction, port.name, typeExpr, port.location);
+        }
+
+        // If this port is an active_low reset signal, convert to reset(active_low: true)
+        if (this.activeLowResets.has(port.name)) {
+            const typeExpr = createIrTypeExpr('reset', port.dataType.location, {
+                activeLow: true,
+            });
+            return createIrPortDecl(direction, port.name, typeExpr, port.location);
+        }
+
+        const typeExpr = this.transformType(port.dataType);
         return createIrPortDecl(direction, port.name, typeExpr, port.location);
     }
 
@@ -738,6 +1263,16 @@ export class Transformer {
             case 'StructDecl':
                 // Structs are handled at module level in IRIS
                 return null;
+            case 'InitialBlock':
+                // IRIS drives clock and reset from their declarations, so the
+                // stimulus an `initial` block carries has no module-body
+                // counterpart. Reported rather than dropped.
+                this.reportError(
+                    TransformErrorCodes.UNSUPPORTED_CONSTRUCT,
+                    'an initial block was not converted; IRIS drives clock and reset from their declarations',
+                    item.location
+                );
+                return null;
             case 'TypedefDecl':
                 return this.transformTypedef(item);
             case 'GenerateBlock':
@@ -772,7 +1307,11 @@ export class Transformer {
                     // Simplified: assume [N-1:0] format, so width = MSB + 1
                     width = this.createWidthExpr(dataType.msb, dataType.lsb, loc);
                 }
-                return createIrTypeExpr('bit', loc, { width });
+                // `logic signed [31:0]` is `int[32]`, not `bit[32]`. Dropping the
+                // qualifier made every signed comparison and arithmetic shift
+                // unsigned: the RV32I ALU still converted, and then answered SLT
+                // and SRA wrongly.
+                return createIrTypeExpr(dataType.signed ? 'int' : 'bit', loc, { width });
             }
 
             case 'integer':
@@ -838,6 +1377,16 @@ export class Transformer {
     private createWidthExpr(msb: SvExpr, lsb: SvExpr, loc: SourceLocation): IrExpr {
         // For simple [N-1:0] patterns, width = N
         // For general [M:L], width = M - L + 1
+        //
+        // When both bounds are constant the arithmetic is done here. Leaving it
+        // to the reader turned `[7:0]` into `bit[7 + 1]`, which is a correct
+        // width written in a way no one would write by hand.
+        const msbConst = this.constantValueOf(msb);
+        const lsbConst = this.constantValueOf(lsb);
+        if (msbConst !== null && lsbConst !== null) {
+            return createIrLiteral('integer', String(msbConst - lsbConst + 1), loc);
+        }
+
         if (lsb.kind === 'NumberLiteral' && lsb.value === '0') {
             // [MSB:0] -> width = MSB + 1
             const msbExpr = this.transformExpr(msb);
@@ -855,12 +1404,58 @@ export class Transformer {
         );
     }
 
+    /**
+     * Value of an expression that is constant, or null if it is not.
+     *
+     * Only the forms that appear in a packed range are folded: a literal, and
+     * the `N-1` that nearly every declaration is written with.
+     */
+    private constantValueOf(expr: SvExpr): number | null {
+        if (expr.kind === 'NumberLiteral') {
+            const digits = expr.value.replace(/_/g, '');
+            const radix = expr.base === 'h' ? 16 : expr.base === 'b' ? 2 : 10;
+            const n = Number.parseInt(digits, radix);
+            return Number.isFinite(n) ? n : null;
+        }
+        if (expr.kind === 'BinaryExpr' && (expr.operator === '+' || expr.operator === '-')) {
+            const left = this.constantValueOf(expr.left);
+            const right = this.constantValueOf(expr.right);
+            if (left === null || right === null) return null;
+            return expr.operator === '+' ? left + right : left - right;
+        }
+        if (expr.kind === 'UnaryExpr' && expr.operator === '-') {
+            const operand = this.constantValueOf(expr.operand);
+            return operand === null ? null : -operand;
+        }
+        return null;
+    }
+
     // ========== Declaration Transformation ==========
 
     /**
      * Transforms a variable declaration (supports multiple variable names)
      */
-    private transformVariableDecl(decl: SvVariableDecl): IrLetDecl[] {
+    private transformVariableDecl(decl: SvVariableDecl): (IrLetDecl | IrMemDecl)[] {
+        // An unpacked dimension makes this a memory, not a signal. The parser
+        // recorded the dimensions and nothing read them, so `logic [31:0] regs
+        // [32]` became `let regs: bit[32]` — a register file collapsed into one
+        // register, with no diagnostic. RV32I still converted, and then failed
+        // two of its checks.
+        const unpacked = decl.dataType.dimensions;
+        if (unpacked && unpacked.length > 0) {
+            const elementType = this.transformType({ ...decl.dataType, dimensions: undefined });
+            return decl.names.map((name) => {
+                this.declaredVariables.add(name);
+                return {
+                    kind: 'MemDecl' as const,
+                    name,
+                    elementType,
+                    depth: this.transformExpr(unpacked[unpacked.length - 1]!),
+                    location: decl.location,
+                };
+            });
+        }
+
         const typeExpr = this.transformType(decl.dataType);
 
         // Create a let declaration for each variable name
@@ -1077,6 +1672,49 @@ export class Transformer {
      * Transforms a statement
      */
     private transformStatement(stmt: SvStmt): IrStmt[] {
+        if (stmt.kind === 'DelayStmt') {
+            // IRIS drives a testbench clock from its `clock(period:)`
+            // declaration, so an explicit delay has no counterpart in the
+            // module body. Reported rather than dropped.
+            this.reportError(
+                TransformErrorCodes.UNSUPPORTED_CONSTRUCT,
+                `a delay of '${stmt.delay}' has no IRIS counterpart and was not converted`,
+                stmt.location
+            );
+            return [];
+        }
+
+        if (stmt.kind === 'ExprStmt') {
+            return [
+                {
+                    kind: 'ExprStmt',
+                    expr: this.transformExpr(stmt.expr),
+                    location: stmt.location,
+                } as IrStmt,
+            ];
+        }
+
+        if (stmt.kind === 'AssertStmt') {
+            return [
+                {
+                    kind: 'AssertStmt',
+                    condition: this.transformExpr(stmt.condition),
+                    ...(stmt.message !== undefined ? { message: stmt.message } : {}),
+                    location: stmt.location,
+                } as IrStmt,
+            ];
+        }
+
+        if (stmt.kind === 'ReturnStmt') {
+            return [
+                {
+                    kind: 'ReturnStmt',
+                    value: this.transformExpr(stmt.value),
+                    location: stmt.location,
+                } as IrStmt,
+            ];
+        }
+
         switch (stmt.kind) {
             case 'BlockStmt':
                 return this.transformBlockStmt(stmt);
@@ -1091,8 +1729,20 @@ export class Transformer {
                 return [this.transformForStmt(stmt)];
             case 'WhileStmt':
                 return [this.transformWhileStmt(stmt)];
-            case 'VariableDecl':
-                return this.transformVariableDecl(stmt);
+            case 'VariableDecl': {
+                // A memory cannot be declared inside a procedural block, so
+                // only the signal form is a statement here.
+                const decls = this.transformVariableDecl(stmt);
+                const stmts = decls.filter((d): d is IrLetDecl => d.kind !== 'MemDecl');
+                if (stmts.length !== decls.length) {
+                    this.reportError(
+                        TransformErrorCodes.UNSUPPORTED_CONSTRUCT,
+                        'an array declared inside a procedural block was not converted',
+                        stmt.location
+                    );
+                }
+                return stmts;
+            }
             default:
                 this.reportError(
                     TransformErrorCodes.INVALID_STATEMENT,
@@ -1153,6 +1803,12 @@ export class Transformer {
             const defaultPattern: IrPattern = { kind: 'wildcard' };
             const defaultBody = this.transformStatement(caseStmt.defaultItem);
             arms.push(createIrMatchArm(defaultPattern, defaultBody, caseStmt.location));
+        } else {
+            // A SystemVerilog `case` need not cover every value; whatever it
+            // misses simply holds. An IRIS `match` must be exhaustive, so the
+            // same meaning needs a wildcard arm that does nothing. Without it
+            // the converted design was rejected as non-exhaustive.
+            arms.push(createIrMatchArm({ kind: 'wildcard' }, [], caseStmt.location));
         }
 
         return createIrMatchStmt(expr, arms, caseStmt.location);
@@ -1232,8 +1888,14 @@ export class Transformer {
      */
     transformExpr(expr: SvExpr): IrExpr {
         switch (expr.kind) {
-            case 'Identifier':
-                return createIrIdentifier(expr.name, expr.location);
+            case 'Identifier': {
+                // An enum member is named through its enum in IRIS.
+                const enumName = this.enumOfMember.get(expr.name);
+                return createIrIdentifier(
+                    enumName ? `${enumName}::${expr.name}` : expr.name,
+                    expr.location
+                );
+            }
 
             case 'NumberLiteral':
                 return this.transformNumberLiteral(expr);
@@ -1274,6 +1936,45 @@ export class Transformer {
                     expr: this.transformExpr(expr.expr),
                     location: expr.location,
                 };
+
+            case 'CastExpr': {
+                // `32'($signed(x))` widens a signed value, so it sign-extends.
+                // Converting it to `x.signed().truncate(32)` kept the 12 bits
+                // it started with: every immediate in the RV32I decoder lost
+                // its sign, and the design still converted.
+                if (
+                    expr.expr.kind === 'CallExpr' &&
+                    expr.expr.callee.kind === 'Identifier' &&
+                    expr.expr.callee.name === '$signed' &&
+                    expr.expr.args.length === 1
+                ) {
+                    return {
+                        kind: 'MethodCall',
+                        receiver: this.transformExpr(expr.expr.args[0]!),
+                        method: 'sign_extend',
+                        args: [
+                            /^[0-9]+$/.test(expr.width)
+                                ? createIrLiteral('integer', expr.width, expr.location)
+                                : createIrIdentifier(expr.width, expr.location),
+                        ],
+                        location: expr.location,
+                    } as IrExpr;
+                }
+
+                // `8'(x)` resizes x to 8 bits.
+                return {
+                    kind: 'CastExpr',
+                    expr: this.transformExpr(expr.expr),
+                    targetType: createIrTypeExpr('bit', expr.location, {
+                        // The width is a literal (`8'(x)`) or a parameter
+                        // (`PtrWidth'(x)`); both are expressions in IRIS.
+                        width: /^[0-9]+$/.test(expr.width)
+                            ? createIrLiteral('integer', expr.width, expr.location)
+                            : createIrIdentifier(expr.width, expr.location),
+                    }),
+                    location: expr.location,
+                };
+            }
 
             default:
                 this.reportError(
@@ -1500,12 +2201,18 @@ export class Transformer {
         base: SvExpr;
         msb: SvExpr;
         lsb: SvExpr;
+        partSelect?: '+:' | '-:';
         location: SourceLocation;
     }): IrExpr {
         const base = this.transformExpr(expr.base);
         const msb = this.transformExpr(expr.msb);
         const lsb = this.transformExpr(expr.lsb);
-        return createIrIndexExpr(base, lsb, expr.location, msb);
+        // IRIS writes a slice the same way SystemVerilog does, high bound
+        // first. The two were swapped here, so `a[11:4]` became `a[4:11]`:
+        // both parse, both simulate, and the value is wrong. On 16'hABCD the
+        // difference is 0xBC against 0x01.
+        const index = createIrIndexExpr(base, msb, expr.location, lsb);
+        return expr.partSelect ? { ...index, partSelect: expr.partSelect } : index;
     }
 
     /**
@@ -1533,6 +2240,23 @@ export class Transformer {
         args: SvExpr[];
         location: SourceLocation;
     }): IrExpr {
+        // `$signed(x)` and `$unsigned(x)` are SystemVerilog system functions.
+        // IRIS says the same thing with a method, `x.signed()`. Passing the
+        // name through produced `$signed(x)`, which parses as a system function
+        // call and then fails to evaluate, because IRIS has no such function.
+        if (expr.callee.kind === 'Identifier' && expr.args.length === 1) {
+            const name = expr.callee.name;
+            if (name === '$signed' || name === '$unsigned') {
+                return {
+                    kind: 'MethodCall',
+                    receiver: this.transformExpr(expr.args[0]!),
+                    method: name === '$signed' ? 'signed' : 'unsigned',
+                    args: [],
+                    location: expr.location,
+                } as IrExpr;
+            }
+        }
+
         const callee = this.transformExpr(expr.callee);
         const args = expr.args.map((a) => this.transformExpr(a));
         return {

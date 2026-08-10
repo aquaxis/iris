@@ -6,4 +6,4 @@ mod signal;
 mod time;
 
 pub use signal::{BitValue, SignalValue};
-pub use time::{SimTime, TimeUnit};
+pub use time::{format_time, SimTime, TimeUnit};

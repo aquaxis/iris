@@ -12,8 +12,15 @@ import {
   createSemanticAnalyzer,
   type SemanticAnalyzer,
 } from '@iris2sv/analyzer';
-import { emitModule } from '@iris2sv/sv-backend';
-import { createLowering, createModuleTransformer, transformOutputWires } from '@iris2sv/transform';
+import { emitModule, emitTypeDef, emitFunction, emitInterface } from '@iris2sv/sv-backend';
+import {
+  createLowering,
+  createModuleTransformer,
+  transformOutputWires,
+  transformTypeDef,
+  transformFunction,
+  transformInterface,
+} from '@iris2sv/transform';
 import type { Diagnostic} from './formatter.js';
 import { fromSemanticDiagnostic } from './formatter.js';
 
@@ -144,9 +151,11 @@ export class Compiler {
     }
 
     try {
-      const svCode = this.generateCode(parseResult.ast, analyzer);
+      const svCode = this.generateCode(parseResult.ast, analyzer, result.diagnostics);
       result.output = svCode;
-      result.success = true;
+      // A construct the lowering could not convert is a failure, not a note:
+      // the output would otherwise be a module that does less than the source.
+      result.success = !result.diagnostics.some(d => d.severity === 'error');
     } catch (error) {
       result.parseErrors.push({
         message: `Code generation error: ${(error as Error).message}`,
@@ -169,7 +178,7 @@ export class Compiler {
    *
    * Uses the transform package to convert AST → HIR → SV AST → SystemVerilog.
    */
-  private generateCode(ast: SourceFile, analyzer?: SemanticAnalyzer): string {
+  private generateCode(ast: SourceFile, analyzer?: SemanticAnalyzer, diagnostics?: Diagnostic[]): string {
     const outputs: string[] = [];
 
     // Add header
@@ -183,13 +192,25 @@ export class Compiler {
 
     // Report lowering warnings
     for (const warning of loweringResult.warnings) {
+      diagnostics?.push({
+        severity: 'warning',
+        message: warning.message,
+        span: undefined,
+        code: undefined,
+      });
       if (this.options.verbose) {
         console.log(`[iris2sv] Warning: ${warning.message}`);
       }
     }
 
-    // Report lowering errors (but continue)
+    // Report lowering errors
     for (const error of loweringResult.errors) {
+      diagnostics?.push({
+        severity: 'error',
+        message: error.message,
+        span: undefined,
+        code: undefined,
+      });
       if (this.options.verbose) {
         console.log(`[iris2sv] Error: ${error.message}`);
       }
@@ -200,6 +221,26 @@ export class Compiler {
 
     // Step 2: Transform each HIR module to SV AST and emit
     const moduleTransformer = createModuleTransformer();
+
+    // Top-level `enum`, `struct` and `fn` become typedefs and functions that sit
+    // outside any module, so they are emitted before the modules that use them.
+    for (const typeDef of loweringResult.hir.typeDefs) {
+      const svTypeDef = transformTypeDef(typeDef, moduleTransformer);
+      if (svTypeDef) {
+        outputs.push(emitTypeDef(svTypeDef));
+        outputs.push('');
+      }
+    }
+    // An interface sits outside any module in SystemVerilog too.
+    for (const iface of loweringResult.hir.interfaces) {
+      outputs.push(emitInterface(transformInterface(iface, moduleTransformer)));
+      outputs.push('');
+    }
+
+    for (const fn of loweringResult.hir.functions) {
+      outputs.push(emitFunction(transformFunction(fn, moduleTransformer)));
+      outputs.push('');
+    }
 
     for (const hirModule of loweringResult.hir.modules) {
       let svModule = this.transformModule(hirModule, moduleTransformer);

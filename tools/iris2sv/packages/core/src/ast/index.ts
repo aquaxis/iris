@@ -24,6 +24,7 @@ export {
   // Type expressions
   TypeExpr,
   PrimitiveType,
+  TypeAttr,
   ArrayType,
   TupleType,
   UserType,
@@ -121,6 +122,8 @@ export {
 
   // Module definition
   ModDef,
+  ExternModDef,
+  UnionDef,
 
   // Type definitions
   TypeDef,

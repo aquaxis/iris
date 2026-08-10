@@ -327,7 +327,7 @@ describe('Parser', () => {
     });
 
     it('parses instance declaration with inst keyword', () => {
-      const ast = parseSource('mod test() { inst sub: SubMod(.a(x), .b(y)); }');
+      const ast = parseSource('mod test() { inst sub = SubMod { a: x, b: y }; }');
       const mod = ast.items[0];
       if (mod.kind === 'ModDef') {
         const inst = mod.items[0];

@@ -228,10 +228,35 @@ export function convertFile(
     }
 
     // Transformer
-    const transformer = new Transformer(undefined, {
+    //
+    // The reporter has to be the shared one. Handing the transformer its own
+    // meant every diagnostic it raised went into an object nobody read, so a
+    // construct it could not convert was dropped and the run still reported
+    // success. That is how a reset branch disappeared without a word.
+    const transformer = new Transformer(errorReporter, {
         autoOutputWire: transformerOptions?.autoOutputWire ?? false,
     });
     const irisAst = transformer.transform(svAst);
+
+    // Check for transformer errors
+    if (errorReporter.hasErrors()) {
+        for (const error of errorReporter.getErrors()) {
+            if (error.location) {
+                errors.push(
+                    formatError(
+                        inputPath,
+                        error.location.start.line,
+                        error.location.start.column,
+                        error.message,
+                        source
+                    )
+                );
+            } else {
+                errors.push(`${inputPath}: error: ${error.message}`);
+            }
+        }
+        return { output: '', errors, warnings };
+    }
 
     // Generator
     const generator = new Generator(generatorOptions);

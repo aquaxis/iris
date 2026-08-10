@@ -1,17 +1,27 @@
 # 第16章 文法定義
 
-[<< 移行ガイド](./15_migration_guide.md) | [目次](./iris_spec_0.1.0.md) | [サンプルコード集 >>](./17_examples.md)
+[<< 移行ガイド](./15_migration_guide.md) | [目次](./iris_spec.md) | [サンプルコード集 >>](./17_examples.md)
 
 ---
 
 ## 16.1 完全文法定義（EBNF）
 
+本節の文法は`tools/iris.ebnf`と同一である。
+かつては両者が食い違い、章のほうが規則を欠いていた。
+以後は同じ内容を保つこと。
+
+EBNFの選択に順序はないが、そこから書かれるパーサーには順序がある。
+ある枝が別の枝の接頭辞になる場合は長いほうを先に置いてある。
+短いほうを先に書くと、直接書き写したパーサーで長いほうに到達できない。
+
 ### 16.1.1 トップレベル構文
 
 ```ebnf
 source_file = { item } ;
-item = visibility_modifier ( mod_def | test_mod_def | type_def | const_def | fn_def
-     | interface_def | package_decl | import_decl | test_def ) ;
+
+item = package_decl | import_decl | export_decl
+     | visibility_modifier ( extern_mod_def | mod_def | test_mod_def | type_def
+                           | const_decl | fn_def | interface_def | test_def ) ;
 
 visibility_modifier = [ "pub" ] ;
 ```
@@ -25,60 +35,86 @@ mod_def = [ attribute ] "mod" identifier [ generic_params ] [ where_clause ]
 generic_params = "[" generic_param { "," generic_param } "]" ;
 generic_param = identifier ":" generic_bound [ "=" default_value ] ;
 generic_bound = "type" | "uint" | "int" | "bool" | type_expr ;
+default_value = const_expr ;
+
 where_clause = "where" constraint { "," constraint } ;
+constraint = identifier ":" type_expr
+           | identifier binary_op const_expr
+           | expr "." identifier "(" [ expr_list ] ")" ;
 
 port_list = { port_decl } ;
 port_decl = port_direction identifier ":" type_expr [ "," ] ;
-port_direction = "in" | "out" | "inout" | "initiator" | "target" | "monitor" ;
+(* Ordered longest first: "in" would otherwise hide "inout" and "initiator" *)
+port_direction = "initiator" | "monitor" | "target" | "inout" | "out" | "in" ;
 
 mod_item = signal_decl | const_decl | type_alias | logic_block
-         | inst_decl | mem_decl | fsm_block ;
+         | inst_decl | mem_decl | fsm_block | constraint_block ;
+
+(* A module implemented outside IRIS: ports, and no body *)
+extern_mod_def = "extern" "mod" identifier [ generic_params ] "(" port_list ")" ";" ;
+
+(* Instance declaration - spec-compliant syntax *)
+inst_decl = "inst" identifier [ "[" array_size "]" ] "=" path
+            [ generic_args ] "{" port_connections "}" ";" ;
+(* The length of an instance array, as `inst u[4] = M { ... };` *)
+array_size = const_expr ;
+generic_args = "[" generic_arg { "," generic_arg } "]" ;
+generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
+port_connections = port_connection { "," port_connection } [ "," ] ;
+port_connection = identifier ":" expression ;
 ```
 
-**構文の特徴:**
-- ポート宣言は`()`内に記述（Rust関数の引数リストに類似）
-- モジュール本体は`{}`内に記述
-- ポート宣言とモジュール本体が明確に分離される
-
-### 16.1.3 信号・変数宣言
+### 16.1.3 信号と変数の宣言
 
 ```ebnf
-signal_decl = let_decl | var_decl ;
+signal_decl = rand_decl | let_decl | var_decl ;
+
+(* let declaration: combinational or sequential depending on context *)
+(* - let x = expr;        -> combinational (direct assignment) *)
+(* - let x: T;            -> context-dependent *)
+(* - let mut x = expr;    -> initial value becomes reset value in sync/fsm *)
 let_decl = "let" [ "mut" ] identifier [ ":" type_expr ] [ "=" expr ] ";" ;
+
+(* var declaration: can be declared at module level, assigned only in sync/fsm *)
 var_decl = "var" identifier [ ":" type_expr ] [ "=" expr ] ";" ;
+
+(* A random variable: `$randomize` draws a new value for it, subject to the
+   constraint blocks declared alongside it *)
+rand_decl = "rand" identifier ":" type_expr [ "=" expr ] ";" ;
+
 const_decl = "const" identifier ":" type_expr "=" expr ";" ;
+
 type_alias = "type" identifier [ generic_params ] "=" type_expr ";" ;
 ```
-
-**宣言形式:**
-- `let 名前: 型;` - 信号（型のみ指定、コンテキスト依存）
-- `let 名前 = 初期値;` - 組み合わせ信号（直接代入、型推論）
-- `let 名前: 型 = 初期値;` - 組み合わせ信号（直接代入、型指定）
-- `let mut 名前: 型;` - 可変信号（型のみ指定）
-- `let mut 名前 = 初期値;` - 可変信号（型推論、初期値がリセット値）
-- `let mut 名前: 型 = 初期値;` - 可変信号（型指定、初期値がリセット値）
-- `var 名前: 型;` - 順序回路専用（**sync/fsmでのみ使用可能**）
-- `var 名前 = 初期値;` - 順序回路専用（初期値がリセット値）
-- `var 名前: 型 = 初期値;` - 順序回路専用（型指定、初期値がリセット値）
-
-**使用制限:**
-- `let`直接代入（`let x = expr;`）は組み合わせ回路
-- `let`宣言のみで`sync`/`fsm`内で代入すると順序回路
-- `var`は`sync`または`fsm`ブロック内でのみ使用可能（順序回路専用）
 
 ### 16.1.4 型式
 
 ```ebnf
-type_expr = primitive_type | array_type | user_type | generic_type ;
-primitive_type = "bit" [ "[" const_expr "]" ]
+type_expr = primitive_type | array_type | tuple_type | user_type | generic_type ;
+
+primitive_type = "bit" [ "[" const_expr [ ":" const_expr ] "]" ]
                | "int" "[" const_expr "]"
                | "uint" "[" const_expr "]"
-               | "bool" | "clock" | "reset" | "string" ;
+               | "bool" | "string"
+               | "clock" [ "(" clock_config { "," clock_config } ")" ]
+               | "reset" [ "(" reset_config { "," reset_config } ")" ] ;
+
+clock_config = "period" ":" duration ;
+reset_config = "active_low" ":" bool_literal
+             | "assert_cycles" ":" const_expr
+             | "assert_time" ":" duration ;
+
+(* Both spellings occur: `10ns` for a clock period, `1.ms` inside an attribute *)
+duration = integer_literal time_unit | number "." time_unit ;
+time_unit = "ps" | "ns" | "us" | "ms" | "s" ;
+
 array_type = type_expr "[" const_expr "]" ;
+
+tuple_type = "(" type_expr { "," type_expr } [ "," ] ")" ;
+
 user_type = path ;
+
 generic_type = path "[" generic_args "]" ;
-generic_args = generic_arg { "," generic_arg } ;
-generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
 ```
 
 ### 16.1.5 式
@@ -87,258 +123,505 @@ generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
 expr = unary_expr | binary_expr | primary_expr ;
 unary_expr = unary_op expr ;
 binary_expr = expr binary_op expr ;
-primary_expr = literal | identifier | path | call_expr | index_expr
-             | field_expr | cast_expr | if_expr | match_expr
+
+(* Ordered longest first: `path` before `identifier`, and the three selection
+   forms before one another, so a transcription cannot hide the longer form *)
+primary_expr = literal
+             | match_expr
+             | if_expr
+             | path
+             | call_expr
+             | method_call
+             | part_select_expr
+             | slice_expr
+             | index_expr
+             | field_expr
+             | cast_expr
+             | replication_expr
+             | concat_expr
+             | sys_func
+             | identifier
              | "(" expr ")" ;
 
 unary_op = "!" | "~" | "-" | "&" | "|" | "^" ;
-binary_op = "+" | "-" | "*" | "/" | "%" | "**"
-          | "&" | "|" | "^" | "<<" | ">>" | ">>>"
-          | "==" | "!=" | "<" | "<=" | ">" | ">="
-          | "&&" | "||" ;
+
+(* Ordered longest first, so that "<" cannot hide "<=" and ">>" cannot hide
+   ">>>" in a parser transcribed from this grammar *)
+binary_op = "===" | "!=="
+          | "**" | ">>>" | "<<" | ">>"
+          | "==" | "!=" | "<=" | ">=" | "&&" | "||"
+          | "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<" | ">" ;
 
 call_expr = expr "(" [ expr_list ] ")" ;
-index_expr = expr "[" expr [ ":" expr ] "]" ;
+method_call = expr "." identifier [ "[" type_expr "]" ] [ "(" [ expr_list ] ")" ] ;
+
+(* Three ways to select bits. A slice takes constant bounds, because both ends
+   moving gives no fixed width; a part select takes a constant width at a
+   position that need not be constant. Listed longest first. *)
+part_select_expr = expr "[" expr ( "+:" | "-:" ) const_expr "]" ;
+slice_expr = expr "[" const_expr ":" const_expr "]" ;
+index_expr = expr "[" expr "]" ;
+
 field_expr = expr "." identifier ;
 cast_expr = expr "as" type_expr ;
+
+concat_expr = "{" expr { "," expr } [ "," ] "}" ;
+replication_expr = "{" const_expr "{" expr "}" "}" ;
+
+if_expr = "if" expr "{" expr "}" "else" "{" expr "}" ;
+
+match_expr = "match" expr "{" { match_arm } "}" ;
+
+(* The statement form: each arm holds statements rather than a value *)
+match_stmt = "match" expr "{" { match_stmt_arm } "}" ;
+match_stmt_arm = pattern "=>" ( "{" { statement } "}" | expr ) [ "," ] ;
+
+match_arm = pattern "=>" ( expr "," | block_stmt ) ;
+
+(* Ordered longest first: the variant form starts with an identifier, so a
+   bare identifier listed before it would hide it *)
+pattern = "_"
+        | literal
+        | struct_pattern
+        | tuple_pattern
+        | variant_pattern
+        | identifier ;
+
+(* A variant of an enumeration, optionally binding the value it carries *)
+variant_pattern = path "::" identifier [ "(" identifier ")" ] ;
+
+tuple_pattern = "(" pattern { "," pattern } [ "," ] ")" ;
+struct_pattern = identifier "{" field_pattern { "," field_pattern } [ "," ] "}" ;
+field_pattern = identifier ":" pattern ;
+
+expr_list = expr { "," expr } ;
+
+const_expr = expr ;
 ```
 
----
-
-## 16.2 論理ブロック
+### 16.1.6 論理ブロック
 
 ```ebnf
 logic_block = signal_decl | comb_block | sync_block ;
 
-comb_block = "comb" "{" { statement } "}" ;
-sync_block = "sync" "(" clock_spec [ "," reset_spec ] ")" "{" { statement } "}" ;
-clock_spec = expr "." ( "posedge" | "negedge" ) ;
-reset_spec = expr "." ( "async" | "sync" ) ;
+comb_block = "comb" [ default_spec ] "{" { statement } "}" ;
+default_spec = "default" "(" default_assign { "," default_assign } ")" ;
+(* A default names a signal and the value it takes when nothing assigns it,
+   so the value is not optional: `default(y)` alone says nothing. *)
+default_assign = identifier "=" expr ;
+
+sync_block = "sync" "(" clock_spec [ "," reset_spec ] ")" [ domain_attr ] "{" { statement } "}" ;
+
+clock_spec = expr "." edge ;
+edge = "posedge" | "negedge" ;
+reset_spec = expr "." reset_mode ;
+reset_mode = "async" | "sync" ;
+domain_attr = "@" identifier ;
 ```
 
----
-
-## 16.3 FSM
+### 16.1.7 FSM
 
 ```ebnf
 fsm_block = "fsm" identifier "(" clock_spec [ "," reset_spec ] ")" "{"
-            state_enum transitions_block { output_block }
-            "}" ;
-state_enum = "state" "enum" "{" state_item { "," state_item } "}" ;
+            state_enum [ "initial" ":" identifier ] { signal_decl }
+            transitions_block { output_block } [ output_encoding ] "}" ;
+
+(* How the state register is encoded (spec 7.1). Advisory: it does not change
+   the behaviour of the machine, only the bits chosen for each state *)
+output_encoding = "output" "encoding" ":" encoding_type ;
+encoding_type = "binary" | "onehot" | "gray" ;
+
+state_enum = "state" "enum" "{" state_item { "," state_item } [ "," ] "}" ;
+
 state_item = identifier [ moore_outputs ] ;
+
 moore_outputs = "[" output_assign { "," output_assign } "]" ;
 output_assign = identifier "=" const_expr ;
 
 transitions_block = "transitions" "{" { transition_item } "}" ;
-transition_item = identifier "=>" "{" { when_clause } "}"
-                | "_" "=>" "{" statement "}" ;
+
+transition_item = ( identifier | "_" ) "=>" "{" { when_clause } "}" ;
+
 when_clause = "when" expr "{" { transition_action } "}" ;
-transition_action = "goto" identifier ";" | statement ;
+
+(* `goto` is not a statement, so the conditional form is spelled out here:
+   its branches hold transition actions, not statements *)
+transition_action = "goto" identifier ";" | fsm_if_stmt | assign_stmt ;
+fsm_if_stmt = "if" expr "{" { transition_action } "}"
+              [ "else" ( fsm_if_stmt | "{" { transition_action } "}" ) ] ;
+
+output_block = "output" identifier "{" { output_case } "}" ;
+output_case = identifier "=>" expr "," ;
 ```
 
----
-
-## 16.4 文
+### 16.1.8 インターフェース
 
 ```ebnf
-statement = assign_stmt | if_stmt | match_stmt | for_stmt | while_stmt
+interface_def = "interface" identifier [ generic_params ] [ "extends" identifier ]
+                [ where_clause ] "{" { interface_signal | view_def } "}" ;
+
+interface_signal = identifier ":" type_expr [ "," ] ;
+
+view_def = "view" view_name "{" { direction_list } "}" ;
+view_name = "initiator" | "target" | "monitor" | identifier ;
+direction_list = direction ":" signal_list ;
+direction = "inout" | "out" | "in" ;
+signal_list = identifier { "," identifier } [ "," ] ;
+```
+
+### 16.1.9 文
+
+```ebnf
+statement = assert_stmt | cover_stmt | assign_stmt | let_local | if_stmt | match_stmt
+          | for_stmt | while_stmt | break_stmt | continue_stmt
           | return_stmt | block_stmt ;
 
 assign_stmt = lvalue "=" expr ";" ;
-lvalue = identifier | index_expr | field_expr | "{" lvalue_list "}" ;
+
+(* A target may be a whole signal, one bit, a bit field, a memory word, or a
+   member reached through a dot (an interface port or a structure field) *)
+lvalue = identifier { "." identifier }
+       | index_expr | slice_expr | part_select_expr | field_expr
+       | "{" lvalue { "," lvalue } "}" ;
+
+(* Loop control, valid in comb, sync and seq blocks *)
+break_stmt = "break" ";" ;
+continue_stmt = "continue" ";" ;
+let_local = "let" identifier [ ":" type_expr ] [ "=" expr ] ";" ;
 
 if_stmt = "if" expr "{" { statement } "}" [ "else" ( if_stmt | block_stmt ) ] ;
-match_stmt = "match" expr "{" { match_arm } "}" ;
-match_arm = pattern "=>" ( expr "," | block_stmt ) ;
 
 for_stmt = "for" identifier "in" range_expr "{" { statement } "}" ;
-range_expr = expr ".." expr | expr "..=" expr ;
+(* Ordered longest first: ".." would otherwise hide "..=" *)
+range_expr = expr "..=" expr | expr ".." expr ;
 
 while_stmt = "while" expr "{" { statement } "}" ;
+
 return_stmt = "return" [ expr ] ";" ;
 block_stmt = "{" { statement } "}" ;
 ```
 
----
-
-## 16.5 インターフェース
+### 16.1.10 テスト
 
 ```ebnf
-interface_def = "interface" identifier [ generic_params ] "{"
-                { interface_signal | view_def }
-                "}" ;
-interface_signal = [ "logic" ] identifier ":" type_expr ";" ;
-view_def = "view" identifier "{" { view_signal } "}" ;
-view_signal = view_direction identifier ";" ;
-view_direction = "in" | "out" | "inout" ;
-```
-
----
-
-## 16.6 テスト
-
-### 16.6.1 テストモジュール
-
-テストベンチ専用のモジュール定義。ポート宣言を持たない（ポートレス）。
-
-```ebnf
+(* Test module: testbench-style top-level module without ports *)
 test_mod_def = "test" identifier "{" { test_item } "}" ;
-test_item    = let_decl | var_decl | const_decl | inst_decl
-             | comb_block | sync_block | initial_block | seq_block
-             | use_rust_decl | extern_rust_block | test_stmt ;
+
+test_item = signal_decl | const_decl | inst_decl | mem_decl | fsm_block
+          | comb_block | sync_block | initial_block | seq_block
+          | constraint_block
+          | use_rust_decl | extern_rust_block | test_stmt ;
+
 initial_block = "initial" "{" { statement } "}" ;
-```
 
-**特徴:**
-- ポート宣言なし（SystemVerilogのテストベンチトップ階層と同等）
-- 合成対象外（シミュレーション専用）
-- 他のモジュールからインスタンス化不可（トップレベルのみ）
+(* Sequential processing block: allows direct Rust code execution *)
+seq_block = "seq" [ identifier ] "{" { seq_statement } "}" ;
 
-### 16.6.2 シーケンシャル処理ブロック（seq）
+seq_statement = rust_statement | signal_access | time_control
+              | assert_stmt | cover_stmt
+              | seq_if_stmt | seq_for_stmt | seq_while_stmt
+              | break_stmt | continue_stmt | assign_stmt ;
 
-Rustコードを直接実行できるシーケンシャル処理ブロック。
+(* A sequential `if` holds sequential statements, so `await` and `break` work
+   inside it *)
+seq_if_stmt = "if" expr "{" { seq_statement } "}"
+              [ "else" ( seq_if_stmt | "{" { seq_statement } "}" ) ] ;
+seq_for_stmt = "for" identifier "in" range_expr "{" { seq_statement } "}" ;
+seq_while_stmt = "while" expr "{" { seq_statement } "}" ;
 
-```ebnf
-seq_block       = "seq" [ identifier ] "{" { seq_statement } "}" ;
-seq_statement   = rust_statement | signal_access | time_control | assert_stmt ;
-signal_access   = signal_read | signal_write ;
-signal_read     = signal_path ".value()" ;
-signal_write    = signal_path ".set(" expr ")" ;
-time_control    = await_stmt | delay_stmt ;
-await_stmt      = "await" await_expr ";" ;
-await_expr      = clock_edge | until_expr | event_expr | async_call ;
-clock_edge      = expr "." ( "posedge" | "negedge" | "cycles" "(" expr ")" ) ;
-until_expr      = "until" "(" expr [ "," "timeout" ":" duration ] ")" ;
-event_expr      = "event" "(" expr ")" ;
-async_call      = expr ".await" ;
-delay_stmt      = "#" ( number | duration ) ";" ;
-duration        = number "." time_unit ;
-time_unit       = "ns" | "us" | "ms" | "s" ;
-```
+signal_access = signal_read | signal_write ;
 
-**特徴:**
-- `test`モジュール内でのみ使用可能
-- Rustの全ての制御構文（for, while, loop, if, match等）を使用可能
-- 信号アクセスAPI（.value(), .set()）でDUTと連携
-- 複数seqブロック定義で並列実行
+signal_read = signal_path ".value()" ;
+signal_write = signal_path ".set(" expr ")" ;
 
-### 16.6.3 外部Rust関数呼び出し
+signal_path = identifier { "." identifier } ;
 
-外部`.rs`ファイルのRust関数を呼び出すための構文。
+time_control = await_stmt | delay_stmt ;
 
-```ebnf
-use_rust_decl   = "use" "rust" "::" rust_path ";" ;
-rust_path       = identifier { "::" identifier } [ "::" "{" rust_import_list "}" ]
-                | identifier { "::" identifier } "::" "*" ;
+await_stmt = "await" await_expr ";" ;
+await_expr = clock_edge | until_expr | event_expr | async_call ;
+
+clock_edge = expr "." ( "posedge" | "negedge" | "cycles" "(" expr ")" ) ;
+
+until_expr = "until" "(" expr [ "," "timeout" ":" duration ] ")" ;
+
+event_expr = "event" "(" expr ")" ;
+
+async_call = expr ".await" ;
+
+delay_stmt = "#" ( number | duration ) ";" ;
+
+number = decimal_digits ;
+
+rust_statement = ? any valid Rust statement ? ;
+
+(* External Rust function import *)
+use_rust_decl = "use" "rust" "::" rust_path ";" ;
+
+rust_path = identifier { "::" identifier } [ "::" "{" rust_import_list "}" ]
+          | identifier { "::" identifier } "::" "*" ;
+
 rust_import_list = identifier { "," identifier } ;
 
+(* External Rust function declaration block *)
 extern_rust_block = "extern" "rust" string_literal "{" { rust_fn_decl } "}" ;
-rust_fn_decl    = [ "async" ] "fn" identifier "(" [ rust_param_list ] ")" [ "->" rust_type ] ";" ;
+
+rust_fn_decl = [ "async" ] "fn" identifier "(" [ rust_param_list ] ")" [ "->" rust_type ] ";" ;
+
 rust_param_list = rust_param { "," rust_param } ;
-rust_param      = identifier ":" rust_type ;
-rust_type       = identifier | generic_type | "&" rust_type | "&" "mut" rust_type ;
-```
 
-**インポート方法:**
-- `use rust::module::func;` - 単一関数のインポート
-- `use rust::module::{func1, func2};` - 複数関数のインポート
-- `use rust::module::*;` - ワイルドカードインポート
-- `extern rust "module" { fn name(); }` - 明示的シグネチャ宣言
+rust_param = identifier ":" rust_type ;
 
-### 16.6.4 テスト関数
+rust_type = identifier | generic_type | "&" rust_type | "&" "mut" rust_type ;
 
-#[test]アトリビュートを使用した単体テスト関数。
+(* Test function with #[test] attribute for unit testing *)
+test_def = "#[" test_attr "]" "test" identifier "(" [ test_params ] ")" "{" { test_stmt } "}" ;
 
-```ebnf
-test_def = "#[" test_attr "]" "fn" identifier "(" ")" "{" { test_stmt } "}" ;
 test_attr = "test" [ "(" test_params ")" ] ;
 test_params = test_param { "," test_param } ;
 test_param = "timeout" "=" duration
            | "should_fail"
            | "ignore"
            | "parametric" "(" param_values ")" ;
+
+
+param_values = "[" const_expr { "," const_expr } "]" ;
+
+test_stmt = statement
+          | assert_stmt
+          | wait_stmt
+          | drive_stmt
+          | sample_stmt ;
+
+(* Three forms of check. `assert` fails the run; `expect` and `assume` report
+   and let it continue. *)
+assert_stmt = ( "assert" | "expect" | "assume" ) expr
+              [ ( "," string_literal ) | ( "else" assert_action ) ] ";" ;
+assert_action = assert_severity "(" [ string_literal ] ")" ;
+assert_severity = "error" | "warning" | "fatal" ;
+
+(* A coverage point: how often its condition held *)
+cover_stmt = "cover" expr [ "," string_literal ] ";" ;
+
+(* Constraints on the random variables of the enclosing module *)
+constraint_block = "constraint" identifier "{" { expr ";" } "}" ;
+
+wait_stmt = "wait" "(" wait_condition ")" ";" ;
+wait_condition = expr | duration | clock_spec ;
+
+drive_stmt = identifier "<=" expr ";" ;
+
+sample_stmt = "let" identifier "=" "sample" "(" expr ")" ";" ;
 ```
 
----
-
-## 16.7 パッケージとインポート
+### 16.1.11 パッケージとインポート
 
 ```ebnf
 package_decl = "package" package_path ";" { package_item } ;
+
 package_path = identifier { "::" identifier } ;
-package_item = visibility_modifier ( type_def | const_def | fn_def
+
+package_item = visibility_modifier ( type_def | const_decl | fn_def
              | mod_def | interface_def | enum_def | struct_def ) ;
 
 import_decl = "import" import_path [ "as" identifier ] ";" ;
+
 import_path = package_path [ "::" "{" import_list "}" | "::" "*" ] ;
+
 import_list = import_item { "," import_item } ;
+
 import_item = identifier [ "as" identifier ] ;
+
+(* Offer a name this package can see on to the packages that import it *)
+export_decl = "export" identifier ";" ;
 ```
 
----
+### 16.1.12 システム関数
 
-## 16.8 リテラル
+```ebnf
+(* `$clog2` and `$bits` are synthesisable; the rest are verification only and
+   may appear in a test module, a seq block or an initial block *)
+sys_func = "$" identifier [ "(" [ sys_func_arg { "," sys_func_arg } ] ")" ] ;
+sys_func_arg = string_literal | type_expr | expr ;
+```
+
+### 16.1.13 リテラル
 
 ```ebnf
 literal = integer_literal | bool_literal | string_literal ;
 
-integer_literal = [ size ] [ "'" base ] digits ;
-size = decimal_digits ;
+integer_literal = [ literal_size ] [ "'" base ] digits ;
+
+(* The width in front of a based literal, as the 8 of 8'hFF *)
+literal_size = decimal_digits ;
+
 base = "b" | "o" | "d" | "h" ;
+
 digits = binary_digit { [ "_" ] binary_digit }
        | octal_digit { [ "_" ] octal_digit }
        | decimal_digit { [ "_" ] decimal_digit }
        | hex_digit { [ "_" ] hex_digit } ;
 
 bool_literal = "true" | "false" ;
-string_literal = '"' { character } '"' ;
+
+string_literal = '"' { string_char } '"' ;
 ```
 
----
-
-## 16.9 識別子とパス
+### 16.1.14 識別子とパス
 
 ```ebnf
-identifier = letter { letter | digit | "_" } ;
-letter = "a".."z" | "A".."Z" ;
-digit = "0".."9" ;
+(* An identifier may open with an underscore, which the reference accepts and
+   this grammar used to forbid. Ranges are written with "..." throughout; the
+   letters spelled out one by one said the same thing over six lines. *)
+identifier = identifier_start { identifier_continue } ;
+
+identifier_start = letter | "_" ;
+identifier_continue = letter | digit | "_" ;
+
+letter = "a"..."z" | "A"..."Z" ;
+
+digit = "0"..."9" ;
+
+binary_digit = "0" | "1" ;
+
+octal_digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+
+decimal_digit = digit ;
+
+decimal_digits = decimal_digit { decimal_digit } ;
+
+hex_digit = digit
+          | "a" | "b" | "c" | "d" | "e" | "f"
+          | "A" | "B" | "C" | "D" | "E" | "F" ;
+
+string_char = ? any character except '"' and '\' ?
+            | escape_sequence ;
+
+escape_sequence = "\\" ( "n" | "r" | "t" | "\\" | '"' | "0"
+                | "x" hex_digit hex_digit ) ;
 
 path = identifier { "::" identifier } ;
 ```
 
----
-
-## 16.10 アトリビュート
+### 16.1.15 アトリビュート
 
 ```ebnf
 attribute = "#[" attr_path [ attr_input ] "]" ;
+
 attr_path = identifier { "::" identifier } ;
+
 attr_input = "(" attr_args ")" ;
+
 attr_args = attr_arg { "," attr_arg } ;
+
 attr_arg = [ identifier "=" ] literal ;
 ```
 
----
-
-## 16.11 メモリ宣言
+### 16.1.16 メモリ宣言
 
 ```ebnf
 mem_decl = "mem" identifier ":" mem_type [ mem_config ] [ "=" initializer ] ";" ;
+
 mem_type = element_type "[" depth "]" ;
-element_type = primitive_type | struct_type ;
+
+element_type = primitive_type | user_type ;
+
 depth = const_expr ;
+
 mem_config = "{" { config_item } "}" ;
+
 config_item = config_key ":" config_value [ "," ] ;
+
 config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
+
+config_value = literal | identifier | mem_type_value | read_mode_value ;
+
+mem_type_value = "ram" | "rom" ;
+read_mode_value = "sync" | "async" ;
+
+initializer = "{" [ init_item { "," init_item } ] "}"
+            | string_literal ;
+
+init_item = const_expr | "{" [ init_item { "," init_item } ] "}" ;
+```
+
+### 16.1.17 型定義と関数定義
+
+```ebnf
+type_def = enum_def | struct_def | union_def | type_alias ;
+
+enum_def = "enum" identifier [ generic_params ] [ ":" underlying_type ] "{" enum_variant { "," enum_variant } [ "," ] "}" ;
+
+underlying_type = type_expr ;
+
+enum_variant = identifier [ "=" const_expr ] [ "(" type_expr ")" ] ;
+
+struct_def = "struct" identifier [ generic_params ] "{" struct_field { "," struct_field } [ "," ] "}" ;
+
+(* A union's fields share the same bits; the whole is as wide as the widest *)
+union_def = "union" identifier [ generic_params ] "{" struct_field { "," struct_field } [ "," ] "}" ;
+
+(* A function is a pure expression: bindings, then the value it returns *)
+fn_def = "fn" identifier [ generic_params ] "(" [ param_list ] ")" [ "->" type_expr ]
+         "{" { fn_let } return_stmt "}" ;
+
+fn_let = "let" identifier [ ":" type_expr ] "=" expr ";" ;
+
+param_list = param { "," param } ;
+
+param = identifier ":" type_expr ;
+```
+
+### 16.1.18 構造体定義
+
+```ebnf
+(* Struct fields use comma separator, matching the spec *)
+struct_field = identifier ":" type_expr ;
 ```
 
 ---
 
-## 16.12 構文要素詳細説明
+## 16.2 文の意味的制約
 
-### 16.12.1 モジュール（mod）
+**`for`ループの合成制約:**
 
-モジュールはハードウェア設計の基本単位。合成時にSystemVerilogのmoduleに変換される。
+`comb`ブロック内の`for`ループは、ループ回数がコンパイル時に既知でなければならない。
+ループ変数の範囲にジェネリックパラメータを使用できるが、インスタンス化時に定数に解決される必要がある。
+`sync`ブロックおよび`seq`ブロック内の`for`ループはこの制約の対象外である。
+
+```rust
+comb {
+    // OK: 定数範囲（コンパイル時に展開可能）
+    for i in 0..8 {
+        out[i] = data[i];
+    }
+
+    // OK: ジェネリックパラメータ（インスタンス化時に解決）
+    for i in 0..Width {
+        out[i] = data[i];
+    }
+}
+```
+
+**`match`の網羅性:**
+
+`match`式は全ての可能なパターンを網羅しなければならない。
+`bit[N]`型でNが大きい場合（N > 4程度）、ワイルドカードパターン`_`の使用が推奨される。
+将来の拡張として範囲パターン構文（`[0:255] => ...`）の導入を検討中である。
+
+**`let_local`のスコープ:**
+
+`comb`ブロック内の`let`局所宣言は、そのブロック内でのみ参照可能である。
+`let_local`で宣言された変数は組み合わせ信号として合成され、出力ポートへの代入には使用できない。
+
+---
+
+## 16.3 構文要素詳細説明
+
+### 16.3.1 モジュール（mod）
+
+モジュールはハードウェア設計の基本単位。
+合成時にSystemVerilogのmoduleに変換される。
 
 | 要素 | 説明 | 必須 |
 |------|------|------|
@@ -352,7 +635,7 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 - ポート宣言自体が信号宣言として機能するため、追加の`let`宣言は不要
 - `out`ポートは`comb`で代入すると組み合わせ回路、`sync`/`fsm`で代入すると順序回路として合成
 
-### 16.12.2 組み合わせ論理（comb）
+### 16.3.2 組み合わせ論理（comb）
 
 全ての出力信号に対して全パスで値が割り当てられることを保証。
 
@@ -362,7 +645,7 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 3. 代入は`=`
 4. 循環依存はコンパイルエラー
 
-### 16.12.3 順序論理（sync）
+### 16.3.3 順序論理（sync）
 
 クロック同期の順序回路を記述。
 
@@ -375,7 +658,7 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 6. `sync`ブロック内で代入された信号は順序回路（レジスタ）として合成される
 7. **`var`宣言は`sync`または`fsm`ブロック内でのみ使用可能**（`comb`や直接代入で使用不可）
 
-### 16.12.4 FSM
+### 16.3.4 FSM
 
 ステートマシンの高レベル記述。
 
@@ -387,4 +670,6 @@ config_key = "ports" | "type" | "read_mode" | "write_mode" | "init_file" ;
 
 ---
 
-[<< 移行ガイド](./15_migration_guide.md) | [目次](./iris_spec_0.1.0.md) | [サンプルコード集 >>](./17_examples.md)
+---
+
+[<< 移行ガイド](./15_migration_guide.md) | [目次](./iris_spec.md) | [サンプルコード集 >>](./17_examples.md)

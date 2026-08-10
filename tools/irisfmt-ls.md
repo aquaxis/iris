@@ -16,6 +16,50 @@
 | クイックフィックス | `textDocument/codeAction` | 自動修正の提案 |
 | ホバー | `textDocument/hover` | キーワードのドキュメント表示 |
 | 補完 | `textDocument/completion` | コンテキスト依存の補完 |
+| 定義へ移動 | `textDocument/definition` | インスタンスからモジュールへ、信号から宣言へ |
+| 参照検索 | `textDocument/references` | 名前を使っている箇所の一覧 |
+| ドキュメントシンボル | `textDocument/documentSymbol` | モジュールと構成要素の一覧 |
+| リネーム | `textDocument/rename` | 名前の一括変更 |
+
+### 移動と検索について
+
+後半の4つは`@irisfmt/core`のシンボルテーブルの上に載っている。
+モジュール、ポート、信号、メモリ、インスタンス、ジェネリックパラメータを記録し、
+階層名を辿って解決する。
+
+```iris
+mod Core(...) {
+    inst rf = RegFile { ... };
+    comb { y = rf.rdata1; }   // rf.rdata1 で定義へ飛ぶと RegFile の rdata1 に着く
+}
+```
+
+`rf.rdata1`は1つの名前として読む。
+カーソル下の語だけを見ると`rdata1`になり、別のモジュールで解決してしまう。
+
+リネームは予約語への変更を拒否する。
+`inst`へ改名すると解析できないファイルになるためである。
+
+### テストベンチについて
+
+設計だけでなく、隣に置くテストベンチも同じ機能が効く。
+
+```iris
+test TestAddi {
+    let clk: clock(period: 10ns);
+    inst core = RiscvCore { clk: clk };
+
+    sync(clk.posedge, rst_n.async) {
+        assert matched else error("register does not match");
+    }
+}
+```
+
+`test Name { ... }`の中の名前は`Name`に属する。
+インスタンス`core`も信号`idx`も、定義へ飛べるし参照も引ける。
+
+`example/`の`.iris`ファイルは、設計もテストベンチも
+パースエラー0で読める。
 
 ---
 

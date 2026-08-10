@@ -1,0 +1,13 @@
+/// 関数定義
+fn add(a: bit[8], b: bit[8]) -> bit[8] {
+    return a + b;
+}
+
+mod FnUser(
+    in clk: clock,
+    out y: bit[8],
+) {
+    comb {
+        y = add(8'd1, 8'd2);
+    }
+}

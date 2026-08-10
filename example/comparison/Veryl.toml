@@ -1,0 +1,6 @@
+[project]
+name = "comparison"
+version = "0.1.0"
+[build]
+sources = ["veryl"]
+target = {type = "directory", path = "target"}

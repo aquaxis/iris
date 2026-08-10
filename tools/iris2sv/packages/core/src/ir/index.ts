@@ -169,6 +169,10 @@ export {
   HirTypeDef,
   HirEnumDef,
   HirStructDef,
+  HirUnionDef,
+  HirInterface,
+  HirModport,
+  HirModportSignal,
   HirStructFieldDef,
 
   // Module

@@ -1,3 +1,7 @@
+import type { HirDataType } from '@iris2sv/core';
+import { mapWidth } from './type-mapper.js';
+import type { SvWidth } from '@iris2sv/sv-backend';
+import { constWidth, exprWidth } from '@iris2sv/sv-backend';
 /**
  * Expression Transformer
  *
@@ -16,9 +20,11 @@ import type {
   SvBinaryOp} from '@iris2sv/sv-backend';
 import {
   intLiteral,
+  stringLiteral,
   identifier,
   unary,
   binary,
+  sizeCast,
   ternary,
   call,
   index,
@@ -56,6 +62,9 @@ export function transformExpr(expr: HirExpr, context: ExprTransformerContext): S
   switch (expr.kind) {
     case 'IntegerLiteral':
       return transformIntegerLiteral({ value: expr.value, width: expr.width, signed: expr.signed });
+
+    case 'StringLiteral':
+      return stringLiteral(expr.value);
 
     case 'BoolLiteral':
       return transformBoolLiteral(expr);
@@ -98,7 +107,8 @@ export function transformExpr(expr: HirExpr, context: ExprTransformerContext): S
       return slice(
         transformExpr(expr.base, context),
         transformExpr(expr.high, context),
-        transformExpr(expr.low, context)
+        transformExpr(expr.low, context),
+        expr.partSelect
       );
 
     case 'FieldExpr':
@@ -107,11 +117,28 @@ export function transformExpr(expr: HirExpr, context: ExprTransformerContext): S
         expr.field
       );
 
-    case 'CallExpr':
+    case 'CallExpr': {
+      // Width-carrying methods become SystemVerilog size casts.
+      //   x.sign_extend[32]()  ->  32'($signed(x))
+      //   x.extend[32]()       ->  32'(x)
+      // The signed cast is what makes the first one replicate the sign bit.
+      if ((expr.callee === 'sign_extend' || expr.callee === 'extend')
+          && expr.args.length === 2) {
+        const value = transformExpr(expr.args[0]!, context);
+        const widthExpr = expr.args[1]!;
+        const width: SvWidth = widthExpr.kind === 'IntegerLiteral'
+          ? constWidth(Number(widthExpr.value))
+          : exprWidth('/* width */');
+        const inner = expr.callee === 'sign_extend'
+          ? call('$signed', value)
+          : value;
+        return sizeCast(width, inner);
+      }
       return call(
         expr.callee,
         ...expr.args.map(a => transformExpr(a, context))
       );
+    }
 
     case 'CastExpr': {
       const targetType = context.typeMapper.mapType(expr.targetType);
@@ -214,14 +241,30 @@ function mapUnaryOp(op: HirUnaryOp): SvUnaryOp {
  * Transform binary expression
  */
 function transformBinaryExpr(
-  expr: { op: HirBinaryOp; left: HirExpr; right: HirExpr },
+  expr: { op: HirBinaryOp; left: HirExpr; right: HirExpr; dataType?: HirDataType | undefined },
   context: ExprTransformerContext
 ): SvExpr {
   const left = transformExpr(expr.left, context);
   const right = transformExpr(expr.right, context);
   const op = mapBinaryOp(expr.op);
-  return binary(left, op, right);
+  const result = binary(left, op, right);
+
+  // IRIS evaluates arithmetic in the width of its operands; SystemVerilog
+  // widens to at least 32 bits. A size cast restores the IRIS width, which
+  // matters as soon as the result is shifted, compared or concatenated:
+  // without it, `(p + 1) >> 1` keeps a carry bit that IRIS would have dropped.
+  if (TRUNCATING_OPS.has(expr.op)) {
+    const dt = expr.dataType;
+    if (dt && dt.kind === 'LogicType') {
+      return sizeCast(mapWidth(dt.width), result);
+    }
+  }
+
+  return result;
 }
+
+/** Operators whose SystemVerilog result can be wider than the IRIS one. */
+const TRUNCATING_OPS = new Set<HirBinaryOp>(['add', 'sub', 'mul', 'shl']);
 
 /**
  * Map HIR binary operator to SV binary operator

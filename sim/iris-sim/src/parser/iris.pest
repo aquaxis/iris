@@ -2,36 +2,102 @@
 // This file defines the grammar for the IRIS hardware description language
 
 // Entry point - supports mod, test, and interface declarations
-file = { SOI ~ (module_decl | test_mod_decl | interface_decl)* ~ EOI }
+file = { SOI ~ package_decl? ~ (import_decl | export_decl)* ~ (attribute* ~ (extern_mod_decl | module_decl | test_mod_decl | interface_decl | enum_decl | struct_decl | union_decl | fn_decl | file_const_decl))* ~ EOI }
+// Attributes (spec 13). They annotate the item that follows: synthesis hints,
+// timing constraints, `#[test]`. They carry no simulation meaning, so they are
+// parsed and passed over rather than acted on.
+attribute = { "#[" ~ attr_path ~ attr_input? ~ "]" }
+// An attribute name may be a reserved word: spec 13 opens with `#[test]`.
+// `identifier` excludes keywords, so the name is matched as a bare word.
+attr_path = { attr_word ~ ("::" ~ attr_word)* }
+attr_word = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+attr_input = { "(" ~ attr_args? ~ ")" }
+attr_args = { attr_arg ~ ("," ~ attr_arg)* }
+attr_arg = { (attr_word ~ "=" ~ attr_value) | attr_value }
+// `identifier` comes before `bool_literal` on purpose: a PEG alternation
+// commits to its first match, and `false` is a prefix of `false_path`.
+// Durations here are written `1.ms`, with the dot that spec 13 shows.
+attr_value = { string_literal | attr_duration | literal | attr_word }
+attr_duration = { integer ~ "." ~ time_unit }
+// A constant outside any module (spec 10 shows tables declared this way).
+file_const_decl = { const_decl ~ ";" }
+
+// A module implemented outside IRIS (spec 4.5). It has ports but no body.
+extern_mod_decl = { "pub"? ~ "extern" ~ "mod" ~ identifier ~ generics? ~ "(" ~ port_list ~ ")" ~ ";" }
+
+// Packages and imports (spec 12.1, 12.3)
+package_decl = { "package" ~ package_path ~ ";" }
+package_path = @{ identifier ~ ("::" ~ identifier)* }
+import_decl = { "import" ~ package_path ~ ("::" ~ (import_all | import_list))? ~ ";" }
+import_all = { "*" }
+import_list = { "{" ~ identifier ~ ("," ~ identifier)* ~ ","? ~ "}" }
+// Offer a name this package can see to the packages that import it
+export_decl = { "export" ~ identifier ~ ";" }
+
+// User-defined function (spec 12.1). The body is a single `return`.
+fn_decl = { "pub"? ~ "fn" ~ identifier ~ "(" ~ (fn_param ~ ("," ~ fn_param)*)? ~ ")" ~ ("->" ~ type_expr)? ~ "{" ~ fn_let* ~ return_stmt ~ "}" }
+// A binding used by the returned expression
+fn_let = { "let" ~ identifier ~ (":" ~ type_expr)? ~ "=" ~ expr ~ ";" }
+fn_param = { identifier ~ ":" ~ type_expr }
+return_stmt = { "return" ~ expr ~ ";" }
+
+// Composite types (spec 3.2.2, 3.2.3)
+struct_decl = { "pub"? ~ "struct" ~ identifier ~ "{" ~ struct_field ~ ("," ~ struct_field)* ~ ","? ~ "}" }
+union_decl = { "pub"? ~ "union" ~ identifier ~ "{" ~ struct_field ~ ("," ~ struct_field)* ~ ","? ~ "}" }
+struct_field = { identifier ~ ":" ~ type_expr }
+
+// User-defined enumeration (spec 3.2.1)
+enum_decl = { "pub"? ~ "enum" ~ identifier ~ (":" ~ type_expr)? ~ "{" ~ enum_variant ~ ("," ~ enum_variant)* ~ ","? ~ "}" }
+enum_variant = { identifier ~ ("(" ~ type_expr ~ ")")? ~ ("=" ~ expr)? }
 
 // Module definition (with ports)
-module_decl = { "mod" ~ identifier ~ generics? ~ "(" ~ port_list ~ ")" ~ "{" ~ module_body ~ "}" }
+module_decl = { "pub"? ~ "mod" ~ identifier ~ generics? ~ where_clause? ~ "(" ~ port_list ~ ")" ~ "{" ~ module_body ~ "}" }
+
+// Constraints on generic parameters (tools/iris.ebnf: where_clause)
+where_clause = { "where" ~ constraint ~ ("," ~ constraint)* ~ ","? }
+// Three forms, as in tools/iris.ebnf. The predicate form is tried first
+// because its subject is also an identifier.
+constraint = { constraint_pred | constraint_cmp | constraint_type }
+constraint_pred = { identifier ~ "." ~ identifier ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+constraint_cmp = { identifier ~ constraint_op ~ expr }
+constraint_type = { identifier ~ ":" ~ type_expr }
+constraint_op = { "<=" | ">=" | "==" | "!=" | "<" | ">" }
 
 // Test module definition (without ports, for testbenches)
 test_mod_decl = { "test" ~ identifier ~ "{" ~ test_body ~ "}" }
-test_body = { (signal_decl | logic_block | instance | seq_block | initial_block | fsm_block | mem_decl)* }
+test_body = { (attribute* ~ (signal_decl | logic_block | instance | seq_block | initial_block | fsm_block | mem_decl | constraint_block))* }
 
 // Generics
-generics = { "[" ~ generic_param ~ ("," ~ generic_param)* ~ "]" }
+generics = { "[" ~ generic_param ~ ("," ~ generic_param)* ~ ","? ~ "]" }
 generic_param = { identifier ~ ":" ~ type_expr ~ ("=" ~ expr)? }
 
 // Port list
 port_list = { (port_decl ~ ("," ~ port_decl)*)? ~ ","? }
 port_decl = { port_dir ~ identifier ~ ":" ~ type_expr }
-port_dir = { "in" | "out" | "inout" | "initiator" | "target" | "monitor" }
+// Ordered longest first: a PEG alternation commits to its first match, so
+// "in" would otherwise hide "inout" and "initiator"
+port_dir = { "initiator" | "monitor" | "target" | "inout" | "out" | "in" }
 
 // Module body
-module_body = { (signal_decl | logic_block | instance | fsm_block | mem_decl)* }
+module_body = { (attribute* ~ (signal_decl | logic_block | instance | fsm_block | mem_decl | constraint_block))* }
+// Constraints on random variables (spec 11.4.2)
+constraint_block = { "constraint" ~ identifier ~ "{" ~ (expr ~ ";")* ~ "}" }
 
 // Signal declaration
-signal_decl = { (let_decl | var_decl) ~ ";" }
+signal_decl = { (rand_decl | const_decl | let_decl | var_decl) ~ ";" }
+// A compile-time constant (spec 4, "定数"). It names an immutable value, which
+// is what `let` already is, so it carries the same meaning here.
+const_decl = { "const" ~ identifier ~ (":" ~ type_expr)? ~ "=" ~ expr }
+// A random variable (spec 11.4.1). `rand` is contextual, not reserved.
+rand_decl = { "rand" ~ identifier ~ ":" ~ type_expr ~ ("=" ~ expr)? }
 let_decl = { "let" ~ "mut"? ~ identifier ~ (":" ~ type_expr)? ~ ("=" ~ expr)? }
 var_decl = { "var" ~ identifier ~ (":" ~ type_expr)? ~ ("=" ~ expr)? }
 
 // Logic blocks
 logic_block = { comb_block | sync_block }
 comb_block = { "comb" ~ "{" ~ statement* ~ "}" }
-sync_block = { "sync" ~ "(" ~ clock_spec ~ ("," ~ reset_spec)? ~ ")" ~ "{" ~ statement* ~ "}" }
+sync_block = { "sync" ~ "(" ~ clock_spec ~ ("," ~ reset_spec)? ~ ")" ~ domain_attr? ~ "{" ~ statement* ~ "}" }
+domain_attr = { "@" ~ identifier }
 
 // Sequential block (for procedural testbench code)
 seq_block = { "seq" ~ identifier? ~ "{" ~ seq_statement* ~ "}" }
@@ -41,10 +107,14 @@ initial_block = { "initial" ~ "{" ~ seq_statement* ~ "}" }
 
 // FSM block (finite state machine)
 fsm_block = { "fsm" ~ identifier ~ "(" ~ clock_spec ~ ("," ~ reset_spec)? ~ ")" ~ "{"
-            ~ state_enum ~ transitions_block ~ output_block* ~ "}" }
+            ~ state_enum ~ initial_state? ~ signal_decl* ~ transitions_block ~ output_block* ~ output_encoding? ~ "}" }
+// spec 7 and tools/iris.ebnf: how the state register is encoded.
+output_encoding = { "output" ~ "encoding" ~ ":" ~ encoding_type }
+encoding_type = { "binary" | "onehot" | "gray" }
 
 // State enumeration
 state_enum = { "state" ~ "enum" ~ "{" ~ state_item ~ ("," ~ state_item)* ~ ","? ~ "}" }
+initial_state = { "initial" ~ ":" ~ identifier }
 state_item = { identifier ~ moore_outputs? }
 moore_outputs = { "[" ~ output_assign ~ ("," ~ output_assign)* ~ "]" }
 output_assign = { identifier ~ "=" ~ expr }
@@ -53,7 +123,12 @@ output_assign = { identifier ~ "=" ~ expr }
 transitions_block = { "transitions" ~ "{" ~ transition_item* ~ "}" }
 transition_item = { (identifier | "_") ~ "=>" ~ "{" ~ when_clause* ~ "}" }
 when_clause = { "when" ~ expr ~ "{" ~ transition_action* ~ "}" }
-transition_action = { goto_stmt | assign_stmt }
+// tools/iris.ebnf: transition_action = "goto" identifier ";" | statement ;
+// The `if` form is spelled out here because `goto` is not a statement and so
+// cannot appear inside an ordinary `if`.
+transition_action = { goto_stmt | fsm_if_stmt | assign_stmt }
+fsm_if_stmt = { "if" ~ expr ~ "{" ~ transition_action* ~ "}" ~ fsm_else_clause? }
+fsm_else_clause = { "else" ~ (fsm_if_stmt | ("{" ~ transition_action* ~ "}")) }
 goto_stmt = { "goto" ~ identifier ~ ";" }
 
 // Output block (for Mealy-style outputs)
@@ -61,16 +136,20 @@ output_block = { "output" ~ identifier ~ "{" ~ output_case* ~ "}" }
 output_case = { identifier ~ "=>" ~ expr ~ "," }
 
 // Interface definition
-interface_decl = { "interface" ~ identifier ~ generics? ~ "{" ~ interface_body ~ "}" }
+interface_decl = { "pub"? ~ "interface" ~ identifier ~ generics? ~ ("extends" ~ identifier)? ~ "{" ~ interface_body ~ "}" }
 interface_body = { (interface_signal | view_def)* }
-interface_signal = { "logic"? ~ identifier ~ ":" ~ type_expr ~ ";" }
-view_def = { "view" ~ identifier ~ "{" ~ view_signal* ~ "}" }
-view_signal = { view_direction ~ identifier ~ ";" }
-view_direction = { "in" | "out" | "inout" }
+interface_signal = { identifier ~ ":" ~ type_expr ~ ","? }
+view_def = { "view" ~ view_name ~ "{" ~ direction_list* ~ "}" }
+// spec 08: view_name = "initiator" | "target" | "monitor" | identifier
+view_name = { "initiator" | "target" | "monitor" | identifier }
+direction_list = { view_direction ~ ":" ~ signal_list }
+view_direction = { "inout" | "out" | "in" }
+signal_list = { identifier ~ ("," ~ identifier)* ~ ","? }
 
 // Memory declaration
 mem_decl = { "mem" ~ identifier ~ ":" ~ mem_type ~ mem_config? ~ ("=" ~ mem_initializer)? ~ ";" }
-mem_type = { base_type ~ "[" ~ integer ~ "]" }
+mem_type = { base_type ~ "[" ~ mem_depth ~ "]" }
+mem_depth = { expr }
 mem_config = { "{" ~ config_item* ~ "}" }
 config_item = { config_key ~ ":" ~ config_value ~ ","? }
 config_key = { "ports" | "type" | "read_mode" | "write_mode" | "init_file" }
@@ -81,7 +160,13 @@ mem_initializer = { array_initializer | string_literal }
 array_initializer = { "{" ~ (expr ~ ("," ~ expr)*)? ~ "}" }
 
 // Sequential statements
-seq_statement = { await_stmt | delay_stmt | assert_stmt | signal_write | assign_stmt | if_stmt | seq_for_stmt | seq_while_stmt }
+seq_statement = { await_stmt | delay_stmt | assert_stmt | cover_stmt | sys_stmt | break_stmt | continue_stmt | signal_write | assign_stmt | seq_if_stmt | seq_for_stmt | seq_while_stmt }
+// A sequential `if` holds sequential statements, so `await` and `break` work
+// inside it
+seq_if_stmt = { "if" ~ expr ~ "{" ~ seq_statement* ~ "}" ~ seq_else_clause? }
+seq_else_clause = { "else" ~ (seq_if_stmt | ("{" ~ seq_statement* ~ "}")) }
+break_stmt = { "break" ~ ";" }
+continue_stmt = { "continue" ~ ";" }
 
 // Sequential for/while loops (for test blocks)
 seq_for_stmt = { "for" ~ identifier ~ "in" ~ range_expr ~ "{" ~ seq_statement* ~ "}" }
@@ -102,10 +187,17 @@ time_unit = { "ns" | "us" | "ms" | "ps" | "s" }
 // Signal access
 signal_write = { signal_path ~ "." ~ "set" ~ "(" ~ expr ~ ")" ~ ";" }
 signal_read = { signal_path ~ "." ~ "value" ~ "(" ~ ")" }
-signal_path = { identifier ~ ("." ~ identifier)* }
+// The trailing `.set` / `.value` belongs to signal_write / signal_read, so the
+// path must not consume it. This is what keeps `set` and `value` usable as
+// ordinary identifiers.
+signal_path = { identifier ~ ("." ~ !(("set" | "value") ~ !(ASCII_ALPHANUMERIC | "_")) ~ identifier)* }
 
 // Assert statement
-assert_stmt = { "assert" ~ expr ~ ("," ~ string_literal)? ~ ";" }
+assert_stmt = { ("assert" | "expect" | "assume") ~ expr ~ (("," ~ string_literal) | ("else" ~ assert_action))? ~ ";" }
+// A coverage point: how often the condition held (spec 11.2.6)
+cover_stmt = { "cover" ~ expr ~ ("," ~ string_literal)? ~ ";" }
+assert_action = { assert_severity ~ "(" ~ string_literal ~ ")" }
+assert_severity = { "error" | "warning" | "fatal" }
 string_literal = { "\"" ~ string_content ~ "\"" }
 string_content = { (!("\"") ~ ANY)* }
 
@@ -118,15 +210,19 @@ reset_mode = { "sync" | "async" }
 // Instance
 instance = { "inst" ~ identifier ~ array_size? ~ "=" ~ identifier ~ generic_args? ~ "{" ~ port_connections ~ "}" ~ ";" }
 array_size = { "[" ~ integer ~ "]" }
-generic_args = { "[" ~ generic_arg ~ ("," ~ generic_arg)* ~ "]" }
+generic_args = { "[" ~ generic_arg ~ ("," ~ generic_arg)* ~ ","? ~ "]" }
 generic_arg = { identifier ~ ":" ~ expr }
 port_connections = { port_connection ~ ("," ~ port_connection)* ~ ","? }
 port_connection = { identifier ~ ":" ~ expr }
 
 // Types
 type_expr = { base_type ~ array_suffix* }
-base_type = { bit_type | clock_type | reset_type | identifier }
+base_type = { bit_type | int_type | uint_type | clock_type | reset_type | bool_type | string_type | identifier }
 bit_type = { "bit" ~ ("[" ~ width_expr ~ "]")? }
+int_type = { "int" ~ ("[" ~ width_expr ~ "]")? }
+uint_type = { "uint" ~ ("[" ~ width_expr ~ "]")? }
+bool_type = { "bool" }
+string_type = { "string" }
 clock_type = { "clock" ~ clock_config? }
 clock_config = { "(" ~ "period" ~ ":" ~ duration ~ ")" }
 reset_type = { "reset" ~ reset_config? }
@@ -140,12 +236,27 @@ width_expr = { expr ~ (":" ~ expr)? }
 array_suffix = { "[" ~ integer ~ "]" }
 
 // Statements
-statement = { assign_stmt | if_stmt | match_stmt | for_stmt | while_stmt }
-assign_stmt = { identifier ~ "=" ~ expr ~ ";" }
-if_stmt = { "if" ~ expr ~ "{" ~ statement* ~ "}" ~ ("else" ~ "{" ~ statement* ~ "}")? }
+statement = { assert_stmt | cover_stmt | sys_stmt | break_stmt | continue_stmt | slice_assign_stmt | mem_write_stmt | assign_stmt | let_local | if_stmt | match_stmt | for_stmt | while_stmt }
+// Assignment to a bit field (tools/iris.ebnf: lvalue = ... | index_expr)
+slice_assign_stmt = { identifier ~ (slice | part_select) ~ "=" ~ expr ~ ";" }
+sys_stmt = { sys_func ~ ";" }
+assign_stmt = { assign_target ~ "=" ~ expr ~ ";" }
+// A target may name a member of an interface port (`axi.valid`)
+assign_target = @{ identifier ~ ("." ~ identifier)* }
+mem_write_stmt = { identifier ~ "[" ~ expr ~ "]" ~ "=" ~ expr ~ ";" }
+let_local = { "let" ~ identifier ~ (":" ~ type_expr)? ~ ("=" ~ expr)? ~ ";" }
+if_stmt = { "if" ~ expr ~ "{" ~ statement* ~ "}" ~ else_clause? }
+// `else if` chains, per tools/iris.ebnf: [ "else" ( if_stmt | block_stmt ) ]
+else_clause = { "else" ~ (if_stmt | ("{" ~ statement* ~ "}")) }
 match_stmt = { "match" ~ expr ~ "{" ~ match_arm* ~ "}" }
 match_arm = { pattern ~ "=>" ~ (expr | "{" ~ statement* ~ "}") ~ ","? }
-pattern = { "_" | literal | identifier }
+// A PEG alternation commits to its first match, so `A::B` has to be tried
+// before a bare identifier
+pattern = { "_" | literal | path_pattern | identifier | tuple_pattern | struct_pattern }
+path_pattern = { identifier ~ "::" ~ identifier ~ ("(" ~ identifier ~ ")")? }
+tuple_pattern = { "(" ~ pattern ~ ("," ~ pattern)* ~ ","? ~ ")" }
+struct_pattern = { identifier ~ "{" ~ field_pattern ~ ("," ~ field_pattern)* ~ ","? ~ "}" }
+field_pattern = { identifier ~ ":" ~ pattern }
 
 // Loop statements
 for_stmt = { "for" ~ identifier ~ "in" ~ range_expr ~ "{" ~ statement* ~ "}" }
@@ -156,25 +267,39 @@ while_stmt = { "while" ~ expr ~ "{" ~ statement* ~ "}" }
 // Expressions
 expr = { unary_expr ~ (bin_op ~ unary_expr)* }
 unary_expr = { unary_op* ~ primary_expr ~ postfix* }
-primary_expr = { literal | identifier | paren_expr | concat_expr | if_expr }
+primary_expr = { literal | sys_func | match_expr | if_expr | enum_call | enum_path | call_expr | identifier | paren_expr | replication | concat_expr }
+// A call to a user-defined function, inlined at elaboration
+call_expr = { identifier ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+// `Colour::Red` — resolved to its value at elaboration
+enum_path = @{ identifier ~ "::" ~ identifier }
+// `Packet::Payload(8'hab)` — a variant that carries a value
+enum_call = { enum_path ~ "(" ~ expr ~ ")" }
+sys_func = { "$" ~ identifier ~ ("(" ~ (sys_func_arg ~ ("," ~ sys_func_arg)*)? ~ ")")? }
+sys_func_arg = { string_literal | expr | type_expr }
 paren_expr = { "(" ~ expr ~ ")" }
 concat_expr = { "{" ~ expr ~ ("," ~ expr)* ~ "}" }
+// spec 9.7.2: `{4{8'hAB}}` repeats its operand. Tried before `concat_expr`,
+// whose first alternative would otherwise swallow the count.
+replication = { "{" ~ expr ~ "{" ~ expr ~ ("," ~ expr)* ~ "}" ~ "}" }
 if_expr = { "if" ~ expr ~ "{" ~ expr ~ "}" ~ "else" ~ "{" ~ expr ~ "}" }
+match_expr = { "match" ~ expr ~ "{" ~ match_expr_arm* ~ "}" }
+match_expr_arm = { pattern ~ "=>" ~ expr ~ ","? }
 
 // Postfix operators
-postfix = { index | slice | method_call | field_access }
+postfix = { part_select | index | slice | method_call | field_access }
 index = { "[" ~ expr ~ "]" }
 slice = { "[" ~ expr ~ ":" ~ expr ~ "]" }
-method_call = { "." ~ identifier ~ ("[" ~ expr ~ "]")? }
+part_select = { "[" ~ expr ~ part_select_op ~ expr ~ "]" }
+part_select_op = { "+:" | "-:" }
+method_call = { "." ~ identifier ~ ("[" ~ expr ~ "]")? ~ ("(" ~ (expr ~ ("," ~ expr)*)? ~ ")")? }
 field_access = { "." ~ identifier }
 
 // Operators
 bin_op = {
     "&&" | "||" |
-    "==" | "!=" | "<=" | ">=" | "<" | ">" |
-    "<<" | ">>" |
-    "+" | "-" | "*" | "/" | "%" |
-    "&" | "|" | "^"
+    "===" | "!==" | "==" | "!=" | "<=" | ">=" | "<<<" | "<<<" | ">>>" | "<<" | ">>" | "<" | ">" |
+    "+" | "-" | "**" | "*" | "/" | "%" |
+    "~^" | "&" | "|" | "^"
 }
 unary_op = { "!" | "~" | "-" }
 
@@ -192,14 +317,21 @@ identifier = @{ !keyword ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 integer = @{ ASCII_DIGIT+ }
 
 // Keywords - must be followed by non-identifier character
+// The reserved words of spec 2.4. Contextual names such as `period`,
+// `posedge` or `ram` are matched literally where they are meaningful, so they
+// stay available as identifiers.
 keyword = @{
-    ("mod" | "test" | "let" | "mut" | "var" | "comb" | "sync" | "if" | "else" | "match" |
-    "in" | "out" | "inout" | "initiator" | "target" | "monitor" | "bit" | "clock" | "reset" | "inst" |
-    "posedge" | "negedge" | "async" | "active_low" | "period" | "assert_cycles" | "assert_time" | "true" | "false" |
-    "seq" | "initial" | "await" | "until" | "assert" | "cycles" | "set" | "value" | "timeout" |
-    "fsm" | "state" | "enum" | "transitions" | "when" | "goto" | "output" |
-    "mem" | "ports" | "type" | "read_mode" | "write_mode" | "init_file" | "ram" | "rom" |
-    "interface" | "logic" | "view" | "for" | "while") ~ !(ASCII_ALPHANUMERIC | "_")
+    // Spec 2.4 reserves these 58 words. They are ordered longest first:
+    // a PEG alternation commits to the first match, so a word that
+    // prefixes another (`in` before `inst`) would hide it.
+    ("transitions" | "constraint" | "initiator" | "interface" | "continue" | "default" | "extends" | "initial" |
+    "monitor" | "package" | "assert" | "assume" | "expect" | "export" | "extern" | "import" |
+    "return" | "struct" | "target" | "await" | "break" | "clock" | "const" | "cover" |
+    "inout" | "match" | "reset" | "state" | "union" | "where" | "while" | "bool" |
+    "comb" | "else" | "enum" | "goto" | "inst" | "sync" | "test" | "type" |
+    "uint" | "view" | "when" | "bit" | "for" | "fsm" | "int" | "let" |
+    "mem" | "mod" | "mut" | "out" | "pub" | "seq" | "var" | "fn" |
+    "if" | "in") ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
 // Whitespace and comments

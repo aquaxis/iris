@@ -17,6 +17,7 @@ export enum TokenKind {
   Return = 'return',
   Type = 'type',
   Struct = 'struct',
+  Union = 'union',
   Enum = 'enum',
   Interface = 'interface',
   Import = 'import',
@@ -89,6 +90,10 @@ export enum TokenKind {
 
   // Operators
   Plus = '+',
+  /** `+:` of a part select, `a[i +: 8]` */
+  PlusColon = '+:',
+  /** `-:` of a part select, `a[i -: 8]` */
+  MinusColon = '-:',
   Minus = '-',
   Star = '*',
   Slash = '/',

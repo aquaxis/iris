@@ -18,6 +18,7 @@ export interface HirExprBase {
  * HIR Expression union type
  */
 export type HirExpr =
+  | HirStringLiteral
   | HirIntegerLiteral
   | HirBoolLiteral
   | HirEnumLiteral
@@ -171,6 +172,14 @@ export interface HirSliceExpr extends HirExprBase {
   readonly base: HirExpr;
   readonly high: HirExpr;
   readonly low: HirExpr;
+  /**
+   * The operator of a part select, `+:` or `-:`.
+   *
+   * Without it, `a[i +: 8]` and `a[i -: 8]` both became `a[i:8]`: two different
+   * selections collapsed into one, and that one was a fixed slice rather than a
+   * moving window.
+   */
+  readonly partSelect?: '+:' | '-:' | undefined;
 }
 
 /**
@@ -389,11 +398,25 @@ export function createIndexExpr(base: HirExpr, index: HirExpr): HirIndexExpr {
 /**
  * Create a slice expression
  */
-export function createSliceExpr(base: HirExpr, high: HirExpr, low: HirExpr): HirSliceExpr {
+export function createSliceExpr(
+  base: HirExpr,
+  high: HirExpr,
+  low: HirExpr,
+  partSelect?: '+:' | '-:'
+): HirSliceExpr {
   // Width is high - low + 1 (if both are constants)
   let dataType: HirDataType | undefined;
 
-  if (high.kind === 'IntegerLiteral' && low.kind === 'IntegerLiteral') {
+  if (partSelect) {
+    // A part select is as wide as its second operand, whatever the position.
+    if (low.kind === 'IntegerLiteral') {
+      dataType = {
+        kind: 'LogicType',
+        width: { kind: 'ConstWidth', value: Number(low.value) },
+        signed: false,
+      };
+    }
+  } else if (high.kind === 'IntegerLiteral' && low.kind === 'IntegerLiteral') {
     const width = Number(high.value - low.value) + 1;
     dataType = { kind: 'LogicType', width: { kind: 'ConstWidth', value: width }, signed: false };
   }
@@ -403,6 +426,7 @@ export function createSliceExpr(base: HirExpr, high: HirExpr, low: HirExpr): Hir
     base,
     high,
     low,
+    partSelect,
     dataType,
   };
 }
@@ -452,4 +476,16 @@ export function createCastExpr(expr: HirExpr, targetType: HirDataType): HirCastE
     targetType,
     dataType: targetType,
   };
+}
+
+
+/**
+ * A string literal.
+ *
+ * Not synthesizable on its own, but `$display("...")` needs one, and lowering
+ * it to `0` turned every message a testbench prints into a zero.
+ */
+export interface HirStringLiteral extends HirExprBase {
+  readonly kind: 'StringLiteral';
+  readonly value: string;
 }

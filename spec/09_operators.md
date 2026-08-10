@@ -1,6 +1,6 @@
 # 第9章 演算子
 
-[<< インターフェース](./08_interface.md) | [目次](./iris_spec_0.1.0.md) | [メモリ >>](./10_memory.md)
+[<< インターフェース](./08_interface.md) | [目次](./iris_spec.md) | [メモリ >>](./10_memory.md)
 
 ---
 
@@ -33,16 +33,16 @@ let pow = a ** 2;        // a * a
 
 ```rust
 // キャリー付き加算
-let extended_sum = a.extend[9] + b.extend[9];  // bit[9]
+let extended_sum = a.extend[9]() + b.extend[9]();  // bit[9]
 let result = extended_sum[7:0];
 let carry = extended_sum[8];
 
 // 飽和演算
-let sat_sum = (a.extend[9] + b.extend[9]).saturate[8];
+let sat_sum = (a.extend[9]() + b.extend[9]()).saturate[8]();
 // 255 + 1 = 255（飽和）
 
 // 明示的切り詰め
-let trunc_prod = (a * b).truncate[8];  // bit[8]
+let trunc_prod = (a * b).truncate[8]();  // bit[8]
 ```
 
 ### 9.1.3 符号付き演算
@@ -111,7 +111,7 @@ let val: bit[8] = 8'b1010_0101;
 let ones = val.count_ones();   // 4
 let zeros = val.count_zeros(); // 4
 
-// 先行・後続ゼロ
+// 先行ゼロと後続ゼロ
 let leading = val.leading_zeros();   // 0
 let trailing = val.trailing_zeros(); // 0
 
@@ -123,7 +123,7 @@ let reversed = val.reverse_bits();  // 8'b1010_0101
 
 ## 9.3 比較演算子
 
-### 9.3.1 等価・不等価
+### 9.3.1 等価と不等価
 
 | 演算子 | 説明 | X/Z扱い |
 |--------|------|---------|
@@ -227,6 +227,22 @@ let byte3 = data[31:24];   // 上位8ビット
 let byte_n = data[byte_idx * 8 +: 8];
 ```
 
+**スライスとパート選択の使い分け:**
+
+スライス`data[high:low]`の上限と下限は定数式でなければならない。
+両端が実行時に変わると幅が定まらず、合成できないためである。
+定数式なので、ジェネリックパラメータや`$clog2`から導いてよい。
+
+```rust
+ptr[AddrWidth - 1 : 0]     // 定数式なので書ける
+c[i + 3 : i]               // i が実行時に変わるなら書けない
+```
+
+位置が実行時に変わる選択にはパート選択を使う。
+幅が定数であれば位置は変わってよい。
+
+添字が定数でないスライスは静的検査で拒否され、パート選択へ誘導される。
+
 ---
 
 ## 9.7 連結とレプリケーション
@@ -276,7 +292,7 @@ let sign_ext: bit[16] = {{8{sign_bit}}, value};
 | 11 | `\|` | 左 | ビットOR |
 | 12 | `&&` | 左 | 論理AND |
 | 13 | `\|\|` | 左 | 論理OR |
-| 14 | `?:` | 右 | 三項条件 |
+| 14 | `?:` `as` | 右 | 三項条件、キャスト |
 | 15 (最低) | `=` | 右 | 代入 |
 
 ```rust
@@ -291,4 +307,4 @@ let set = data | (1 << bit_pos);     // ビットセット
 
 ---
 
-[<< インターフェース](./08_interface.md) | [目次](./iris_spec_0.1.0.md) | [メモリ >>](./10_memory.md)
+[<< インターフェース](./08_interface.md) | [目次](./iris_spec.md) | [メモリ >>](./10_memory.md)

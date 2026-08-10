@@ -53,6 +53,8 @@ import type {
   EnumDef,
   EnumVariant,
   StructDef,
+  UnionDef,
+  ExternModDef,
   StructField,
   TypeAlias,
   InterfaceDef,
@@ -70,6 +72,8 @@ import type {
   TestParam,
   TestStmt,
   AssertStmt,
+  AssertSeverity,
+  TimeUnit,
   WaitStmt,
   WaitCondition,
   DriveStmt,
@@ -96,6 +100,7 @@ import type {
   AwaitExpr,
   ClockEdgeAwait,
   UntilAwait,
+  TypeAttr,
   EventAwait,
   AsyncCallAwait,
   DelayStmt,
@@ -245,10 +250,12 @@ export class Parser {
     const startSpan = this.current().span;
 
     while (!this.isEof()) {
+      const mark = this.pos;
       const item = this.parseItem();
       if (item) {
         items.push(item);
       }
+      this.ensureProgress(mark);
     }
 
     return {
@@ -277,8 +284,15 @@ export class Parser {
     const visibility = this.parseVisibility();
 
     // Parse item based on keyword
-    if (this.check(TokenKind.Test) && this.peek().kind === TokenKind.Mod) {
-      // test mod definition
+    if (this.check(TokenKind.Test)) {
+      // `test Name { ... }` is a test module; `test name() { ... }` is a test
+      // function. The older form spelled the module `test mod Name`.
+      if (this.peek().kind === TokenKind.Mod) {
+        return this.parseTestModDef(start, visibility);
+      }
+      if (this.peek().kind === TokenKind.Ident && this.peek(2).kind === TokenKind.LParen) {
+        return this.parseTestFnDef(start, attributes);
+      }
       return this.parseTestModDef(start, visibility);
     }
     if (this.check(TokenKind.Mod)) {
@@ -296,6 +310,12 @@ export class Parser {
     }
     if (this.check(TokenKind.Struct)) {
       return this.parseStructDef(start, visibility);
+    }
+    if (this.check(TokenKind.Union)) {
+      return this.parseUnionDef(start, visibility);
+    }
+    if (this.check(TokenKind.Extern)) {
+      return this.parseExternModDef(start, visibility);
     }
     if (this.check(TokenKind.Enum)) {
       return this.parseEnumDef(start, visibility);
@@ -529,10 +549,12 @@ export class Parser {
   private parseModItems(): ModItem[] {
     const items: ModItem[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const item = this.parseModItem();
       if (item) {
         items.push(item);
       }
+      this.ensureProgress(mark);
     }
     return items;
   }
@@ -564,8 +586,12 @@ export class Parser {
     if (this.check(TokenKind.Fsm)) {
       return this.parseFsmBlock(start);
     }
+    // `inst` is not a keyword in this lexer, so it arrives as an identifier
+    if (this.check(TokenKind.Ident) && this.current().text === 'inst') {
+      return this.parseInstDecl(start);
+    }
     if (this.check(TokenKind.Ident)) {
-      // Could be instance declaration: name: ModulePath(...)
+      // The older form: name: ModulePath(...)
       if (this.peek().kind === TokenKind.Colon) {
         return this.parseInstDecl(start);
       }
@@ -589,6 +615,8 @@ export class Parser {
     const params: GenericParam[] = [];
     if (!this.check(TokenKind.RBracket)) {
       do {
+        // A trailing comma before `]` is allowed
+        if (this.check(TokenKind.RBracket)) break;
         const param = this.parseGenericParam();
         if (param) {
           params.push(param);
@@ -660,6 +688,8 @@ export class Parser {
 
     const constraints: Constraint[] = [];
     do {
+      // A trailing comma before the port list is allowed
+      if (this.check(TokenKind.LParen)) break;
       const constraint = this.parseConstraint();
       if (constraint) {
         constraints.push(constraint);
@@ -763,10 +793,12 @@ export class Parser {
       return { kind: 'PrimitiveType', name: 'bool', span: this.makeSpan(start, this.previous().span.end) };
     }
     if (this.match(TokenKind.Clock)) {
-      return { kind: 'PrimitiveType', name: 'clock', span: this.makeSpan(start, this.previous().span.end) };
+      const attrs = this.parseTypeAttrs();
+      return { kind: 'PrimitiveType', name: 'clock', attrs, span: this.makeSpan(start, this.previous().span.end) };
     }
     if (this.match(TokenKind.Reset)) {
-      return { kind: 'PrimitiveType', name: 'reset', span: this.makeSpan(start, this.previous().span.end) };
+      const attrs = this.parseTypeAttrs();
+      return { kind: 'PrimitiveType', name: 'reset', attrs, span: this.makeSpan(start, this.previous().span.end) };
     }
     if (this.match(TokenKind.String)) {
       return { kind: 'PrimitiveType', name: 'string', span: this.makeSpan(start, this.previous().span.end) };
@@ -804,12 +836,75 @@ export class Parser {
     };
   }
 
+
+  /**
+   * Parse the attribute list of a clock or reset type
+   *
+   * `clock(period: 10ns)`, `reset(active_low: true)`. Specification §2.7.
+   * Absent when there is no `(`, which is the bare `clock` / `reset` form.
+   */
+  private parseTypeAttrs(): TypeAttr[] | undefined {
+    if (!this.match(TokenKind.LParen)) {
+      return undefined;
+    }
+
+    const attrs: TypeAttr[] = [];
+    while (!this.check(TokenKind.RParen) && !this.isEof()) {
+      const attrStart = this.current().span.start;
+      const nameToken = this.expect(TokenKind.Ident, 'Expected attribute name');
+      if (!nameToken) {
+        break;
+      }
+      const name = this.makeIdentifier(nameToken);
+      if (!this.expect(TokenKind.Colon, 'Expected : after attribute name')) {
+        break;
+      }
+      const value = this.parseExpr();
+      if (!value) {
+        break;
+      }
+      // A duration such as `10ns` lexes as an integer followed by the unit,
+      // so the unit is still sitting there after the expression.
+      const unit = this.matchTimeUnit();
+      attrs.push({
+        kind: 'TypeAttr',
+        name,
+        value,
+        unit,
+        span: this.makeSpan(attrStart, this.previous().span.end),
+      });
+      if (!this.match(TokenKind.Comma)) {
+        break;
+      }
+    }
+
+    this.expect(TokenKind.RParen, 'Expected ) after type attributes');
+    return attrs;
+  }
+  /**
+   * Consume a trailing time unit if one is there. The units are not keywords,
+   * so they reach the parser as identifiers.
+   */
+  private matchTimeUnit(): TimeUnit | undefined {
+    if (!this.check(TokenKind.Ident)) {
+      return undefined;
+    }
+    const text = this.current().text;
+    if (text === 'ps' || text === 'ns' || text === 'us' || text === 'ms' || text === 's') {
+      this.advance();
+      return text;
+    }
+    return undefined;
+  }
+
   private parseIntType(start: SourceLocation, name: 'int' | 'uint'): PrimitiveType {
     this.advance(); // consume 'int' or 'uint'
-    this.expect(TokenKind.Lt, 'Expected <');
-    // Parse width expression without comparison operators
+    // `int[N]` is the current syntax; `int<N>` is the older one and is still
+    // accepted so that existing sources keep parsing.
+    const bracketed = this.check(TokenKind.LBracket);
+    this.expect(bracketed ? TokenKind.LBracket : TokenKind.Lt, 'Expected [');
     const width = this.parseTypeWidthExpr();
-    this.expect(TokenKind.Gt, 'Expected >');
+    this.expect(bracketed ? TokenKind.RBracket : TokenKind.Gt, 'Expected ]');
 
     return {
       kind: 'PrimitiveType',
@@ -901,8 +996,11 @@ export class Parser {
       this.advance(); // consume :
     }
 
-    // Parse type or expression
-    const value = this.parseTypeExpr() ?? this.parseExpr();
+    // A generic argument is an expression in the reference grammar
+    // (`generic_arg = identifier ~ ":" ~ expr`), but a type is accepted here so
+    // that generic type application keeps working. Both attempts are
+    // speculative, so the one that fails leaves no diagnostic behind.
+    const value = this.speculate(() => this.parseTypeExpr()) ?? this.parseExpr();
     if (!value) {
       return null;
     }
@@ -1032,7 +1130,12 @@ export class Parser {
         if (!index) return null;
 
         let rangeEnd: Expr | undefined;
+        let partSelect: '+:' | '-:' | undefined;
         if (this.match(TokenKind.Colon)) {
+          rangeEnd = this.parseExpr() ?? undefined;
+        } else if (this.checkPartSelectOp()) {
+          partSelect = this.current().text as '+:' | '-:';
+          this.advance();
           rangeEnd = this.parseExpr() ?? undefined;
         }
 
@@ -1042,6 +1145,7 @@ export class Parser {
           base: expr,
           index,
           rangeEnd,
+          partSelect,
           span: this.makeSpan(start, this.previous().span.end),
         };
         continue;
@@ -1226,14 +1330,53 @@ export class Parser {
   private parseMatchArms(): MatchArm[] {
     const arms: MatchArm[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const before = this.pos;
       const arm = this.parseMatchArm();
       if (arm) {
         arms.push(arm);
+      }
+      // An arm that consumed nothing would spin here forever. This runs inside
+      // an editor, so a hang is worse than a wrong parse: skip a token and let
+      // the error surface.
+      if (this.pos === before) {
+        this.advance();
       }
     }
     return arms;
   }
 
+
+  /**
+   * Does the `{` at the cursor open a concatenation rather than a block?
+   *
+   * After `=>` both are possible:
+   *
+   *   2'd0 => { a[7:0], b[7:0] },     // concatenation
+   *   2'd0 => { x = 1; }              // block
+   *
+   * They are told apart by what appears first at the top level of the braces:
+   * a comma means a concatenation, a semicolon means a block.
+   */
+  private braceStartsConcat(): boolean {
+    let depth = 0;
+    for (let i = this.pos; i < this.tokens.length; i++) {
+      const kind = this.tokens[i]!.kind;
+      if (kind === TokenKind.LBrace || kind === TokenKind.LBracket || kind === TokenKind.LParen) {
+        depth++;
+        continue;
+      }
+      if (kind === TokenKind.RBrace || kind === TokenKind.RBracket || kind === TokenKind.RParen) {
+        depth--;
+        if (depth === 0) return false;
+        continue;
+      }
+      if (depth === 1) {
+        if (kind === TokenKind.Comma) return true;
+        if (kind === TokenKind.Semicolon) return false;
+      }
+    }
+    return false;
+  }
   private parseMatchArm(): MatchArm | null {
     const start = this.current().span.start;
     const pattern = this.parsePattern();
@@ -1243,7 +1386,7 @@ export class Parser {
 
     // Arm body can be expression with comma, or block
     let body: Expr | BlockStmt;
-    if (this.check(TokenKind.LBrace)) {
+    if (this.check(TokenKind.LBrace) && !this.braceStartsConcat()) {
       const blockStart = this.current().span.start;
       this.advance();
       const stmts = this.parseStatements();
@@ -1428,12 +1571,35 @@ export class Parser {
   private parseStatements(): Stmt[] {
     const stmts: Stmt[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const stmt = this.parseStatement();
       if (stmt) {
         stmts.push(stmt);
       }
+      this.ensureProgress(mark);
     }
     return stmts;
+  }
+
+  /**
+   * A parse that consumes nothing leaves the enclosing loop where it started,
+   * and the parser spins. This runs inside an editor, so a spin freezes the
+   * window on a file that is merely half-typed. Report once and step over the
+   * token instead.
+   */
+  /** Whether a part-select operator sits at the cursor. */
+  private checkPartSelectOp(): boolean {
+    return (
+      this.check(TokenKind.PlusColon) || this.check(TokenKind.MinusColon)
+    );
+  }
+
+  private ensureProgress(mark: number): void {
+    if (this.pos !== mark || this.isEof()) {
+      return;
+    }
+    this.reportError(`Unexpected token: ${this.current().text}`);
+    this.advance();
   }
 
   private parseStatement(): Stmt | null {
@@ -1462,6 +1628,11 @@ export class Parser {
     }
     if (this.check(TokenKind.LBrace)) {
       return this.parseBlockStmt(start);
+    }
+    // A check may stand wherever a statement does: inside sync, initial and
+    // seq blocks as well as directly in a test module.
+    if (this.check(TokenKind.Assert)) {
+      return this.parseAssertStmt(start);
     }
 
     // Assignment or expression statement
@@ -1824,11 +1995,18 @@ export class Parser {
   // ========================================
 
   private parseInstDecl(start: SourceLocation): InstDecl | null {
+    // Current syntax: `inst name = Module { port: expr, ... };`
+    // Older syntax:   `name: Module(port: expr, ...);`
+    const isCurrent = this.check(TokenKind.Ident) && this.current().text === 'inst';
+    if (isCurrent) {
+      this.advance();
+    }
+
     const nameToken = this.expect(TokenKind.Ident, 'Expected instance name');
     if (!nameToken) return null;
     const name = this.makeIdentifier(nameToken);
 
-    this.expect(TokenKind.Colon, 'Expected :');
+    this.expect(isCurrent ? TokenKind.Eq : TokenKind.Colon, isCurrent ? 'Expected =' : 'Expected :');
 
     const modulePath = this.parsePath();
     if (!modulePath) return null;
@@ -1838,9 +2016,9 @@ export class Parser {
       genericArgs = this.parseGenericArgs();
     }
 
-    this.expect(TokenKind.LParen, 'Expected (');
+    this.expect(isCurrent ? TokenKind.LBrace : TokenKind.LParen, 'Expected {');
     const connections = this.parseConnections();
-    this.expect(TokenKind.RParen, 'Expected )');
+    this.expect(isCurrent ? TokenKind.RBrace : TokenKind.RParen, 'Expected }');
     this.expect(TokenKind.Semicolon, 'Expected ;');
 
     return {
@@ -1855,11 +2033,13 @@ export class Parser {
 
   private parseConnections(): Connection[] {
     const connections: Connection[] = [];
-    if (this.check(TokenKind.RParen)) {
+    if (this.check(TokenKind.RParen) || this.check(TokenKind.RBrace)) {
       return connections;
     }
 
     do {
+      // A trailing comma before the closing brace or paren is allowed
+      if (this.check(TokenKind.RParen) || this.check(TokenKind.RBrace)) break;
       const conn = this.parseConnection();
       if (conn) {
         connections.push(conn);
@@ -1871,16 +2051,25 @@ export class Parser {
 
   private parseConnection(): Connection | null {
     const start = this.current().span.start;
-    this.expect(TokenKind.Dot, 'Expected .');
+
+    // Current syntax: `port: expr`
+    // Older syntax:   `.port(expr)`
+    const isOld = this.match(TokenKind.Dot);
 
     const portToken = this.expect(TokenKind.Ident, 'Expected port name');
     if (!portToken) return null;
     const port = this.makeIdentifier(portToken);
 
-    this.expect(TokenKind.LParen, 'Expected (');
+    if (isOld) {
+      this.expect(TokenKind.LParen, 'Expected (');
+    } else {
+      this.expect(TokenKind.Colon, 'Expected :');
+    }
     const expr = this.parseExpr();
     if (!expr) return null;
-    this.expect(TokenKind.RParen, 'Expected )');
+    if (isOld) {
+      this.expect(TokenKind.RParen, 'Expected )');
+    }
 
     return {
       kind: 'Connection',
@@ -2087,15 +2276,49 @@ export class Parser {
     const stateEnum = this.parseStateEnum();
     if (!stateEnum) return null;
 
+    // Optional `initial: StateName`
+    let initialState: Identifier | undefined;
+    if (this.check(TokenKind.Initial)) {
+      this.advance();
+      this.expect(TokenKind.Colon, 'Expected : after initial');
+      const stateToken = this.expect(TokenKind.Ident, 'Expected initial state name');
+      if (stateToken) initialState = this.makeIdentifier(stateToken);
+    }
+
+    // Signals declared inside the machine, before `transitions`
+    const signals: ModItem[] = [];
+    while (this.check(TokenKind.Let) || this.check(TokenKind.Var)) {
+      const mark = this.pos;
+      const decl = this.parseModItem();
+      if (decl) signals.push(decl);
+      this.ensureProgress(mark);
+    }
+
     // Parse transitions_block
     const transitions = this.parseTransitionsBlock();
     if (!transitions) return null;
 
-    // Parse optional output_blocks
+    // Parse optional output_blocks, and the encoding clause that shares their
+    // keyword: `output encoding: onehot` against `output y { ... }`.
     const outputs: OutputBlock[] = [];
+    let encoding: 'binary' | 'onehot' | 'gray' | undefined;
     while (this.check(TokenKind.Output)) {
+      const mark = this.pos;
+      if (this.peek().kind === TokenKind.Ident && this.peek().text === 'encoding') {
+        this.advance();  // output
+        this.advance();  // encoding
+        this.expect(TokenKind.Colon, 'Expected : after encoding');
+        const nameToken = this.expect(TokenKind.Ident, 'Expected binary, onehot or gray');
+        const name = nameToken?.text;
+        if (name === 'binary' || name === 'onehot' || name === 'gray') {
+          encoding = name;
+        }
+        this.ensureProgress(mark);
+        continue;
+      }
       const output = this.parseOutputBlock();
       if (output) outputs.push(output);
+      this.ensureProgress(mark);
     }
 
     this.expect(TokenKind.RBrace, 'Expected }');
@@ -2106,8 +2329,11 @@ export class Parser {
       clock,
       reset,
       stateEnum,
+      initialState,
+      signals,
       transitions,
       outputs,
+      encoding,
       span: this.makeSpan(start, this.previous().span.end),
     };
   }
@@ -2120,9 +2346,11 @@ export class Parser {
 
     const states: StateItem[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const state = this.parseStateItem();
       if (state) states.push(state);
       this.match(TokenKind.Comma);
+      this.ensureProgress(mark);
     }
 
     this.expect(TokenKind.RBrace, 'Expected }');
@@ -2194,8 +2422,10 @@ export class Parser {
 
     const items: TransitionItem[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const item = this.parseTransitionItem();
       if (item) items.push(item);
+      this.ensureProgress(mark);
     }
 
     this.expect(TokenKind.RBrace, 'Expected }');
@@ -2423,6 +2653,56 @@ export class Parser {
   // Type Definitions
   // ========================================
 
+  /** `union U { a: bit[8], b: bit[8], }` — the same body as a struct. */
+  private parseUnionDef(start: SourceLocation, visibility: Visibility): UnionDef | null {
+    this.expect(TokenKind.Union, 'Expected union');
+
+    const nameToken = this.expect(TokenKind.Ident, 'Expected union name');
+    if (!nameToken) return null;
+    const name = this.makeIdentifier(nameToken);
+
+    this.expect(TokenKind.LBrace, 'Expected {');
+    const fields = this.parseStructFields();
+    this.expect(TokenKind.RBrace, 'Expected }');
+
+    return {
+      kind: 'UnionDef',
+      visibility,
+      name,
+      fields,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  /** `extern mod Name(ports);` — ports but no body. */
+  private parseExternModDef(start: SourceLocation, visibility: Visibility): ExternModDef | null {
+    this.expect(TokenKind.Extern, 'Expected extern');
+    this.expect(TokenKind.Mod, 'Expected mod');
+
+    const nameToken = this.expect(TokenKind.Ident, 'Expected module name');
+    if (!nameToken) return null;
+    const name = this.makeIdentifier(nameToken);
+
+    let genericParams: GenericParams | undefined;
+    if (this.check(TokenKind.LBracket)) {
+      genericParams = this.parseGenericParams() ?? undefined;
+    }
+
+    this.expect(TokenKind.LParen, 'Expected (');
+    const ports = this.parsePortList();
+    this.expect(TokenKind.RParen, 'Expected )');
+    this.expect(TokenKind.Semicolon, 'Expected ;');
+
+    return {
+      kind: 'ExternModDef',
+      visibility,
+      name,
+      genericParams,
+      ports,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
   private parseStructDef(start: SourceLocation, visibility: Visibility): StructDef | null {
     this.expect(TokenKind.Struct, 'Expected struct');
 
@@ -2634,12 +2914,21 @@ export class Parser {
       genericParams = this.parseGenericParams() ?? undefined;
     }
 
+    // interface_decl = ... ("extends" ~ identifier)? ~ "{" ~ interface_body ~ "}"
+    let extendsName: Identifier | undefined;
+    if (this.check(TokenKind.Ident) && this.current().text === 'extends') {
+      this.advance();
+      const baseToken = this.expect(TokenKind.Ident, 'Expected interface name after extends');
+      if (baseToken) extendsName = this.makeIdentifier(baseToken);
+    }
+
     this.expect(TokenKind.LBrace, 'Expected {');
 
     const signals: InterfaceSignal[] = [];
     const views: ViewDef[] = [];
 
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       if (this.check(TokenKind.View)) {
         const view = this.parseViewDef();
         if (view) views.push(view);
@@ -2647,6 +2936,7 @@ export class Parser {
         const signal = this.parseInterfaceSignal();
         if (signal) signals.push(signal);
       }
+      this.ensureProgress(mark);
     }
 
     this.expect(TokenKind.RBrace, 'Expected }');
@@ -2656,6 +2946,7 @@ export class Parser {
       visibility,
       name,
       genericParams,
+      extends: extendsName,
       signals,
       views,
       span: this.makeSpan(start, this.previous().span.end),
@@ -2674,7 +2965,13 @@ export class Parser {
     const typeExpr = this.parseTypeExpr();
     if (!typeExpr) return null;
 
-    this.expect(TokenKind.Semicolon, 'Expected ;');
+    // interface_signal = identifier ~ ":" ~ type_expr ~ ","?
+    // Demanding a semicolon left the comma unconsumed, and the next round of
+    // the loop could not start on it, so the parser spun until it ran out of
+    // memory. A semicolon is accepted too rather than made an error.
+    if (!this.match(TokenKind.Comma)) {
+      this.match(TokenKind.Semicolon);
+    }
 
     return {
       kind: 'InterfaceSignal',
@@ -2689,7 +2986,19 @@ export class Parser {
     const start = this.current().span.start;
     this.expect(TokenKind.View, 'Expected view');
 
-    const nameToken = this.expect(TokenKind.Ident, 'Expected view name');
+    // view_name = "initiator" | "target" | "monitor" | identifier
+    // The three standard names are keywords in this lexer, so asking for an
+    // identifier rejected every view the specification actually shows.
+    let nameToken;
+    if (
+      this.check(TokenKind.Initiator) ||
+      this.check(TokenKind.Target) ||
+      this.check(TokenKind.Monitor)
+    ) {
+      nameToken = this.advance();
+    } else {
+      nameToken = this.expect(TokenKind.Ident, 'Expected view name');
+    }
     if (!nameToken) return null;
     const name = this.makeIdentifier(nameToken);
 
@@ -2708,13 +3017,22 @@ export class Parser {
   private parseViewSignals(): ViewSignal[] {
     const signals: ViewSignal[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
-      const signal = this.parseViewSignal();
-      if (signal) signals.push(signal);
+      const mark = this.pos;
+      signals.push(...this.parseViewDirectionList());
+      this.ensureProgress(mark);
     }
     return signals;
   }
 
-  private parseViewSignal(): ViewSignal | null {
+  /**
+   * One direction and the signals that take it.
+   *
+   * `direction_list = view_direction ~ ":" ~ signal_list`, and
+   * `signal_list = identifier ~ ("," ~ identifier)* ~ ","?`. This was read as
+   * `in name;`, one signal per line with a semicolon, which matches nothing the
+   * language accepts.
+   */
+  private parseViewDirectionList(): ViewSignal[] {
     const start = this.current().span.start;
 
     let direction: 'in' | 'out' | 'inout';
@@ -2726,21 +3044,34 @@ export class Parser {
       direction = 'inout';
     } else {
       this.reportError('Expected in, out, or inout');
-      return null;
+      return [];
     }
 
-    const nameToken = this.expect(TokenKind.Ident, 'Expected signal name');
-    if (!nameToken) return null;
-    const name = this.makeIdentifier(nameToken);
+    this.expect(TokenKind.Colon, 'Expected :');
 
-    this.expect(TokenKind.Semicolon, 'Expected ;');
+    const signals: ViewSignal[] = [];
+    do {
+      // A trailing comma ends the list. What follows is either the closing
+      // brace or the next direction, and neither is a signal name.
+      if (
+        this.check(TokenKind.RBrace) ||
+        this.check(TokenKind.In) ||
+        this.check(TokenKind.Out) ||
+        this.check(TokenKind.Inout)
+      ) {
+        break;
+      }
+      const nameToken = this.expect(TokenKind.Ident, 'Expected signal name');
+      if (!nameToken) break;
+      signals.push({
+        kind: 'ViewSignal',
+        direction,
+        name: this.makeIdentifier(nameToken),
+        span: this.makeSpan(start, this.previous().span.end),
+      });
+    } while (this.match(TokenKind.Comma));
 
-    return {
-      kind: 'ViewSignal',
-      direction,
-      name,
-      span: this.makeSpan(start, this.previous().span.end),
-    };
+    return signals;
   }
 
   // ========================================
@@ -2909,6 +3240,21 @@ export class Parser {
     if (this.check(TokenKind.Interface)) {
       return this.parseInterfaceDef(start, visibility);
     }
+    // This list is a second copy of the one in `parseItem`, and it fell behind:
+    // `union`, `extern mod` and `test` were added there and not here, so a file
+    // that opened with `package` could not contain them.
+    if (this.check(TokenKind.Union)) {
+      return this.parseUnionDef(start, visibility);
+    }
+    if (this.check(TokenKind.Extern)) {
+      return this.parseExternModDef(start, visibility);
+    }
+    if (this.check(TokenKind.Test)) {
+      return this.parseTestModDef(start, visibility);
+    }
+    if (this.check(TokenKind.Import)) {
+      return this.parseImportDecl(start);
+    }
 
     // Unknown token in package
     this.reportError(`Unexpected token in package: ${this.current().text}`);
@@ -2939,6 +3285,47 @@ export class Parser {
     this.expect(TokenKind.RParen, 'Expected )');
 
     this.expect(TokenKind.LBrace, 'Expected {');
+    const body = this.parseTestStatements();
+    this.expect(TokenKind.RBrace, 'Expected }');
+
+    return {
+      kind: 'TestDef',
+      attributes: testAttributes,
+      name,
+      body,
+      span: this.makeSpan(start, this.previous().span.end),
+    };
+  }
+
+  /**
+   * `test name() { ... }` — a test function written without `fn`, as
+   * specification chapter 11 spells it. The `#[test]` attribute is optional
+   * here because the `test` keyword already says what this is.
+   */
+  private parseTestFnDef(start: SourceLocation, attributes: Attribute[]): TestDef | null {
+    const testAttributes: TestAttribute[] = [];
+    for (const attr of attributes) {
+      if (attr.path.segments.length === 1 && attr.path.segments[0]?.name === 'test') {
+        testAttributes.push(this.convertToTestAttribute(attr));
+      }
+    }
+
+    this.expect(TokenKind.Test, 'Expected test');
+
+    const nameToken = this.expect(TokenKind.Ident, 'Expected test function name');
+    if (!nameToken) return null;
+    const name = this.makeIdentifier(nameToken);
+
+    this.expect(TokenKind.LParen, 'Expected (');
+    // Fixture parameters are consumed but not modelled yet.
+    while (!this.check(TokenKind.RParen) && !this.isEof()) {
+      this.advance();
+    }
+    this.expect(TokenKind.RParen, 'Expected )');
+
+    if (!this.expect(TokenKind.LBrace, 'Expected {')) {
+      return null;
+    }
     const body = this.parseTestStatements();
     this.expect(TokenKind.RBrace, 'Expected }');
 
@@ -3006,10 +3393,12 @@ export class Parser {
   private parseTestStatements(): TestStmt[] {
     const stmts: TestStmt[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const stmt = this.parseTestStatement();
       if (stmt) {
         stmts.push(stmt);
       }
+      this.ensureProgress(mark);
     }
     return stmts;
   }
@@ -3068,10 +3457,29 @@ export class Parser {
     if (!condition) return null;
 
     let message: string | undefined;
+    let severity: AssertSeverity | undefined;
+
     if (this.match(TokenKind.Comma)) {
       const msgToken = this.expect(TokenKind.StringLiteral, 'Expected string literal');
       if (msgToken) {
         message = msgToken.text.slice(1, -1); // Remove quotes
+      }
+    } else if (this.match(TokenKind.Else)) {
+      // `else error("...")` — the severity names are not keywords, so they
+      // arrive as identifiers.
+      const sevToken = this.expect(TokenKind.Ident, 'Expected error, warning or fatal');
+      if (sevToken) {
+        if (sevToken.text === 'error' || sevToken.text === 'warning' || sevToken.text === 'fatal') {
+          severity = sevToken.text;
+        } else {
+          this.reportError(`Expected error, warning or fatal, found ${sevToken.text}`);
+        }
+      }
+      if (this.match(TokenKind.LParen)) {
+        if (this.check(TokenKind.StringLiteral)) {
+          message = this.advance().text.slice(1, -1);
+        }
+        this.expect(TokenKind.RParen, 'Expected )');
       }
     }
 
@@ -3081,6 +3489,7 @@ export class Parser {
       kind: 'AssertStmt',
       condition,
       message,
+      severity,
       span: this.makeSpan(start, this.previous().span.end),
     };
   }
@@ -3320,6 +3729,27 @@ export class Parser {
     });
   }
 
+  /**
+   * Try a parse, and undo it completely if it does not succeed.
+   *
+   * Rewinding the position alone is not enough: a failed attempt leaves its
+   * diagnostics behind, so a construct that the second alternative parses
+   * cleanly still reports the first alternative's complaint. That is how
+   * `inst f = Fifo[Depth: 16] {}` came to fail with `Expected type` even though
+   * the fallback expression parse succeeded.
+   */
+  private speculate<T>(attempt: () => T | null): T | null {
+    const pos = this.pos;
+    const errorCount = this.errors.length;
+    const result = attempt();
+    if (result !== null && this.errors.length === errorCount) {
+      return result;
+    }
+    this.pos = pos;
+    this.errors.length = errorCount;
+    return null;
+  }
+
   private makeIdentifier(token: Token): Identifier {
     return {
       kind: 'Identifier',
@@ -3361,7 +3791,8 @@ export class Parser {
 
   private parseTestModDef(start: SourceLocation, visibility: Visibility): TestModDef | null {
     this.expect(TokenKind.Test, 'Expected test');
-    this.expect(TokenKind.Mod, 'Expected mod');
+    // The older form wrote `test mod Name`; the current grammar is `test Name`.
+    this.match(TokenKind.Mod);
 
     const nameToken = this.expect(TokenKind.Ident, 'Expected module name');
     if (!nameToken) {
@@ -3387,15 +3818,12 @@ export class Parser {
   private parseTestModItems(): TestModItem[] {
     const items: TestModItem[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const item = this.parseTestModItem();
       if (item) {
         items.push(item);
-      } else {
-        // Skip unknown token
-        if (!this.check(TokenKind.RBrace) && !this.isEof()) {
-          this.advance();
-        }
       }
+      this.ensureProgress(mark);
     }
     return items;
   }
@@ -3416,8 +3844,31 @@ export class Parser {
       return this.parseConstDecl(start, 'private');
     }
 
-    // Instance declarations
-    if (this.check(TokenKind.Ident) && this.peek().kind === TokenKind.ColonColon) {
+    // Type aliases
+    if (this.check(TokenKind.Type)) {
+      return this.parseTypeAlias(start, 'private');
+    }
+
+    // Memories
+    if (this.check(TokenKind.Mem)) {
+      return this.parseMemDecl(start);
+    }
+
+    // State machines
+    if (this.check(TokenKind.Fsm)) {
+      return this.parseFsmBlock(start);
+    }
+
+    // Instance declarations. `inst` is not a keyword in this lexer, so it
+    // arrives as an identifier, the same as in a module body.
+    if (this.check(TokenKind.Ident) && this.current().text === 'inst') {
+      return this.parseInstDecl(start);
+    }
+    if (
+      this.check(TokenKind.Ident) &&
+      (this.peek().kind === TokenKind.ColonColon || this.peek().kind === TokenKind.Colon)
+    ) {
+      // The older forms: `u :: Module` and `u: Module(...)`
       return this.parseInstDecl(start);
     }
 
@@ -3475,15 +3926,12 @@ export class Parser {
 
     const stmts: Stmt[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const stmt = this.parseStatement();
       if (stmt) {
         stmts.push(stmt);
-      } else {
-        // Skip unknown token
-        if (!this.check(TokenKind.RBrace) && !this.isEof()) {
-          this.advance();
-        }
       }
+      this.ensureProgress(mark);
     }
 
     this.expect(TokenKind.RBrace, 'Expected }');
@@ -3515,15 +3963,12 @@ export class Parser {
 
     const body: SeqStatement[] = [];
     while (!this.check(TokenKind.RBrace) && !this.isEof()) {
+      const mark = this.pos;
       const stmt = this.parseSeqStatement();
       if (stmt) {
         body.push(stmt);
-      } else {
-        // Skip unknown token
-        if (!this.check(TokenKind.RBrace) && !this.isEof()) {
-          this.advance();
-        }
       }
+      this.ensureProgress(mark);
     }
 
     this.expect(TokenKind.RBrace, 'Expected }');

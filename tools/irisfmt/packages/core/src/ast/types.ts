@@ -23,6 +23,8 @@ export interface SourceFile extends AstNode {
 
 export type Item =
   | ModDef
+  | UnionDef
+  | ExternModDef
   | TypeDef
   | ConstDef
   | FnDef
@@ -139,6 +141,33 @@ export interface StructField extends AstNode {
   typeExpr: TypeExpr;
 }
 
+/**
+ * `union U { a: bit[8], b: bit[8], }`
+ *
+ * `union_decl = "pub"? ~ "union" ~ identifier ~ "{" ~ struct_field ~ ... ~ "}"`.
+ * The word was not even a token, so a file declaring one could not be read.
+ */
+export interface UnionDef extends AstNode {
+  kind: 'UnionDef';
+  visibility: Visibility;
+  name: Identifier;
+  fields: StructField[];
+}
+
+/**
+ * `extern mod Name(ports);` — a module implemented outside IRIS.
+ *
+ * `extern_mod_decl = "pub"? ~ "extern" ~ "mod" ~ identifier ~ generics?
+ *  ~ "(" ~ port_list ~ ")" ~ ";"`
+ */
+export interface ExternModDef extends AstNode {
+  kind: 'ExternModDef';
+  visibility: Visibility;
+  name: Identifier;
+  genericParams?: GenericParams | undefined;
+  ports: PortDecl[];
+}
+
 export interface TypeAlias extends AstNode {
   kind: 'TypeAlias';
   visibility: Visibility;
@@ -162,7 +191,23 @@ export interface PrimitiveType extends AstNode {
   kind: 'PrimitiveType';
   name: 'bit' | 'int' | 'uint' | 'bool' | 'clock' | 'reset' | 'string';
   width?: Expr | undefined;
+  /**
+   * Attributes of a clock or reset, as in `clock(period: 10ns)` or
+   * `reset(active_low: true)`. Specification §2.7 defines them.
+   */
+  attrs?: TypeAttr[] | undefined;
 }
+
+/** One attribute of a clock or reset type, such as `active_low: true` */
+export interface TypeAttr extends AstNode {
+  kind: 'TypeAttr';
+  name: Identifier;
+  value: Expr;
+  /** Time unit of a duration value, as in `clock(period: 10ns)` */
+  unit?: TimeUnit | undefined;
+}
+
+export type TimeUnit = 'ps' | 'ns' | 'us' | 'ms' | 's';
 
 export interface ArrayType extends AstNode {
   kind: 'ArrayType';
@@ -264,6 +309,13 @@ export interface IndexExpr extends AstNode {
   base: Expr;
   index: Expr;
   rangeEnd?: Expr | undefined;
+  /**
+   * The operator of a part select, from `a[i +: 8]` or `a[i -: 8]`.
+   *
+   * `part_select = "[" ~ expr ~ part_select_op ~ expr ~ "]"`. Without it the
+   * parser stopped at `+:` and the whole file failed to format.
+   */
+  partSelect?: '+:' | '-:' | undefined;
 }
 
 export interface FieldExpr extends AstNode {
@@ -383,7 +435,8 @@ export type Stmt =
   | WhileStmt
   | ReturnStmt
   | BlockStmt
-  | ExprStmt;
+  | ExprStmt
+  | AssertStmt;
 
 export interface LetDecl extends AstNode {
   kind: 'LetDecl';
@@ -508,6 +561,24 @@ export interface FsmBlock extends AstNode {
   clock: ClockSpec;
   reset?: ResetSpec | undefined;
   stateEnum: StateEnum;
+  /**
+   * The state the machine resets to, from `initial: Idle`.
+   *
+   * fsm_block = ... state_enum [ "initial" ":" identifier ] { signal_decl } ...
+   * Neither this nor `signals` had a home in the AST, so a machine using either
+   * one sent the parser into a loop that ran until it exhausted memory.
+   */
+  initialState?: Identifier | undefined;
+  /** Signals declared inside the machine, before `transitions`. */
+  signals: ModItem[];
+  /**
+   * How the state register is encoded, from `output encoding: onehot`.
+   *
+   * `output_encoding = "output" "encoding" ":" encoding_type`. Without it the
+   * parser took the clause for an output block, found no `{`, and spun until it
+   * ran out of memory.
+   */
+  encoding?: 'binary' | 'onehot' | 'gray' | undefined;
   transitions: TransitionsBlock;
   outputs: OutputBlock[];
 }
@@ -609,6 +680,8 @@ export interface InterfaceDef extends AstNode {
   visibility: Visibility;
   name: Identifier;
   genericParams?: GenericParams | undefined;
+  /** The interface this one extends, from `interface B extends A { ... }`. */
+  extends?: Identifier | undefined;
   signals: InterfaceSignal[];
   views: ViewDef[];
 }
@@ -686,7 +759,11 @@ export interface AssertStmt extends AstNode {
   kind: 'AssertStmt';
   condition: Expr;
   message?: string | undefined;
+  /** `else error("...")` — how the run reacts when the condition fails */
+  severity?: AssertSeverity | undefined;
 }
+
+export type AssertSeverity = 'error' | 'warning' | 'fatal';
 
 export interface WaitStmt extends AstNode {
   kind: 'WaitStmt';
@@ -795,7 +872,10 @@ export interface TestModDef extends AstNode {
 export type TestModItem =
   | SignalDecl
   | ConstDecl
+  | TypeAlias
   | InstDecl
+  | MemDecl
+  | FsmBlock
   | CombBlock
   | SyncBlock
   | InitialBlock

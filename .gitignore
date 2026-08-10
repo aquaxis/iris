@@ -1,1 +1,54 @@
 .aiprj
+/example/async_fifo/sim/compiled/
+# SystemVerilog simulation build artifacts
+/example/async_fifo/sv/obj_dir/
+
+# iris2sv build output
+/tools/iris2sv/node_modules/
+/tools/iris2sv/packages/*/node_modules/
+/tools/iris2sv/packages/*/dist/
+/tools/iris2sv/packages/*/*.tsbuildinfo
+
+# RV32I example build artifacts
+/example/riscv/sim/compiled/
+
+# RV32I SystemVerilog build artifacts
+/example/riscv/sv/obj_*/
+
+# VS Code extension build output
+/tools/irisfmt/packages/vscode-iris/out/
+/tools/irisfmt/packages/vscode-iris/server/
+*.vsix
+
+# example/comparison のビルド生成物
+example/comparison/.build/
+example/comparison/.work/
+example/comparison/target/
+example/comparison/dependencies/
+example/comparison/comparison.f
+
+# Rustのビルド生成物
+/sim/iris-sim/target/
+/sim/iris-runtime/target/
+
+# シミュレーションの波形出力
+*.vcd
+
+# カウンタ例のビルド生成物
+/example/counter/sim/compiled/
+
+# エージェントの作業環境
+.aipj/
+.claude/
+.agent-cli/
+.mcp.json
+
+# 実行ログ（run.sh が書き出す）
+example/*/sim/output*.log
+example/*/sv/output.log
+
+# pnpm を使うので npm のロックは持たない
+package-lock.json
+
+# Python のバイトコード
+__pycache__/

@@ -9,30 +9,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-#### Core (@irisfmt/core)
-- Parser support for testbench constructs:
-  - `test mod` definitions (testbench modules without ports)
-  - `initial` blocks for simulation-only initialization
-  - `seq` blocks for sequential test execution
-  - `await` statements (clock edge, until condition, event)
-  - `delay` statements (`#10ns;`)
-  - `use rust::` declarations for external Rust imports
-  - `extern rust` blocks for Rust function declarations
+#### Language Server (@irisfmt/ls)
+- Go to definition (`textDocument/definition`), including hierarchical names
+  such as `rf.rdata1`, which resolve through the instance to the module it
+  instantiates
+- Find references (`textDocument/references`)
+- Document symbols (`textDocument/documentSymbol`), with a module's ports,
+  signals, memories and instances nested beneath it
+- Rename (`textDocument/rename`), refusing a rename to a reserved word
+- The remaining 21 reserved words in hover and completion, so all 58 of
+  specification §2.4 are covered
 
-#### Formatter (@irisfmt/format)
-- Formatting support for all new testbench constructs:
-  - `TestModDef`, `InitialBlock`, `SeqBlock`
-  - `AwaitStmt`, `DelayStmt`
-  - `UseRustDecl`, `ExternRustBlock`, `RustFnDecl`
+#### Core (@irisfmt/core)
+- A symbol table (`buildSymbolTable`, `resolve`) recording modules, ports,
+  signals, memories, instances and generic parameters, and resolving
+  hierarchical names
+
+#### Lint (@irisfmt/lint)
+- `seq-missing-timeout`: an `await until(...)` with no timeout stops the
+  sequence for the rest of the run if the condition never holds
+
+### Fixed
+
+#### Parser
+The parser had fallen behind the language. Every example design now parses
+without error; before, `example/riscv` produced 978 errors.
+
+- `reset(active_low: true)` and `clock(period: 10ns)` attributes
+- `int[32]` / `uint[32]`; the older `int<32>` still parses
+- `inst u = M { ... };`; the older `u: M(...)` still parses
+- Port connections written `port: expr`; the older `.port(expr)` still parses
+- `$clog2(Depth)` and other system functions
+- Trailing commas in generic parameters, `where` clauses and port connections
+- `{a, b}` after `=>` read as a concatenation rather than a block
+
+Two of those changes first introduced hangs — a zero-length token at `$`, and a
+`match` arm that consumed nothing. A language server that hangs freezes the
+editor, so `parseMatchArms` now always makes progress.
+
+#### Build
+- `packages/lint` exported a rule from a file that did not exist, which stopped
+  the whole workspace from building
+- `packages/vscode-iris` had no `build` script, so it was skipped by `pnpm -r build`
+
+#### Testbench constructs
+- `test mod` definitions, `initial` blocks, `seq` blocks, `await` statements
+  (clock edge, until condition, event), `delay` statements, `use rust::`
+  declarations and `extern rust` blocks
 
 #### Linter (@irisfmt/lint)
-- New lint rule: `seq-missing-timeout`
-  - Warns when `await until(condition)` lacks a timeout parameter
-  - Helps prevent simulation deadlocks
-- Extended `no-empty-block` rule:
-  - Now detects empty `test mod` bodies
-  - Now detects empty `initial` blocks
-  - Now detects empty `seq` blocks
+- Extended `no-empty-block`: empty `test mod` bodies, `initial` blocks and
+  `seq` blocks
+
+### Testing
+- The language server is tested over the protocol: the built server is spawned
+  and spoken to in LSP. 10 tests, including the RV32I core from `example/riscv`.
+  The workspace previously had none
+
+### Fixed — testbenches
+
+The designs in `example/` parsed; the testbenches beside them did not. Measured
+over every `.iris` file rather than the six designs, the four testbenches
+produced 2082 errors, and four of them exhausted memory instead of finishing.
+
+- `test Name { ... }` was gated on the older spelling `test mod Name`, so the
+  form the grammar defines (`tools/iris.ebnf`, `test_mod_def`) and every
+  testbench in `example/` uses was not recognised at all
+- `test name() { ... }`, the test function of specification chapter 11
+- A test module body took an instance only in the older `u :: M` form, and had
+  no case for `mem`, `fsm` or `type`, which `test_item` allows
+- `assert cond else error("...")` was not parsed. `expect` consumes nothing when
+  it fails, so the enclosing statement loop never advanced and the parser spun
+- `assert` was missing from the statement parser, so a check inside a `sync`,
+  `initial` or `seq` block spun in the same way
+- `clock(period: 10ns)`: the duration's unit was left unconsumed. The entry
+  above claiming this attribute already worked was true only of
+  `reset(active_low: true)`
+
+Statement and item loops now assert progress: an iteration that consumes
+nothing reports the token and steps over it. A parser that spins is worse than
+one that parses wrongly, because it freezes the editor on a half-typed file.
+
+### Fixed — formatting
+
+Formatting rewrites the file the reader is editing, so what it drops matters
+more than how it looks. Each of these silently discarded what the author wrote.
+
+- A `where` clause was printed on one line, running into the port list so that
+  `Depth >= 4(` read as a call. Formatting `example/async_fifo/src/async_fifo.iris`
+  produced a file with 385 parse errors
+- `clock` and `reset` attributes were not printed at all
+- `else error("...")` on an assert was not printed
+- An `assert` inside a `sync`, `initial` or `seq` block was printed as nothing,
+  so the assertion disappeared from the file
+
+### Fixed — language server
+- The enclosing module of a position was found by matching `mod` and
+  `test mod`, so no name inside a `test Name { ... }` body resolved. Definition,
+  references and rename all returned nothing in a testbench
+
+### Fixed — tests
+- The protocol test harness framed messages by character count while
+  `Content-Length` counts bytes. IRIS sources carry Japanese comments, so any
+  reply containing them was never assembled and the request appeared to hang.
+  This is why formatting and code actions had no test
 
 ## [0.1.0] - 2026-01-09
 

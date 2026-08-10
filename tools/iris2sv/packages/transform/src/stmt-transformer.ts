@@ -27,6 +27,10 @@ import {
   block,
   varDecl,
   emptyStmt,
+  assertStmt,
+  returnStmt,
+  exprStmt,
+  delayStmt,
   identifier,
   index,
   slice,
@@ -96,9 +100,10 @@ export function transformStmt(stmt: HirStmt, context: StmtTransformerContext): S
       return block(stmt.statements.map((s: HirStmt) => transformStmt(s, context)));
 
     case 'ExprStmt':
-      // Expression statements become empty in SV (or task calls)
-      // This is a simplification; real implementation would handle function calls
-      return emptyStmt();
+      // `$display(...)` and the other system tasks are statements in both
+      // languages. Turning them into nothing dropped every message a testbench
+      // prints, and left `if` branches empty, which SystemVerilog rejects.
+      return exprStmt(context.exprTransformer.transform(stmt.expr));
 
     case 'VarDeclStmt': {
       const svType = context.exprTransformer.typeMapper.mapType(stmt.dataType);
@@ -107,6 +112,20 @@ export function transformStmt(stmt: HirStmt, context: StmtTransformerContext): S
         : undefined;
       return varDecl(stmt.name, svType, init);
     }
+
+    case 'DelayStmt':
+      return delayStmt(stmt.delay);
+
+    case 'ReturnStmt':
+      return returnStmt(
+        stmt.value ? context.exprTransformer.transform(stmt.value) : undefined
+      );
+
+    case 'AssertStmt':
+      return assertStmt(
+        context.exprTransformer.transform(stmt.condition),
+        stmt.message
+      );
 
     default: {
       const _exhaustive: never = stmt;

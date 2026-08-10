@@ -16,6 +16,7 @@ struct SignalChange {
 /// Signal definition
 #[derive(Debug, Clone)]
 struct SignalDef {
+    #[allow(dead_code)]
     name: String,
     width: usize,
     changes: Vec<SignalChange>,

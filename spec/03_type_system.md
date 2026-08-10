@@ -1,6 +1,6 @@
 # 第3章 型システム
 
-[<< 字句構造](./02_lexical_structure.md) | [目次](./iris_spec_0.1.0.md) | [モジュール定義 >>](./04_module_definition.md)
+[<< 字句構造](./02_lexical_structure.md) | [目次](./iris_spec.md) | [モジュール定義 >>](./04_module_definition.md)
 
 ---
 
@@ -27,8 +27,10 @@ let word_val: bit[31:0];   // 32ビット（範囲指定）
 | `bit[N]` | 0または1のN個の値 | サポート（x, z） | 合成可能な信号 |
 | `uN` | 0 ～ 2^N - 1 の整数 | 非サポート | 演算、インデックス |
 
-- `bit[N]`: ハードウェア信号として使用。シミュレーション時にx/z値を持つ可能性がある。
-- `uN`: 純粋な符号なし整数。演算やループカウンタに使用。
+- `bit[N]`: ハードウェア信号として使用。
+シミュレーション時にx/z値を持つ可能性がある。
+- `uN`: 純粋な符号なし整数。
+演算やループカウンタに使用。
 
 ```rust
 let signal: bit[8];    // ハードウェア信号（x/z可能）
@@ -59,6 +61,20 @@ let offset: i16 = -100;      // 16ビット符号付き
 | `i64` | `u64` | 64 |
 | `i128` | `u128` | 128 |
 
+**`int[N]`/`uint[N]`と`iN`/`uN`の関係:**
+
+`int[N]`と`iN`、`uint[N]`と`uN`はそれぞれ等価な型である。
+`i8`は`int[8]`の組み込み型名エイリアスであり、`u32`は`uint[32]`の組み込み型名エイリアスである。
+組み込み型名（`iN`/`uN`）は予約語ではなく、型コンテキストでのみ型名として解釈される。
+
+```rust
+let a: uint[8];   // uint[8]型（明示的な構文）
+let b: u8;         // uint[8]型（組み込み型名エイリアス）
+// aとbは同一の型
+```
+
+※ 組み込み型名（`i8`, `u8`, `i16`, `u16`等）は予約語ではなく組み込み型名である（2.4.3節を参照）。
+
 ### 3.1.3 論理型
 
 ```rust
@@ -66,7 +82,23 @@ let flag: bool;  // true または false
 // bool は bit と相互変換可能だが、意味的に区別される
 ```
 
-### 3.1.4 特殊信号型
+### 3.1.4 文字列型
+
+IRISはシミュレーションと検証のコンテキストで文字列を扱うための`string`型を提供する。
+
+```rust
+let message: string = "Hello, IRIS!";
+let hex_msg: string = "Value: \x41\x42";
+```
+
+**`string`型の制約:**
+
+- 合成可能なハードウェア信号には使用不可
+- テストモジュール（`test`）および`seq`ブロック内でのみ使用可能
+- `$display`等のシステム関数の引数として使用
+- 文字列リテラルは2.5.4節を参照
+
+### 3.1.5 特殊信号型
 
 | 型 | 説明 | 属性 |
 |----|------|------|
@@ -95,7 +127,7 @@ sync(clk.negedge) { ... }
 
 ```rust
 in rst: reset,                                      // デフォルト: active high
-in rst_n: reset(active_low: true),                  // active low
+in rst_n: reset(active_low: true),                  // active low（`reset(active_low)`は省略形として同一視）
 let rst: reset(active_low: false, assert_cycles: 5), // 5サイクルアサート
 let rst: reset(active_low: false, assert_time: 50ns), // 50nsアサート
 let rst: reset(assert_cycles: 0),                    // リセットスキップ
@@ -116,6 +148,9 @@ sync(clk.posedge) { ... }             // リセットなし
 | `assert_cycles` | リセットアサートサイクル数（0でスキップ） | 5 |
 | `assert_time` | リセットアサート時間（ns, us等） | - |
 
+**省略形:** `reset(active_low)`は`reset(active_low: true)`の省略形である。
+真偽値の属性は、値が`true`の場合に限り名前付きパラメータの値を省略できる。
+
 **時間単位:**
 
 | 単位 | 説明 |
@@ -135,10 +170,16 @@ sync(clk.posedge) { ... }             // リセットなし
 **基本構文:**
 
 ```ebnf
-enum_decl = "enum" identifier [ ":" underlying_type ] "{" enum_variants "}" ;
-enum_variants = enum_variant { "," enum_variant } [ "," ] ;
-enum_variant = identifier [ "=" constant_expr ] [ "(" type ")" ] ;
+enum_def = "enum" identifier [ generic_params ] [ ":" underlying_type ] "{" enum_variant { "," enum_variant } [ "," ] "}" ;
+
+underlying_type = type_expr ;
+
+enum_variant = identifier [ "=" const_expr ] [ "(" type_expr ")" ] ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+**ジェネリックな列挙型は基準実装がまだ読めない。**
 
 **基本列挙型:**
 
@@ -178,15 +219,45 @@ match pkt {
 }
 ```
 
+**ビット配置:**
+
+タグは下位ビットに置き、ペイロードはその上に置く。
+全体の幅は、タグの幅とペイロードの最大幅の和である。
+
+```rust
+enum Packet {
+    Header,            // タグ 0
+    Payload(bit[8]),   // タグ 1
+    Footer             // タグ 2
+}
+// タグ2ビット＋ペイロード8ビット＝10ビット
+// Packet::Payload(8'hAB) は (0xAB << 2) | 1 = 10'h2AD
+```
+
+`match`のアームでペイロードに名前を付けると、その値を取り出せる。
+束縛した名前はそのアームの中でだけ見える。
+文の形でも式の形でも取り出せる。
+
+**網羅性:**
+
+列挙型に対する`match`の網羅性は、宣言したバリアントで判定する。
+表現に使うビット数ではない。
+3つのバリアントを2ビットに収めた場合、3つすべてを覆えば網羅であり、
+`_`は要らない。
+
 ### 3.2.2 構造体（struct）
 
 **構文:**
 
 ```ebnf
-struct_decl = "struct" identifier "{" struct_fields "}" ;
-struct_fields = struct_field { "," struct_field } [ "," ] ;
-struct_field = identifier ":" type ;
+struct_def = "struct" identifier [ generic_params ] "{" struct_field { "," struct_field } [ "," ] "}" ;
+
+struct_field = identifier ":" type_expr ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+**ジェネリックな構造体は基準実装がまだ読めない。**
 
 **パックされた構造体:**
 
@@ -206,6 +277,23 @@ hdr.ether_type = 16'h0800;
 let raw: bit[112] = hdr as bit[112];
 ```
 
+**構造体フィールドのミュータビリティ:**
+
+構造体のフィールドへの代入は、構造体自体の宣言方法に依存する。
+
+| 宣言 | フィールドへの代入 | 説明 |
+|------|-------------------|------|
+| `let hdr: EthernetHeader;` | `hdr.dst_mac = ...` | **可能**。`let`は参照の不変性を示すが、構造体フィールドは個別に代入可能 |
+| `var hdr: EthernetHeader;` | `hdr.dst_mac = ...` | **可能**。`var`は`let`と同義だが、順序回路専用であることを明示 |
+| `let pkt = Packet::Header;` | `pkt = Packet::Payload(...)` | **不可能**（再代入不可）。`let`直接代入は不変 |
+
+IRISの構造体はハードウェア信号の集合であり、各フィールドは個別の信号として扱われる。
+`var hdr: EthernetHeader;`と宣言すると、`hdr.dst_mac`のような名前の信号が
+フィールドの数だけできる。
+構造体そのものは信号ではない。
+`let`で宣言された構造体のフィールドへの個別代入は、組み合わせ回路（`comb`ブロック内）または順序回路（`sync`/`fsm`ブロック内）として合成される。
+構造体全体の再代入のみが`let`の不変性制約の対象である。
+
 ### 3.2.3 共用体（union）
 
 ```rust
@@ -216,10 +304,44 @@ union DataView {
 }
 
 // 全フィールドは同じビット幅でなければならない
-let view: DataView;
-view.as_word = 32'hDEADBEEF;
-let byte0 = view.as_bytes[0];  // 0xEF（リトルエンディアン想定）
+mod ByteExtract(
+    out byte0: bit[8],
+) {
+    var dv: DataView;
+
+    comb {
+        dv.as_word = 32'hDEADBEEF;
+        byte0 = dv.as_bytes[0];  // 0xEF（リトルエンディアン想定）
+    }
+}
 ```
+
+**ビット配置:**
+
+共用体は、最も広いフィールドの幅を持つ信号1本である。
+各フィールドはその下位ビットを指す。
+フィールドの読み出しはスライス、書き込みはビットフィールドへの書き込みになる。
+
+```rust
+union DataView {
+    as_byte: bit[8],
+    as_word: bit[32]
+}
+
+mod LowByte(
+    out low: bit[8],
+) {
+    var dv: DataView;
+
+    comb {
+        dv.as_word = 32'h11223344;
+        low = dv.as_byte;   // 0x44。同じ記憶域の下位8ビット
+    }
+}
+```
+
+フィールドの幅は揃っていなくてよい。
+狭いフィールドは下位ビットを見る。
 
 **注意: 共用体の合成上の制約**
 
@@ -330,11 +452,24 @@ where
 
 ### 3.3.4 組み込み関数
 
-| 関数 | 説明 | 例 |
-|------|------|-----|
-| `$clog2(N)` | 天井log2 | `$clog2(256) = 8` |
-| `$bits(T)` | 型のビット幅 | `$bits(bit[8]) = 8` |
-| `$size(arr)` | 配列サイズ | `$size(mem) = 1024` |
+`$`プレフィックスを持つ関数はシステム関数である。
+システム関数はコンパイル時計算可能な値を返し、型パラメータや配列次元の指定に使用できる。
+
+| 関数 | 説明 | 例 | 合成 |
+|------|------|-----|------|
+| `$clog2(N)` | 天井log2（N以上の最小の2のべき乗の指数） | `$clog2(256) = 8` | Yes |
+| `$bits(T)` | 型Tのビット幅 | `$bits(bit[8]) = 8` | Yes |
+| `$size(arr)` | 配列の要素数 | `$size(mem) = 1024` | Yes |
+| `$display(fmt, ...)` | フォーマット出力（検証用） | `$display("count = %d", count)` | No |
+| `$finish` | シミュレーション終了 | `$finish;` | No |
+| `$isunknown(expr)` | X/Zを含むかの判定 | `$isunknown(data)` | No |
+| `$onehot(expr)` | ワンホット判定 | `$onehot(sel)` | No |
+
+**システム関数の規則:**
+
+- `$clog2`、`$bits`、`$size`は合成可能であり、型パラメータや定数式で使用可能
+- `$display`、`$finish`、`$isunknown`、`$onehot`は検証コンテキスト（`test`モジュールおよび`seq`ブロック）でのみ使用可能
+- システム関数名は`$`で始まり、予約語とは異なる名前空間に属する
 
 ---
 
@@ -348,24 +483,42 @@ let y = x + 1;           // 型: bit[8]（オペランドから推論）
 let z = x == y;          // 型: bool（比較結果）
 ```
 
+**デフォルトの整数リテラル型:**
+
+サイズなしの整数リテラル（例：`1`、`42`）の型は、コンテキストに応じて以下の規則で決定される。
+
+- 代入先の型が既知の場合：その型に暗黙に変換（ただし幅が不足する場合はコンパイルエラー）
+- 演算のオペランドとして使用される場合：他方のオペランドの型に合わせる
+- 型が推論できない場合：`u32`をデフォルトとする
+
+```rust
+let a = 1;              // 型推論不可の場合: u32
+let b: bit[8] = 1;     // 代入先から: bit[8]
+let c = x + 1;          // xがbit[8]の場合: bit[8]
+```
+
+サイズ付きリテラル（例：`8'hFF`、`32'd42`）は、指定された幅の`bit[N]`型となる。
+unsizedリテラル（例：`'hFF`）は、コンテキストから幅が推論される。
+推論できない場合はコンパイルエラーとなる。
+
 ### 3.4.2 明示的型変換
 
 | メソッド | 説明 | 例 |
 |----------|------|-----|
-| `.extend[N]` | ゼロ拡張 | `x.extend[16]` |
-| `.sign_extend[N]` | 符号拡張 | `x.sign_extend[16]` |
-| `.truncate[N]` | 切り詰め | `x.truncate[8]` |
-| `.saturate[N]` | 飽和演算 | `x.saturate[8]` |
+| `.extend[N]()` | ゼロ拡張 | `x.extend[16]()` |
+| `.sign_extend[N]()` | 符号拡張 | `x.sign_extend[16]()` |
+| `.truncate[N]()` | 切り詰め | `x.truncate[8]()` |
+| `.saturate[N]()` | 飽和演算 | `x.saturate[8]()` |
 | `.signed()` | 符号付き解釈 | `x.signed()` |
 | `.unsigned()` | 符号なし解釈 | `x.unsigned()` |
 | `as T` | 型キャスト | `x as bit[16]` |
 
 ```rust
 let a: bit[8] = 8'hFF;
-let b: bit[16] = a.extend[16];       // 0x00FF
-let c: i16 = a.sign_extend[16];      // 0xFFFF（-1）
-let d: bit[4] = a.truncate[4];       // 0xF
-let e: bit[4] = a.saturate[4];       // 0xF（飽和）
+let b: bit[16] = a.extend[16]();       // 0x00FF
+let c: i16 = a.sign_extend[16]();      // 0xFFFF（-1）
+let d: bit[4] = a.truncate[4]();       // 0xF
+let e: bit[4] = a.saturate[4]();       // 0xF（飽和）
 ```
 
 ### 3.4.3 暗黙の型変換（禁止）
@@ -377,7 +530,7 @@ IRISでは暗黙の型変換を**禁止**し、すべての型変換は明示的
 let a: bit[16] = 8'hFF;  // コンパイルエラー
 
 // 正しい: 明示的拡張
-let a: bit[16] = (8'hFF).extend[16];
+let a: bit[16] = (8'hFF).extend[16]();
 ```
 
 ### 3.4.4 算術演算の結果幅
@@ -391,9 +544,9 @@ let a: bit[16] = (8'hFF).extend[16];
 オーバーフローを防ぐには明示的な拡張が必要:
 
 ```rust
-let sum: bit[9] = a.extend[9] + b.extend[9];
+let sum: bit[9] = a.extend[9]() + b.extend[9]();
 ```
 
 ---
 
-[<< 字句構造](./02_lexical_structure.md) | [目次](./iris_spec_0.1.0.md) | [モジュール定義 >>](./04_module_definition.md)
+[<< 字句構造](./02_lexical_structure.md) | [目次](./iris_spec.md) | [モジュール定義 >>](./04_module_definition.md)

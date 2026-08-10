@@ -1,12 +1,13 @@
 # 第1章 概要
 
-[<< 目次](./iris_spec_0.1.0.md) | [字句構造 >>](./02_lexical_structure.md)
+[<< 目次](./iris_spec.md) | [字句構造 >>](./02_lexical_structure.md)
 
 ---
 
 ## 1.1 IRIS言語とは
 
-**IRIS** (アイリス: Immutable RTL Implementation Standard) は、組み合わせ回路と順序回路を記述することを前提としたハードウェア記述言語です。人間とAIが読み書きできる、高級っぽく見える低レベルな言語を目指しています。
+**IRIS** (アイリス: Immutable RTL, Intentional Semantics) は、組み合わせ回路と順序回路を記述することを前提としたハードウェア記述言語です。
+人間とAIが読み書きできる、高級っぽく見える低レベルな言語を目指しています。
 
 SystemVerilogの複雑さを解消し、Rustの設計思想を取り入れた次世代ハードウェア記述言語です。
 
@@ -21,9 +22,9 @@ SystemVerilogは強力なハードウェア記述言語ですが、以下の問�
 - 意図しないラッチ生成のリスク
 - ブロッキング代入（`=`）とノンブロッキング代入（`<=`）の混乱
 
-### 1.1.2 参考言語・仕様
+### 1.1.2 参考にした言語と仕様
 
-IRISは以下の言語・仕様を参考にしています：
+IRISは以下の言語と仕様を参考にしています：
 
 - **SystemVerilog**: 構文
 - **Rust**: 所有権モデル、型安全性、明示的な構文
@@ -110,7 +111,7 @@ sync(clk.posedge, rst.async) {
 let a: bit[16] = 8'hFF;  // コンパイルエラー
 
 // 正しい: 明示的拡張
-let a: bit[16] = (8'hFF).extend[16];
+let a: bit[16] = (8'hFF).extend[16]();
 ```
 
 ### 1.3.5 Multi Drive禁止
@@ -166,7 +167,7 @@ project/
 | クロック | `always_ff @(posedge clk)` | `sync(clk.posedge) { }` |
 | モジュール | `module ... endmodule` | `mod ... { }` |
 | 代入演算子 | `=`（ブロッキング）<br>`<=`（ノンブロッキング） | `=`（統一） |
-| 予約語数 | ~220 | ~54 |
+| 予約語数 | ~220 | ~58 |
 
 ---
 
@@ -225,4 +226,4 @@ mod Counter(
 
 ---
 
-[<< 目次](./iris_spec_0.1.0.md) | [字句構造 >>](./02_lexical_structure.md)
+[<< 目次](./iris_spec.md) | [字句構造 >>](./02_lexical_structure.md)

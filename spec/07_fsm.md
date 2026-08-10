@@ -1,6 +1,6 @@
 # 第7章 FSM（有限状態機械）
 
-[<< 順序論理](./06_sequential_logic.md) | [目次](./iris_spec_0.1.0.md) | [インターフェース >>](./08_interface.md)
+[<< 順序論理](./06_sequential_logic.md) | [目次](./iris_spec.md) | [インターフェース >>](./08_interface.md)
 
 ---
 
@@ -9,21 +9,70 @@
 ### 7.1.1 EBNF定義
 
 ```ebnf
-fsm_block = "fsm" identifier "(" clock_spec "," reset_spec ")"
-            "{" fsm_body "}" ;
-fsm_body = state_enum initial_state [ fsm_locals ] transitions_block
-           [ output_encoding ] ;
-state_enum = "state" "enum" "{" state_list "}" ;
-state_list = identifier { "," identifier } [ "," ] ;
-initial_state = "initial" ":" identifier ;
-fsm_locals = { signal_decl } ;
-transitions_block = "transitions" "{" { state_transition } "}" ;
-state_transition = identifier "=>" "{" transition_body "}" ;
-transition_body = { output_assignment | seq_assignment | when_clause } ;
-when_clause = "when" expression "{" "goto" identifier ";" "}" ;
+fsm_block = "fsm" identifier "(" clock_spec [ "," reset_spec ] ")" "{"
+            state_enum [ "initial" ":" identifier ] { signal_decl }
+            transitions_block { output_block } [ output_encoding ] "}" ;
+
+state_enum = "state" "enum" "{" state_item { "," state_item } [ "," ] "}" ;
+state_item = identifier [ moore_outputs ] ;
+moore_outputs = "[" output_assign { "," output_assign } "]" ;
+output_assign = identifier "=" const_expr ;
+
+transitions_block = "transitions" "{" { transition_item } "}" ;
+transition_item = ( identifier | "_" ) "=>" "{" { when_clause } "}" ;
+when_clause = "when" expr "{" { transition_action } "}" ;
+
+transition_action = "goto" identifier ";" | fsm_if_stmt | assign_stmt ;
+fsm_if_stmt = "if" expr "{" { transition_action } "}"
+              [ "else" ( fsm_if_stmt | "{" { transition_action } "}" ) ] ;
+
+output_block = "output" identifier "{" { output_case } "}" ;
+output_case = identifier "=>" expr "," ;
+
 output_encoding = "output" "encoding" ":" encoding_type ;
 encoding_type = "binary" | "onehot" | "gray" ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+**`when`節に書けるもの:**
+
+`goto`、代入、そして`if`である。
+`goto`は文ではないため、ふつうの`if`の中には書けない。
+そのため`when`節専用の`if`を定めている。
+分岐の中身も遷移アクションである。
+
+```rust
+Yellow => {
+    when timer >= 8'd10 {
+        if ped_request {
+            goto Walk;
+        } else {
+            goto Red;
+        }
+        timer = 0;
+    }
+}
+```
+
+同じことは、条件を分けた複数の`when`でも書ける。
+最初に成立した節が採られる。
+
+**`_`（ワイルドカード）:**
+
+`_ =>`はどの状態にも当てはまる。
+中身は他の遷移と同じく`when`節である。
+
+**ローカル信号:**
+
+FSM本体で宣言した信号は、そのFSMに属する。
+モジュールに同じ名前の信号があっても混ざらない。
+波形には`{fsm名}.{信号名}`という名前で現れる。
+
+**状態信号:**
+
+現在の状態は`{fsm名}_state`という信号として波形に出る。
+インスタンス内のFSMは階層名になる（`c.ctrl_state`）。
 
 ---
 
@@ -31,47 +80,38 @@ encoding_type = "binary" | "onehot" | "gray" ;
 
 ```rust
 fsm StateMachineName(clk.posedge, rst.async) {
-    // 1. 状態定義
+    // 1. 状態定義。出力は状態に付ける（Moore出力）
     state enum {
-        Idle,
-        Running,
-        Done
+        Idle    [busy = 0, done = 0],
+        Running [busy = 1, done = 0],
+        Done    [busy = 0, done = 1],
     }
 
     // 2. 初期状態
     initial: Idle
 
     // 3. ローカル変数（オプション）
-    let counter: u8 = 0;
+    var counter: bit[8] = 0;
 
-    // 4. 状態遷移
+    // 4. 状態遷移。腕の中身は when 節だけである
     transitions {
         Idle => {
-            // 出力（組み合わせ）
-            busy = 0;
-            done = 0;
-
-            // 遷移条件
             when start {
                 goto Running;
             }
         }
 
         Running => {
-            busy = 1;
-            done = 0;
-            counter = counter + 1;
-
-            when counter >= 100 {
+            when counter >= 8'd100 {
+                counter = 0;
                 goto Done;
+            }
+            when 1 {
+                counter = counter + 1;
             }
         }
 
         Done => {
-            busy = 0;
-            done = 1;
-            counter = 0;
-
             when ack {
                 goto Idle;
             }
@@ -83,38 +123,42 @@ fsm StateMachineName(clk.posedge, rst.async) {
 }
 ```
 
+遷移の腕に置けるのは`when`節だけである。
+状態ごとの出力は状態定義の`[ ]`に書くか、`output`ブロックに書く。
+
+`when`節は上から順に判定し、**最初に一致した1つだけ**が実行される。
+上の`Running`で、`counter`が100に達したサイクルに`counter`が増えないのはこのためである。
+
 ---
 
 ## 7.3 状態遷移の記述
 
-### 7.3.1 状態内の記述要素
+### 7.3.1 どこに何を書くか
 
-| 要素 | 代入演算子 | 説明 |
-|------|-----------|------|
-| 出力（組み合わせ） | `=` | 現在の状態に応じた出力 |
-| レジスタ更新 | `=` | クロックエッジで更新 |
-| 遷移条件 | `when...goto` | 次状態への遷移 |
+| 要素 | 書く場所 | 説明 |
+|------|---------|------|
+| 出力（状態だけで決まる） | `state enum`の`[ ]` | Moore出力 |
+| 出力（状態ごとに式で決める） | `output`ブロック | 7.4節 |
+| レジスタ更新 | `when`節の中 | クロックエッジで更新 |
+| 遷移条件 | `when ... goto` | 次状態への遷移 |
+
+遷移の腕（`State => { ... }`）に直接置けるのは`when`節だけである。
+代入を腕に直接書くことはできない。
 
 ### 7.3.2 遷移記述例
 
 ```rust
 transitions {
     State1 => {
-        // 組み合わせ出力
-        output_a = 1;
-        output_b = input_x & input_y;
-
-        // 順序的更新（FSM内では=を使用）
-        counter = counter + 1;
-
         // 条件付き遷移
         when condition1 {
             goto State2;
         }
         when condition2 {
+            counter = counter + 1;   // 遷移せず更新だけを行ってもよい
             goto State3;
         }
-        // 条件を満たさない場合は現在の状態を維持
+        // どの条件も満たさない場合は現在の状態を維持する
     }
 }
 ```
@@ -170,50 +214,45 @@ output encoding: gray
 
 ```rust
 fsm TrafficLight(clk.posedge, rst.async) {
+    // 灯りは状態だけで決まるので、状態定義に付ける
     state enum {
-        Red,
-        Yellow,
-        Green
+        Red    [red_light = 1, yellow_light = 0, green_light = 0],
+        Green  [red_light = 0, yellow_light = 0, green_light = 1],
+        Yellow [red_light = 0, yellow_light = 1, green_light = 0],
     }
 
     initial: Red
 
-    let timer: u8 = 0;
+    var timer: bit[8] = 0;
 
     transitions {
         Red => {
-            red_light = 1;
-            yellow_light = 0;
-            green_light = 0;
-            timer = timer + 1;
-
-            when timer >= 100 {
-                timer = 0;  // タイマーリセット
+            when timer >= 8'd100 {
+                timer = 0;
                 goto Green;
+            }
+            when 1 {
+                timer = timer + 1;
             }
         }
 
         Green => {
-            red_light = 0;
-            yellow_light = 0;
-            green_light = 1;
-            timer = timer + 1;
-
-            when timer >= 80 {
+            when timer >= 8'd80 {
                 timer = 0;
                 goto Yellow;
+            }
+            when 1 {
+                timer = timer + 1;
             }
         }
 
         Yellow => {
-            red_light = 0;
-            yellow_light = 1;
-            green_light = 0;
-            timer = timer + 1;
-
-            when timer >= 20 {
+            when timer >= 8'd20 {
                 timer = 0;
                 goto Red;
+            }
+            when 1 {
+                timer = timer + 1;
             }
         }
     }
@@ -226,27 +265,37 @@ fsm TrafficLight(clk.posedge, rst.async) {
 
 ## 7.6 デフォルト遷移
 
-いずれの`when`条件にも一致しない場合のデフォルト動作を指定できます。
+いずれの`when`条件にも一致しなければ、状態はそのまま保たれる。
+これは既定の動作であり、書く必要はない。
 
 ```rust
 transitions {
     Processing => {
-        busy = 1;
-        counter = counter + 1;
-
         when done {
             goto Complete;
         }
         when error {
             goto Error;
         }
-        // default: 現在の状態を維持（暗黙）
+        // どちらでもなければ Processing のまま
+    }
+}
+```
+
+自分の腕を持たない状態すべてに当てる場合は、ワイルドカード`_`を使う。
+
+```rust
+transitions {
+    Idle => {
+        when start {
+            goto Processing;
+        }
     }
 
-    // 明示的なデフォルト遷移
-    Unknown => {
-        default {
-            goto Error;  // 未知の状態からはエラーへ
+    // Idle 以外のすべての状態から
+    _ => {
+        when error {
+            goto Error;
         }
     }
 }
@@ -284,12 +333,16 @@ fsm Controller(clk.posedge, rst.async) {
 
 ```rust
 fsm Controller(clk.posedge, rst.async) {
-    state enum { Idle, Run, Done }
+    state enum {
+        Idle [busy = 0],
+        Run  [busy = 1],
+        Done [busy = 0],
+    }
     initial: Idle
     transitions {
-        Idle => { busy = 0; when start { goto Run; } }
-        Run  => { busy = 1; when complete { goto Done; } }
-        Done => { busy = 0; when ack { goto Idle; } }
+        Idle => { when start { goto Run; } }
+        Run  => { when complete { goto Done; } }
+        Done => { when ack { goto Idle; } }
     }
     output encoding: onehot
 }
@@ -336,7 +389,22 @@ end
 
 ---
 
-## 7.9 FSM設計のガイドライン
+## 7.9 FSMブロックとモジュールレベル信号の関係
+
+FSMブロックはモジュール内の`mod_item`として定義される。
+FSMブロック内からは、以下の信号に直接アクセスできる。
+
+- モジュールの入力ポート（読み取り専用）
+- モジュールの`out`ポート（代入可能）
+- モジュールレベルで宣言された`var`、`let`信号（読み取りと代入ができる）
+- FSM内のローカル変数（`let`で宣言されたFSMスコープ変数）
+
+FSMブロック内での代入は、`sync`ブロック内での代入と同じセマンティクスを持つ。
+代入された信号はレジスタとして合成される。
+
+---
+
+## 7.10 FSM設計のガイドライン
 
 1. **状態数**: 状態数が多い場合（>16）はバイナリエンコーディングを検討
 2. **出力遅延**: ミーリ型出力は組み合わせ遅延に注意
@@ -346,4 +414,4 @@ end
 
 ---
 
-[<< 順序論理](./06_sequential_logic.md) | [目次](./iris_spec_0.1.0.md) | [インターフェース >>](./08_interface.md)
+[<< 順序論理](./06_sequential_logic.md) | [目次](./iris_spec.md) | [インターフェース >>](./08_interface.md)

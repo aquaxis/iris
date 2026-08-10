@@ -1,10 +1,10 @@
 # 第21章 IDE連携ガイド
 
-[<< チュートリアル](./20_tutorial.md) | [目次](./iris_spec_0.1.0.md)
+[<< チュートリアル](./20_tutorial.md) | [目次](./iris_spec.md)
 
 ---
 
-このガイドでは、各種エディタ・IDEでIRIS言語を快適に使用するための設定方法を説明します。
+このガイドでは、各種のエディタとIDEでIRIS言語を快適に使用するための設定方法を説明します。
 
 **これ以降は将来用の仕様です**
 
@@ -28,20 +28,20 @@ IRIS言語は以下のIDE/エディタをサポートしています：
 
 ### 21.2.1 拡張機能のインストール
 
-1. VS Codeを開く
-2. 拡張機能パネル（Ctrl+Shift+X）を開く
-3. 「IRIS HDL」を検索
-4. インストールをクリック
-
-または、コマンドラインから：
+拡張はマーケットプレイスにまだ出していない。
+リポジトリから`.vsix`を作って入れる。
 
 ```bash
-code --install-extension iris-lang.iris-vscode
+make -C tools vscode          # 拡張と言語サーバをビルドする
+make -C tools package-vscode  # .vsix を作る
+code --install-extension tools/irisfmt/packages/vscode-iris/vscode-iris-0.1.0.vsix
 ```
+
+開発中は`tools/irisfmt/packages/vscode-iris`をVS Codeで開き、F5で起動してもよい。
 
 ### 21.2.2 設定
 
-`settings.json`に以下を追加：
+拡張が持つ設定項目は次の4つである。
 
 ```json
 {
@@ -49,20 +49,18 @@ code --install-extension iris-lang.iris-vscode
         "*.iris": "iris",
         "*.irs": "iris"
     },
-    "iris.lsp.enable": true,
-    "iris.lsp.path": "iris-lsp",
-    "iris.format.onSave": true,
-    "iris.lint.enable": true,
-    "iris.lint.level": "warning",
-    "editor.tabSize": 4,
-    "editor.insertSpaces": true,
-    "[iris]": {
-        "editor.defaultFormatter": "iris-lang.iris-vscode"
-    }
+    "iris.format.indentWidth": 4,
+    "iris.format.useTabs": false,
+    "iris.format.maxLineLength": 100,
+    "iris.lint.enable": true
 }
 ```
 
-> **注記**: IRISファイルは`.iris`（正式拡張子、推奨）と`.irs`（短縮形）の両方の拡張子をサポートしています。上記の`files.associations`設定により、両方の拡張子がIRIS言語として認識されます。
+保存時の整形はVS Code側の`editor.formatOnSave`で指定する。
+言語サーバを入れ直したいときは、コマンドパレットから`iris.restartServer`を実行する。
+
+> **注記**: IRISファイルは`.iris`（正式拡張子、推奨）と`.irs`（短縮形）の両方をサポートしています。
+> 上記の`files.associations`設定により、両方の拡張子がIRIS言語として認識されます。
 
 ### 21.2.3 キーバインド
 
@@ -88,116 +86,106 @@ IRIS拡張機能には以下のスニペットが含まれています：
 
 ---
 
-## 21.7 Language Server Protocol (LSP)
+## 21.3 Language Server Protocol (LSP)
 
-### 21.7.1 LSPサーバーのインストール
+### 21.3.1 LSPサーバーのビルド
+
+サーバーは`tools/irisfmt`にある。
+TypeScriptで書かれており、Node.jsで動く。
 
 ```bash
-# cargoを使用
-cargo install iris-lsp
-
-# または、プリビルドバイナリをダウンロード
-curl -L https://github.com/iris-lang/iris/releases/latest/download/iris-lsp-linux-x64 -o iris-lsp
-chmod +x iris-lsp
-sudo mv iris-lsp /usr/local/bin/
+cd tools/irisfmt
+pnpm install
+pnpm -r build
 ```
 
-### 21.7.2 LSPの機能
+ビルドすると`packages/ls/dist/server.js`ができる。
+VS Code拡張（`packages/vscode-iris`）はこれを起動する。
 
-| 機能 | 説明 |
-|------|------|
-| 補完 | モジュール、信号、型の自動補完 |
-| 定義ジャンプ | シンボルの定義位置へ移動 |
-| 参照検索 | シンボルの使用箇所を検索 |
-| ホバー | 型情報とドキュメントを表示 |
-| 診断 | エラーと警告をリアルタイム表示 |
-| フォーマット | コードの自動整形 |
-| リネーム | シンボル名の一括変更 |
-| コードアクション | クイックフィックスの提案 |
+`package.json`の`packageManager`がpnpm 9を指しているため、
+pnpm 10で実行すると切り替えに失敗することがある。
+その場合は`--config.manage-package-manager-versions=false`を付ける。
 
-### 21.7.3 LSP設定オプション
+### 21.3.2 LSPの機能
 
-```json
-{
-    "iris": {
-        "lint": {
-            "enable": true,
-            "level": "warning",
-            "rules": {
-                "W0001": "off",
-                "W0006": "error"
-            }
-        },
-        "format": {
-            "tabWidth": 4,
-            "useTabs": false,
-            "maxLineLength": 100
-        },
-        "completion": {
-            "snippets": true,
-            "autoImport": true
-        },
-        "inlayHints": {
-            "typeHints": true,
-            "parameterHints": true
-        }
-    }
-}
-```
+| 機能 | LSPメソッド | 説明 |
+|------|-------------|------|
+| 診断 | `textDocument/publishDiagnostics` | エラーと警告をリアルタイム表示 |
+| フォーマット | `textDocument/formatting` | コードの自動整形 |
+| 範囲フォーマット | `textDocument/rangeFormatting` | 選択範囲の整形 |
+| コードアクション | `textDocument/codeAction` | クイックフィックスの提案 |
+| ホバー | `textDocument/hover` | キーワードのドキュメントを表示 |
+| 補完 | `textDocument/completion` | 予約語と文脈に応じた補完 |
+| 定義ジャンプ | `textDocument/definition` | インスタンスからモジュールへ、信号から宣言へ |
+| 参照検索 | `textDocument/references` | 名前を使っている箇所を検索 |
+| ドキュメントシンボル | `textDocument/documentSymbol` | モジュールと構成要素の一覧 |
+| リネーム | `textDocument/rename` | 名前の一括変更 |
+
+定義ジャンプは階層名を辿る。
+`rf.rdata1`はインスタンス`rf`が指すモジュールの`rdata1`に解決される。
+
+これらの機能は`mod`と`test`の両方で効く。
+`test Name { ... }`の中の名前は`Name`に属するものとして解決される。
+
+詳細は[irisfmt-lsのドキュメント](../tools/irisfmt-ls.md)を参照のこと。
+
+### 21.3.3 サーバの設定
+
+サーバは整形とリントの設定を`.irisfmtrc.json`から読む。
+エディタ側の設定項目は21.2.2節に挙げた4つである。
 
 ---
 
-## 21.8 フォーマッタ（iris-fmt）
+## 21.8 フォーマッタ
 
-### 21.8.1 インストール
+### 21.8.1 ビルド
+
+フォーマッタは`tools/irisfmt`にある。
+TypeScriptで書かれており、リンターや言語サーバと同じワークスペースに入っている。
 
 ```bash
-cargo install iris-fmt
+cd tools/irisfmt
+pnpm install
+pnpm -r build
 ```
 
 ### 21.8.2 使用方法
 
 ```bash
-# ファイルをフォーマット
-iris-fmt src/counter.iris
+# 整形されているか確かめる
+node packages/format/dist/cli.js --check src/counter.iris
 
-# インプレースで上書き
-iris-fmt -i src/counter.iris
+# 書き戻す
+node packages/format/dist/cli.js --write src/counter.iris
 
-# ディレクトリ全体をフォーマット
-iris-fmt -i src/
-
-# チェックのみ（CI用）
-iris-fmt --check src/
+# ディレクトリ全体
+node packages/format/dist/cli.js --write "src/**/*.iris"
 ```
 
-### 21.8.3 設定ファイル（iris.toml）
+`--check`は整形が必要なファイルがあると終了コード1を返す。
 
-```toml
-[format]
-tab_width = 4
-use_tabs = false
-max_line_length = 100
-trailing_comma = true
-brace_style = "same_line"
-```
+### 21.8.3 設定ファイル
+
+設定は`.irisfmtrc.json`で与える。
+指定できる項目は[irisfmtの設定](../tools/irisfmt/docs/configuration.md)にある。
 
 ---
 
-## 21.9 リンター（iris-lint）
+## 21.9 リンター
 
 ### 21.9.1 使用方法
 
+リンターも`tools/irisfmt`にあり、フォーマッタと同じビルドで用意できる。
+
 ```bash
-# ファイルをリント
-iris-lint src/counter.iris
+# ファイルを検査する
+node packages/lint/dist/cli.js src/counter.iris
 
-# 警告レベルを指定
-iris-lint --level error src/
-
-# 特定のルールを無効化
-iris-lint --disable W0001,W0002 src/
+# 除外する
+node packages/lint/dist/cli.js --ignore "test/**" "src/**/*.iris"
 ```
+
+規則の一覧は[リント規則](../tools/irisfmt/docs/lint-rules.md)にある。
 
 ### 21.9.2 CI/CD統合
 
@@ -211,9 +199,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: iris-lang/setup-iris@v1
-      - run: iris-lint --level warning src/
-      - run: iris-fmt --check src/
+      - uses: actions/setup-node@v4
+      - run: cd tools/irisfmt && pnpm install && pnpm -r build
+      - run: node tools/irisfmt/packages/lint/dist/cli.js "src/**/*.iris"
+      - run: node tools/irisfmt/packages/format/dist/cli.js --check "src/**/*.iris"
 ```
 
 ---
@@ -264,17 +253,19 @@ clock_period_ns = 10.0
 
 ### 問題：LSPが起動しない
 
-1. `iris-lsp`がPATHに含まれているか確認：
+1. サーバがビルドされているか確認する。
+
    ```bash
-   which iris-lsp
+   ls tools/irisfmt/packages/ls/dist/server.js
    ```
 
-2. 手動で起動してエラーを確認：
+2. 無ければビルドする。
+
    ```bash
-   iris-lsp --version
+   cd tools/irisfmt && pnpm install && pnpm -r build
    ```
 
-3. エディタのログを確認
+3. エディタのログを確認する。
 
 ### 問題：シンタックスハイライトが効かない
 
@@ -293,10 +284,10 @@ clock_period_ns = 10.0
 
 ### 問題：フォーマットが適用されない
 
-1. `iris-fmt`がインストールされているか確認
-2. `iris.toml`の設定を確認
-3. エディタの設定で「Format on Save」が有効か確認
+1. `tools/irisfmt`がビルドされているか確認する。
+2. `.irisfmtrc.json`の設定を確認する。
+3. エディタの設定で「Format on Save」が有効か確認する。
 
 ---
 
-[<< チュートリアル](./20_tutorial.md) | [目次](./iris_spec_0.1.0.md)
+[<< チュートリアル](./20_tutorial.md) | [目次](./iris_spec.md)

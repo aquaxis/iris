@@ -1,0 +1,25 @@
+/// インターフェースとビュー
+interface Bus {
+    valid: bit,
+    ready: bit,
+    data: bit[8],
+
+    view initiator {
+        out: valid, data,
+        in: ready,
+    }
+
+    view target {
+        in: valid, data,
+        out: ready,
+    }
+}
+
+mod BusUser(
+    in clk: clock,
+    out y: bit,
+) {
+    comb {
+        y = 0;
+    }
+}

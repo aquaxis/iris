@@ -24,6 +24,13 @@ export type IrNodeKind =
     | 'EnumDef'
     | 'StructDef'
     | 'TypeAlias'
+    | 'FnDef'
+    | 'UnionDef'
+    | 'InterfaceDef'
+    | 'ReturnStmt'
+    | 'AssertStmt'
+    | 'ExprStmt'
+    | 'MethodCall'
     // Declarations
     | 'LetDecl'
     | 'VarDecl'
@@ -73,7 +80,7 @@ export interface IrSourceFile extends IrAstNode {
     items: IrItem[];
 }
 
-export type IrItem = IrModDef | IrEnumDef | IrStructDef | IrTypeAlias | IrConstDecl;
+export type IrItem = IrModDef | IrEnumDef | IrStructDef | IrUnionDef | IrInterfaceDef | IrTypeAlias | IrConstDecl | IrFnDef;
 
 // ============================================================================
 // Module Definition
@@ -86,6 +93,7 @@ export interface IrModDef extends IrAstNode {
     generics: IrGenericParam[];
     ports: IrPortDecl[];
     items: IrModItem[];
+    whereClause?: IrWhereConstraint[];
 }
 
 export type IrModItem =
@@ -106,6 +114,10 @@ export interface IrGenericParam extends IrAstNode {
 }
 
 export type IrGenericBound = 'type' | 'uint' | 'int' | 'bool' | IrTypeExpr;
+
+export type IrWhereConstraint =
+    | { kind: 'ComparisonConstraint'; left: IrExpr; operator: '>=' | '<=' | '==' | '!=' | '<' | '>'; right: IrExpr }
+    | { kind: 'MethodConstraint'; expr: IrExpr; method: string; args: IrExpr[] };
 
 export type IrPortDirection = 'in' | 'out' | 'inout';
 
@@ -131,6 +143,7 @@ export interface IrTypeExpr extends IrAstNode {
     tupleTypes?: IrTypeExpr[]; // For tuple types
     typeName?: string; // For user-defined types
     genericArgs?: IrExpr[]; // For generic types
+    activeLow?: boolean; // For reset(active_low: true)
 }
 
 // ============================================================================
@@ -150,6 +163,30 @@ export interface IrEnumVariant {
     value?: IrExpr;
 }
 
+/** One view of an interface: `view initiator { out: valid, in: ready, }` */
+export interface IrViewDef {
+    name: string;
+    signals: { name: string; direction: 'in' | 'out' | 'inout' }[];
+}
+
+/** `interface Bus { valid: bit, view initiator { ... } }` */
+export interface IrInterfaceDef extends IrAstNode {
+    kind: 'InterfaceDef';
+    name: string;
+    isPublic: boolean;
+    signals: IrStructField[];
+    views: IrViewDef[];
+}
+
+/** `union U { a: bit[8], b: bit[8], }` */
+export interface IrUnionDef extends IrAstNode {
+    kind: 'UnionDef';
+    name: string;
+    isPublic: boolean;
+    generics: IrGenericParam[];
+    fields: IrStructField[];
+}
+
 export interface IrStructDef extends IrAstNode {
     kind: 'StructDef';
     name: string;
@@ -159,6 +196,39 @@ export interface IrStructDef extends IrAstNode {
 }
 
 export interface IrStructField {
+    name: string;
+    typeExpr: IrTypeExpr;
+}
+
+export interface IrFnDef extends IrAstNode {
+    kind: 'FnDef';
+    name: string;
+    isPublic: boolean;
+    params: IrFnParam[];
+    returnType?: IrTypeExpr;
+    body: IrStmt[];
+}
+
+/** A statement that is only a call, as `$display("...");` */
+export interface IrExprStmt extends IrAstNode {
+    kind: 'ExprStmt';
+    expr: IrExpr;
+}
+
+/** `assert cond else error("...");` */
+export interface IrAssertStmt extends IrAstNode {
+    kind: 'AssertStmt';
+    condition: IrExpr;
+    message?: string;
+}
+
+/** `return expr;`, the last statement of an IRIS function body. */
+export interface IrReturnStmt extends IrAstNode {
+    kind: 'ReturnStmt';
+    value: IrExpr;
+}
+
+export interface IrFnParam {
     name: string;
     typeExpr: IrTypeExpr;
 }
@@ -251,6 +321,7 @@ export interface IrClockSpec {
 export interface IrResetSpec {
     signal: IrExpr;
     mode: 'async' | 'sync';
+    activeLow?: boolean;
 }
 
 // ============================================================================
@@ -265,7 +336,10 @@ export type IrStmt =
     | IrWhileStmt
     | IrBlockStmt
     | IrLetDecl
-    | IrVarDecl;
+    | IrVarDecl
+    | IrReturnStmt
+    | IrAssertStmt
+    | IrExprStmt;
 
 export interface IrAssignStmt extends IrAstNode {
     kind: 'AssignStmt';
@@ -330,6 +404,7 @@ export type IrExpr =
     | IrIfExpr
     | IrMatchExpr
     | IrCallExpr
+    | IrMethodCall
     | IrIndexExpr
     | IrFieldExpr
     | IrCastExpr
@@ -406,6 +481,14 @@ export interface IrMatchExpr extends IrAstNode {
     arms: IrMatchArm[];
 }
 
+/** `receiver.method(args)`, as IRIS spells `x.signed()` or `x.truncate(8)`. */
+export interface IrMethodCall extends IrAstNode {
+    kind: 'MethodCall';
+    receiver: IrExpr;
+    method: string;
+    args: IrExpr[];
+}
+
 export interface IrCallExpr extends IrAstNode {
     kind: 'CallExpr';
     callee: IrExpr;
@@ -417,6 +500,8 @@ export interface IrIndexExpr extends IrAstNode {
     base: IrExpr;
     index: IrExpr;
     endIndex?: IrExpr; // For slices [start:end]
+    /** `+:` or `-:` for an indexed part select; absent for a plain slice. */
+    partSelect?: '+:' | '-:';
 }
 
 export interface IrFieldExpr extends IrAstNode {
@@ -461,9 +546,10 @@ export function createIrModDef(
     ports: IrPortDecl[],
     items: IrModItem[],
     location: SourceLocation,
-    isPublic = false
+    isPublic = false,
+    whereClause?: IrWhereConstraint[]
 ): IrModDef {
-    return { kind: 'ModDef', name, isPublic, generics, ports, items, location };
+    return { kind: 'ModDef', name, isPublic, generics, ports, items, location, whereClause };
 }
 
 export function createIrPortDecl(
@@ -485,6 +571,7 @@ export function createIrTypeExpr(
         tupleTypes?: IrTypeExpr[];
         typeName?: string;
         genericArgs?: IrExpr[];
+        activeLow?: boolean;
     }
 ): IrTypeExpr {
     return {

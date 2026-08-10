@@ -32,6 +32,8 @@ export interface SourceFile extends AstNode {
  */
 export type Item =
   | ModDef
+  | ExternModDef
+  | UnionDef
   | TypeDef
   | ConstDef
   | FnDef
@@ -155,6 +157,8 @@ export interface InstDecl extends AstNode {
   readonly module: Path;
   readonly genericArgs: GenericArgs | undefined;
   readonly connections: Connection[];
+  /** Instance array size, as in `inst u[4] = M { ... };`. Undefined for a single instance. */
+  readonly arraySize?: Expr | undefined;
 }
 
 /**
@@ -255,13 +259,44 @@ export interface FsmBlock extends AstNode {
   readonly clock: ClockSpec;
   readonly reset: ResetSpec | undefined;
   readonly states: FsmStateEnum;
+  /**
+   * The state the machine resets to, from `initial: Idle`.
+   *
+   * fsm_block = ... state_enum [ "initial" ":" identifier ] { signal_decl } ...
+   * Both this and `signals` were missing, so any machine using either was
+   * rejected before the transform ever saw it.
+   */
+  readonly initialState?: Identifier | undefined;
+  /** Signals declared inside the machine, before `transitions`. */
+  readonly signals: SignalDecl[];
   readonly transitions: TransitionsBlock;
   readonly outputs: OutputBlock[];
+  /**
+   * How the state register is encoded, from `output encoding: onehot`.
+   *
+   * Carried through so the setting is not lost; the conversion encodes states
+   * in binary whatever it says, which is what the simulator does too.
+   */
+  readonly encoding?: 'binary' | 'onehot' | 'gray' | undefined;
 }
 
 /**
  * Module definition
  */
+/**
+ * `extern mod Name(ports);` — a module implemented outside IRIS.
+ *
+ * `extern_mod_decl = "pub"? ~ "extern" ~ "mod" ~ identifier ~ generics?
+ *  ~ "(" ~ port_list ~ ")" ~ ";"`
+ */
+export interface ExternModDef extends AstNode {
+  readonly kind: 'ExternModDef';
+  readonly visibility: Visibility;
+  readonly name: Identifier;
+  readonly genericParams: GenericParams | undefined;
+  readonly ports: PortDecl[];
+}
+
 export interface ModDef extends AstNode {
   readonly kind: 'ModDef';
   readonly visibility: Visibility;
@@ -310,6 +345,20 @@ export interface StructField extends AstNode {
 /**
  * Struct definition
  */
+/**
+ * `union U { a: bit[8], b: bit[8], }`
+ *
+ * `union_decl = "pub"? ~ "union" ~ identifier ~ "{" ~ struct_field ~ ... ~ "}"`.
+ * The same body as a struct, and the same conversion: a packed SystemVerilog
+ * union.
+ */
+export interface UnionDef extends AstNode {
+  readonly kind: 'UnionDef';
+  readonly visibility: Visibility;
+  readonly name: Identifier;
+  readonly fields: StructField[];
+}
+
 export interface StructDef extends AstNode {
   readonly kind: 'StructDef';
   readonly visibility: Visibility;
@@ -403,6 +452,8 @@ export interface InterfaceDef extends AstNode {
   readonly visibility: Visibility;
   readonly name: Identifier;
   readonly genericParams: GenericParams | undefined;
+  /** The interface this one extends, from `interface B extends A { ... }`. */
+  readonly extends?: Identifier | undefined;
   readonly signals: InterfaceSignal[];
   readonly views: ViewDef[];
 }
@@ -463,6 +514,13 @@ export interface AssertStmt extends AstNode {
   readonly kind: 'AssertStmt';
   readonly condition: Expr;
   readonly message: string | undefined;
+  /**
+   * Severity of the `else` action, as in `assert c else error("...")`.
+   *
+   * `assert_action = assert_severity ~ "(" ~ string_literal ~ ")"` in the
+   * reference grammar. Absent for the bare and comma forms.
+   */
+  readonly severity?: 'error' | 'warning' | 'fatal' | undefined;
 }
 
 /**
