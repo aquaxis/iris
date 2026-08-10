@@ -40,6 +40,8 @@ export enum TokenKind {
   // === Identifiers ===
   /** Identifier (e.g., foo, bar_baz) */
   Identifier = 'Identifier',
+  /** System function (e.g., $clog2, $display, $finish) */
+  SysFunc = 'SysFunc',
 
   // === Keywords - Module & Structure ===
   /** mod keyword */
@@ -62,6 +64,7 @@ export enum TokenKind {
   Type = 'Type',
   /** struct keyword */
   Struct = 'Struct',
+  Union = 'Union',
   /** enum keyword */
   Enum = 'Enum',
   /** bit keyword */
@@ -180,6 +183,10 @@ export enum TokenKind {
   // === Operators - Arithmetic ===
   /** + */
   Plus = 'Plus',
+  /** `+:` of a part select, `a[i +: 8]` */
+  PlusColon = 'PlusColon',
+  /** `-:` of a part select, `a[i -: 8]` */
+  MinusColon = 'MinusColon',
   /** - */
   Minus = 'Minus',
   /** * */
@@ -318,6 +325,7 @@ export const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
   // Types
   ['type', TokenKind.Type],
   ['struct', TokenKind.Struct],
+  ['union', TokenKind.Union],
   ['enum', TokenKind.Enum],
   ['bit', TokenKind.Bit],
   ['int', TokenKind.Int],

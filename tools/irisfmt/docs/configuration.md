@@ -110,7 +110,7 @@ mod Counter(in clk: clock) {
 
 **Before (maxLineLength: 100):**
 ```iris
-fn calculate(a: uint<32>, b: uint<32>, c: uint<32>) -> uint<32> {
+fn calculate(a: u32, b: u32, c: u32) -> u32 {
     return a + b + c;
 }
 ```
@@ -118,10 +118,10 @@ fn calculate(a: uint<32>, b: uint<32>, c: uint<32>) -> uint<32> {
 **After (maxLineLength: 40):**
 ```iris
 fn calculate(
-    a: uint<32>,
-    b: uint<32>,
-    c: uint<32>
-) -> uint<32> {
+    a: u32,
+    b: u32,
+    c: u32
+) -> u32 {
     return a + b + c;
 }
 ```
@@ -177,7 +177,7 @@ mod Counter(in clk: clock)
 ```iris
 mod Counter(
     in clk: clock,
-    out count: uint<8>
+    out count: u8
 ) {
     // ...
 }
@@ -187,7 +187,7 @@ mod Counter(
 ```iris
 mod Counter(
     in clk: clock,
-    out count: uint<8>,
+    out count: u8,
 ) {
     // ...
 }
@@ -198,7 +198,7 @@ mod Counter(
 // 複数行の場合は末尾カンマを付ける
 mod Counter(
     in clk: clock,
-    out count: uint<8>,
+    out count: u8,
 ) {
     // ...
 }

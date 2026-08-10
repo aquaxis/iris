@@ -28,6 +28,7 @@ export type SvStmt =
   | SvVarDeclStmt
   | SvTaskCallStmt
   | SvAssertStmt
+  | SvExprStmt
   | SvDisplayStmt
   | SvEmptyStmt
   | SvCommentStmt
@@ -197,6 +198,18 @@ export interface SvTaskCallStmt {
   readonly kind: 'SvTaskCallStmt';
   readonly taskName: string;
   readonly args: SvExpr[];
+}
+
+/**
+ * A statement that is only a call, as `$display("...");`
+ *
+ * Expression statements were turned into nothing at all, so every `$display`
+ * disappeared. That is a loss on its own, and it also left `if` branches empty,
+ * which is not valid SystemVerilog.
+ */
+export interface SvExprStmt {
+  readonly kind: 'SvExprStmt';
+  readonly expr: SvExpr;
 }
 
 /**
@@ -408,6 +421,10 @@ export function taskCall(taskName: string, ...args: SvExpr[]): SvTaskCallStmt {
 /**
  * Create an assert statement
  */
+export function exprStmt(expr: SvExpr): SvExprStmt {
+  return { kind: 'SvExprStmt', expr };
+}
+
 export function assertStmt(condition: SvExpr, message?: string): SvAssertStmt {
   return { kind: 'SvAssertStmt', condition, message };
 }

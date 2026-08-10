@@ -18,6 +18,9 @@ export interface HirStmtBase {
  * HIR Statement union type
  */
 export type HirStmt =
+  | HirDelayStatement
+  | HirReturnStmt
+  | HirImmediateAssertStmt
   | HirAssignStmt
   | HirNonblockingAssignStmt
   | HirIfStmt
@@ -291,4 +294,48 @@ export function createVarDeclStmt(
     dataType,
     init,
   };
+}
+
+
+/**
+ * An immediate assertion, as `assert c else error("...")` in IRIS.
+ *
+ * Named apart from `HirAssertStmt` in `module.ts`, which is the testbench-level
+ * assertion and carries a different shape. Two types of the same name in one
+ * package is a trap for whoever reads the next `kind` check.
+ *
+ * The SystemVerilog backend already had a node for this; the intermediate
+ * representation did not, so an assertion could not survive lowering and every
+ * testbench stopped at its first one.
+ */
+export interface HirImmediateAssertStmt {
+  readonly kind: 'AssertStmt';
+  readonly condition: HirExpr;
+  readonly message?: string | undefined;
+  readonly severity?: 'error' | 'warning' | 'fatal' | undefined;
+}
+
+
+/**
+ * `return expr;` inside a function.
+ *
+ * Only meaningful in a function body: a return in synthesizable module logic
+ * has no equivalent and is still reported. SystemVerilog functions take this
+ * form directly, so nothing further is needed downstream.
+ */
+export interface HirReturnStmt {
+  readonly kind: 'ReturnStmt';
+  readonly value: HirExpr | undefined;
+}
+
+
+/**
+ * `#20;` — a delay, used by a testbench to sequence its stimulus.
+ *
+ * Distinct from `HirDelayStmt` in `module.ts`, which belongs to the `seq` block
+ * vocabulary and carries a unit.
+ */
+export interface HirDelayStatement {
+  readonly kind: 'DelayStmt';
+  readonly delay: number;
 }

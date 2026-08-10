@@ -1,6 +1,6 @@
 # 第17章 サンプルコード集
 
-[<< 文法定義](./16_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./18_glossary.md)
+[<< 文法定義](./16_grammar.md) | [目次](./iris_spec.md) | [用語集 >>](./18_glossary.md)
 
 ---
 
@@ -540,7 +540,7 @@ mod SpiMaster[DataWidth: uint = 8](
     // クロック分周設定
     in  clk_div: bit[8],
 ) {
-    var state: bit[2] = 0;
+    var spi_state: bit[2] = 0;
     var bit_count: bit[$clog2(DataWidth)] = 0;
     var clk_count: bit[8] = 0;
     var shift_reg: bit[DataWidth] = 0;
@@ -556,19 +556,19 @@ mod SpiMaster[DataWidth: uint = 8](
     sync(clk.posedge, rst.async) {
         done_reg = 0;
 
-        match state {
+        match spi_state {
             STATE_IDLE => {
                 sclk_reg = 0;
                 if start {
                     shift_reg = tx_data;
                     bit_count = DataWidth - 1;
                     clk_count = 0;
-                    state = STATE_LOAD;
+                    spi_state = STATE_LOAD;
                 }
             }
             STATE_LOAD => {
                 // データをMOSIにセット
-                state = STATE_SHIFT;
+                spi_state = STATE_SHIFT;
             }
             STATE_SHIFT => {
                 if clk_count == clk_div {
@@ -581,7 +581,7 @@ mod SpiMaster[DataWidth: uint = 8](
                         // 立ち下がりエッジ：次のビットをシフト
                         sclk_reg = 0;
                         if bit_count == 0 {
-                            state = STATE_DONE;
+                            spi_state = STATE_DONE;
                         } else {
                             bit_count = bit_count - 1;
                             shift_reg = {shift_reg[DataWidth-2:0], 1'b0};
@@ -593,7 +593,7 @@ mod SpiMaster[DataWidth: uint = 8](
             }
             STATE_DONE => {
                 done_reg = 1;
-                state = STATE_IDLE;
+                spi_state = STATE_IDLE;
             }
         }
     }
@@ -601,9 +601,9 @@ mod SpiMaster[DataWidth: uint = 8](
     comb {
         sclk = sclk_reg;
         mosi = shift_reg[DataWidth - 1];
-        cs_n = (state == STATE_IDLE) ? 1'b1 : 1'b0;
+        cs_n = (spi_state == STATE_IDLE) ? 1'b1 : 1'b0;
         rx_data = rx_reg;
-        busy = (state != STATE_IDLE);
+        busy = (spi_state != STATE_IDLE);
         done = done_reg;
     }
 }
@@ -645,7 +645,7 @@ mod I2cMaster(
         Complete
     }
 
-    var state: State = State::Idle;
+    var i2c_state: State = State::Idle;
     var bit_count: bit[3] = 0;
     var clk_count: bit[8] = 0;
     var phase: bit[2] = 0;  // SCLサイクル内のフェーズ
@@ -666,13 +666,13 @@ mod I2cMaster(
             clk_count = 0;
             phase = phase + 1;
 
-            match state {
+            match i2c_state {
                 State::Idle => {
                     scl_reg = 1;
                     sda_out = 1;
                     sda_oe = 0;
                     if start {
-                        state = State::StartBit;
+                        i2c_state = State::StartBit;
                         phase = 0;
                     }
                 }
@@ -686,10 +686,10 @@ mod I2cMaster(
                             if write {
                                 shift_reg = tx_data;
                                 bit_count = 7;
-                                state = State::SendBit;
+                                i2c_state = State::SendBit;
                             } else {
                                 bit_count = 7;
-                                state = State::RecvBit;
+                                i2c_state = State::RecvBit;
                             }
                             phase = 0;
                         }
@@ -704,7 +704,7 @@ mod I2cMaster(
                         2'b11 => {
                             shift_reg = {shift_reg[6:0], 1'b0};
                             if bit_count == 0 {
-                                state = State::ReadAck;
+                                i2c_state = State::ReadAck;
                             } else {
                                 bit_count = bit_count - 1;
                             }
@@ -720,9 +720,9 @@ mod I2cMaster(
                         2'b11 => {
                             scl_reg = 0;
                             if stop {
-                                state = State::StopBit;
+                                i2c_state = State::StopBit;
                             } else {
-                                state = State::Complete;
+                                i2c_state = State::Complete;
                             }
                             phase = 0;
                         }
@@ -737,17 +737,17 @@ mod I2cMaster(
                         2'b10 => { sda_out = 1; }  // STOP条件
                         2'b11 => {
                             sda_oe = 0;
-                            state = State::Complete;
+                            i2c_state = State::Complete;
                             phase = 0;
                         }
                     }
                 }
                 State::Complete => {
                     done_reg = 1;
-                    state = State::Idle;
+                    i2c_state = State::Idle;
                 }
                 _ => {
-                    state = State::Idle;
+                    i2c_state = State::Idle;
                 }
             }
         }
@@ -758,7 +758,7 @@ mod I2cMaster(
         sda = sda_oe ? sda_out : 1'bz;  // トライステート
         rx_data = rx_reg;
         ack = ack_reg;
-        busy = (state != State::Idle);
+        busy = (i2c_state != State::Idle);
         done = done_reg;
     }
 }
@@ -1152,7 +1152,8 @@ test counter_various_widths[Width in [4, 8, 16, 32]]() {
 
 ## 17.18 testモジュール例
 
-`test`モジュールはテストベンチ専用のモジュール定義である。ポート宣言を持たず、SystemVerilogのテストベンチトップ階層と同等の役割を持つ。
+`test`モジュールはテストベンチ専用のモジュール定義である。
+ポート宣言を持たず、SystemVerilogのテストベンチトップ階層と同等の役割を持つ。
 
 ### 17.18.1 基本的なtestモジュール
 
@@ -1362,7 +1363,7 @@ test CounterSeqTest {
 ### 17.19.2 複数seqブロックの並列実行
 
 ```rust
-/// 並列seqブロックを使用したプロデューサー・コンシューマーテスト
+/// 並列seqブロックを使用したプロデューサーとコンシューマーのテスト
 test FifoParallelTest {
     let clk = Clock.new(period: 10.ns);
     let rst: bit = 0;
@@ -1789,4 +1790,4 @@ test ExternRustTest {
 
 ---
 
-[<< 文法定義](./16_grammar.md) | [目次](./iris_spec_0.1.0.md) | [用語集 >>](./18_glossary.md)
+[<< 文法定義](./16_grammar.md) | [目次](./iris_spec.md) | [用語集 >>](./18_glossary.md)

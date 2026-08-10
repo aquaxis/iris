@@ -1,0 +1,101 @@
+/// 縦に1本通すためのテスト（ADDIのみ）
+///
+/// プログラム:
+///   addi x1, x0, 5     x1 = 5
+///   addi x2, x1, 3     x2 = 8
+///   addi x0, x0, 7     x0は0のまま（仕様上x0は書き換わらない）
+///   ebreak             停止
+///
+/// 期待値はRISC-Vの仕様から導いたものであり、このコアが出した値ではない。
+///
+/// 検証の進め方:
+///   コアが停止したら、レジスタx0からx31までを1サイクルに1本ずつ読み、
+///   期待値表と突き合わせる。
+///   レジスタの中身は検証用ポート（dbg_addr／dbg_data）で見る。
+///   テストベンチから`core.rf.regs[1]`のように階層越しにmemを読むと、
+///   診断なしで0が返るためである。
+///
+///   syncブロックの中では`n = n + 1`を2回書いてもどちらも更新前のnを読むため、
+///   数え上げは1サイクルに1回だけ行う。
+
+/// 命令ROM
+///
+/// memの初期化子が使えないため、アドレスに対するmatchでプログラムを表す。
+mod Rom(
+    in  addr: bit[32],
+    out rdata: bit[32],
+) {
+    comb {
+        rdata = match addr[7:2] {
+            6'd0 => 32'h00500093,  // addi x1, x0, 5
+            6'd1 => 32'h00308113,  // addi x2, x1, 3
+            6'd2 => 32'h00700013,  // addi x0, x0, 7   x0は変化しないこと
+            6'd3 => 32'h00100073,  // ebreak
+            _    => 32'h00000013,  // nop (addi x0, x0, 0)
+        };
+    }
+}
+
+test TestAddi {
+    let clk: clock(period: 10ns);
+    let rst_n: reset(active_low: true);
+
+    // 検証の進行
+    var idx: bit[6] = 0;        // いま照合しているレジスタ番号（x0から見る）
+    var fails: bit[8] = 0;
+    var done: bit = 0;
+
+    var expected: bit[32] = 0;
+    var matched: bit = 0;
+
+    inst rom = Rom {
+        addr: core.imem_addr,
+    };
+
+    inst core = RiscvCore {
+        clk: clk,
+        rst_n: rst_n,
+        imem_rdata: rom.rdata,
+        dbg_addr: idx[4:0],
+    };
+
+    comb {
+        // 期待値表。プログラムが書き換えないレジスタは0のままである。
+        expected = match idx {
+            6'd1 => 32'd5,
+            6'd2 => 32'd8,
+            _    => 32'd0,
+        };
+        matched = if core.dbg_data == expected { 1'b1 } else { 1'b0 };
+    }
+
+    sync(clk.posedge, rst_n.async) {
+        if ~rst_n {
+            idx = 0;
+            fails = 0;
+            done = 0;
+        } else {
+            if core.halted {
+                if ~done {
+                    if ~matched {
+                        fails = fails + 1;
+                        $display("FAIL x%0d: expected %0d, got %0d",
+                                 idx, expected, core.dbg_data);
+                    }
+                    assert matched else error("register does not match the expected value");
+
+                    if idx == 6'd31 {
+                        done = 1;
+                        $display("");
+                        $display("=== Verification ===");
+                        $display("  registers checked: 32");
+                        $display("  mismatches:        %0d", fails);
+                        $finish;
+                    } else {
+                        idx = idx + 1;
+                    }
+                }
+            }
+        }
+    }
+}

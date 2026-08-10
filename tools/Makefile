@@ -2,19 +2,30 @@
 # iris2sv, irisfmt, sv2iris の統一ビルドファイル
 
 .PHONY: all install build test lint clean help link unlink
-.PHONY: iris2sv irisfmt sv2iris
+.PHONY: iris2sv irisfmt sv2iris vscode
 .PHONY: install-iris2sv install-irisfmt install-sv2iris
-.PHONY: build-iris2sv build-irisfmt build-sv2iris
+.PHONY: build-iris2sv build-irisfmt build-sv2iris build-vscode
 .PHONY: test-iris2sv test-irisfmt test-sv2iris
 .PHONY: lint-iris2sv lint-irisfmt lint-sv2iris
-.PHONY: clean-iris2sv clean-irisfmt clean-sv2iris
+.PHONY: clean-iris2sv clean-irisfmt clean-sv2iris clean-vscode
 .PHONY: link-iris2sv link-irisfmt link-sv2iris
+.PHONY: package-vscode install-vscode
 
 # プロジェクト定義
 PROJECTS := iris2sv irisfmt sv2iris
 
 # コマンド定義
-PNPM := pnpm
+#
+# 各プロジェクトの package.json は packageManager に pnpm@9 を指定している。
+# pnpm 10 で実行するとその版へ切り替えようとし、見つからなければ失敗する。
+# 切り替えを無効にして、いま入っている pnpm をそのまま使う。
+# pnpm 9 を使う場合は `make PNPM_FLAGS=` で外せる。
+PNPM_FLAGS ?= --config.manage-package-manager-versions=false
+PNPM := pnpm $(PNPM_FLAGS)
+
+# VS Code 拡張
+VSCODE_DIR := irisfmt/packages/vscode-iris
+VSCE := npx --yes @vscode/vsce
 
 # 削除対象
 CLEAN_TARGETS := node_modules dist coverage .turbo
@@ -47,6 +58,12 @@ help:
 	@echo "  iris2sv  - Install and build iris2sv"
 	@echo "  irisfmt  - Install and build irisfmt"
 	@echo "  sv2iris  - Install and build sv2iris"
+	@echo "  vscode   - Build the VS Code extension"
+	@echo ""
+	@echo "VS Code extension:"
+	@echo "  build-vscode    - Compile the extension and the language server"
+	@echo "  package-vscode  - Produce a .vsix (needs network for @vscode/vsce)"
+	@echo "  clean-vscode    - Remove the extension's build output"
 	@echo ""
 	@echo "Fine-grained targets:"
 	@echo "  install-{tool}  - Install dependencies for specific tool"
@@ -74,7 +91,7 @@ test: build test-iris2sv test-irisfmt test-sv2iris
 lint: build lint-iris2sv lint-irisfmt lint-sv2iris
 	@echo "All linting completed."
 
-clean: clean-iris2sv clean-irisfmt clean-sv2iris
+clean: clean-iris2sv clean-irisfmt clean-sv2iris clean-vscode
 	@echo "All tools cleaned."
 
 #===============================================================================
@@ -89,6 +106,50 @@ irisfmt: install-irisfmt build-irisfmt
 
 sv2iris: install-sv2iris build-sv2iris
 	@echo "sv2iris ready."
+
+vscode: install-vscode build-vscode
+	@echo "VS Code extension ready."
+
+#===============================================================================
+# VS Code 拡張
+#
+# 拡張は irisfmt ワークスペースの中にある（packages/vscode-iris）。
+# 動かすには Language Server（packages/ls/dist/server.js）が要るため、
+# build-vscode は irisfmt 全体をビルドする。
+#===============================================================================
+
+install-vscode: install-irisfmt
+
+build-vscode: build-irisfmt
+	@echo "Building VS Code extension..."
+	@cd $(VSCODE_DIR) && $(PNPM) build
+	@echo ""
+	@echo "Extension built:        tools/$(VSCODE_DIR)/out/extension.js"
+	@echo "Language server:        tools/irisfmt/packages/ls/dist/server.js"
+	@echo ""
+	@echo "To try it, open tools/$(VSCODE_DIR) in VS Code and press F5."
+
+# .vsix を作る
+#
+# Language Server を拡張の中へ複製してから固める。
+# 拡張は開発時には隣の packages/ls を見るが、その場所は .vsix に入らない。
+# 同梱しないと、インストールした拡張がサーバーを起動できない。
+#
+# vsce は依存に入れていないので npx が取りに行く。ネットワークが要る。
+package-vscode: build-vscode
+	@echo "Bundling the language server into the extension..."
+	@rm -rf $(VSCODE_DIR)/server
+	@mkdir -p $(VSCODE_DIR)/server
+	@cp -r irisfmt/packages/ls/dist/. $(VSCODE_DIR)/server/
+	@echo "Packaging VS Code extension..."
+	@cd $(VSCODE_DIR) && $(VSCE) package --no-dependencies
+	@echo ""
+	@echo "Package written to tools/$(VSCODE_DIR)/*.vsix"
+	@echo "Install it with: code --install-extension <file>.vsix"
+
+clean-vscode:
+	@echo "Cleaning VS Code extension..."
+	@rm -rf $(VSCODE_DIR)/out $(VSCODE_DIR)/server $(VSCODE_DIR)/*.vsix 2>/dev/null || true
 
 #===============================================================================
 # iris2sv

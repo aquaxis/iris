@@ -1,0 +1,49 @@
+/// ALU（RV32I）
+///
+/// RV32Iが定める10種類の演算を行う。
+/// 演算の選択はデコーダが決めたalu_opで受け取る。
+///
+/// 符号の扱いに2か所、間違えても動いてしまう場所がある。
+///
+///   SLT  は符号付き比較、SLTU は符号なし比較
+///   SRA  は算術右シフト、SRL  は論理右シフト
+///
+/// どちらも取り違えたまま多くのテストを通してしまうため、
+/// 符号付きの中間値をint[32]として明示的に作り、
+/// 符号なしの経路と別々に書く。
+mod Alu(
+    in  op: bit[4],
+    in  a: bit[32],
+    in  b: bit[32],
+    out y: bit[32],
+) {
+    // 符号付きとして解釈した入力
+    var sa: int[32] = 0;
+    var sb: int[32] = 0;
+
+    // シフト量は下位5ビットだけを使う（RV32Iの規定）
+    var shamt: bit[5] = 0;
+
+    var sra_result: int[32] = 0;
+
+    comb {
+        sa = a;
+        sb = b;
+        shamt = b[4:0];
+        sra_result = sa >>> shamt;
+
+        y = match op {
+            4'd0 => a + b,                                    // ADD
+            4'd1 => a - b,                                    // SUB
+            4'd2 => a << shamt,                               // SLL
+            4'd3 => if sa < sb { 32'd1 } else { 32'd0 },      // SLT  符号付き
+            4'd4 => if a < b { 32'd1 } else { 32'd0 },        // SLTU 符号なし
+            4'd5 => a ^ b,                                    // XOR
+            4'd6 => a >> shamt,                               // SRL  論理
+            4'd7 => sra_result,                               // SRA  算術
+            4'd8 => a | b,                                    // OR
+            4'd9 => a & b,                                    // AND
+            _    => 32'd0,
+        };
+    }
+}

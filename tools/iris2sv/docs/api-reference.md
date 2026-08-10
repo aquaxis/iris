@@ -24,10 +24,11 @@ import { Compiler } from '@iris2sv/cli';
 const compiler = new Compiler();
 
 const source = `
-mod counter {
+mod counter(
     in  clk: clock,
     in  rst: reset,
-    out count: uint<8>
+    out count: bit[8],
+) {
 }
 `;
 
@@ -341,11 +342,12 @@ import { emitModule } from '@iris2sv/sv-backend';
 
 // Source code
 const source = `
-mod alu {
-    in  a: uint<8>,
-    in  b: uint<8>,
-    in  op: uint<2>,
-    out result: uint<8>
+mod alu(
+    in  a: bit[8],
+    in  b: bit[8],
+    in  op: bit[2],
+    out result: bit[8],
+) {
 }
 `;
 

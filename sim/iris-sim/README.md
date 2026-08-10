@@ -168,12 +168,14 @@ gtkwave output.vcd
 ### ステップ4: 高速シミュレーション（コンパイル型）
 
 ```bash
-# コンパイル型シミュレータを生成
+# 設計をRustプログラムに変換してビルドする
 iris-compile -i counter.iris -o counter_sim --release -v
 
-# 生成されたシミュレータで実行（約3,800倍高速）
-./counter_sim/target/release/counter-sim 10000 output.vcd
+# 生成された実行ファイルで実行する
+./counter_sim -c 10000 -o output.vcd
 ```
+
+生成された実行ファイルは`iris-sim`と同じ波形を出力する。
 
 ---
 
@@ -219,21 +221,28 @@ iris-sim -i counter.iris -i counter_test.iris -o out.vcd -c 100 -W
 
 ## iris-compile（コンパイル型シミュレータ生成）
 
-IRISソースからスタンドアロンのRust実行ファイルを生成するツール。インタプリタ型と比較して最大約3,800倍の高速化が可能。
+IRISソースからスタンドアロンのRust実行ファイルを生成するツール。
 
-**注意**: `test`宣言を含むテストベンチファイルが必須です。
+インタプリタが毎ステップ名前で解決していること（信号がどのモジュールに属するか、
+どのクロックが`sync`ブロックを駆動するか、ある名前がメモリかレジスタか）を
+生成時に決めてしまい、直線的なRustコードとして出力する。
+演算そのものは書き直さず、インタプリタと同じ`iris-runtime`の関数を呼ぶ。
+
+`iris-sim`が実行できる設計はすべてコンパイルできる。
+複数クロック、メモリ、FSM、入れ子インスタンス、`assert`、`$display`のいずれも扱う。
+`test`宣言は必須ではなく、外から駆動する設計もコンパイルできる。
 
 ### 基本的な使い方
 
 ```bash
-# テストベンチとDUTをコンパイル（必須構成）
-iris-compile -i counter.iris -i counter_test.iris -o counter_sim --release
+# 実行ファイルまで生成する
+iris-compile -i counter.iris -o counter_sim --release
 
-# Rustソースコードのみ生成
-iris-compile -i counter.iris -i counter_test.iris -o counter_sim.rs
+# Rustソースコードだけ生成する（拡張子が .rs のとき）
+iris-compile -i counter.iris -o counter_sim.rs
 
-# ビルドまで実行（デバッグ）
-iris-compile -i counter.iris -i counter_test.iris -o counter_sim --build
+# テストベンチとDUTをまとめてコンパイルする
+iris-compile -i async_fifo.iris -i async_fifo_tb.iris -o fifo_sim --release
 ```
 
 ### コマンドラインオプション
@@ -241,105 +250,110 @@ iris-compile -i counter.iris -i counter_test.iris -o counter_sim --build
 | オプション | 短縮形 | 説明 | デフォルト |
 |-----------|--------|------|-----------|
 | `--input <FILE>` | `-i` | 入力IRISファイル（複数指定可） | 必須 |
-| `--output <FILE>` | `-o` | 出力ファイルパス | 必須 |
-| `--build` | - | 生成後にcargo buildを実行 | 無効 |
-| `--release` | - | リリースビルド（--buildを含む） | 無効 |
+| `--output <FILE>` | `-o` | 出力パス（`.rs`ならソース、それ以外は実行ファイル） | 必須 |
+| `--build` | - | `.rs`を指定した場合もビルドする | 無効 |
+| `--release` | - | リリースビルド（`--build`を含む） | 無効 |
 | `--runtime-path <PATH>` | - | iris-runtimeクレートのパス | 自動検出 |
 | `--top <MODULE>` | `-t` | トップモジュール名 | 自動検出 |
 | `--verbose` | `-v` | 詳細出力 | 無効 |
 | `--help` | `-h` | ヘルプ表示 | - |
 
+仕様第14章が定める静的検査は`iris-sim`と同じく実行する。
+エラーがあればコード生成を始めない。
+
 ### 生成されるファイル構成
 
+出力ファイルと同じディレクトリに、cargoプロジェクトを一つ作る。
+`-o`で指定した場所には、そこでビルドした実行ファイルを複製する。
+
 ```
-counter_sim/
-├── Cargo.toml          # 生成されたプロジェクト設定
+counter_sim              # -o で指定した実行ファイル
+counter_sim_build/       # 生成されたcargoプロジェクト
+├── Cargo.toml
 ├── src/
-│   └── main.rs         # 生成されたシミュレーションコード
+│   └── main.rs          # 生成されたシミュレーションコード
 └── target/
-    └── release/
-        └── counter-sim # 実行ファイル
 ```
+
+cargoプロジェクトの名前は`-o`で指定した名前から作る。
+モジュール名から作ると、`-o counter_sim`と`Counter`モジュールの組で
+実行ファイルとディレクトリが衝突するためである。
 
 ### 生成されたシミュレータの使い方
 
+オプションは`iris-sim`と同じ綴りである。
+
 ```bash
-# コマンドライン引数
-./counter_sim/target/release/counter-sim [CYCLES] [OUTPUT_FILE]
+# 100サイクル実行し、VCDを書き出す
+./counter_sim -c 100 -o counter.vcd
 
-# 例: 10000サイクル実行、VCD出力
-./counter_sim/target/release/counter-sim 10000 output.vcd
+# 最終値まで表示する
+./counter_sim -c 100 -o counter.vcd -v
 
-# 引数省略時はデフォルト値を使用
-./counter_sim/target/release/counter-sim
+# サイクル数だけなら位置引数でも渡せる
+./counter_sim 100
 ```
+
+| オプション | 短縮形 | 説明 | デフォルト |
+|-----------|--------|------|-----------|
+| `--cycles <N>` | `-c` | シミュレーションサイクル数 | 100 |
+| `--output <FILE>` | `-o` | 出力波形ファイル（.vcd） | 出力しない |
+| `--verbose` | `-v` | 実行後に全信号の最終値を表示 | 無効 |
+| `--source <FILE>` | `-s` | assert失敗時に表示するソース名 | 生成時の入力ファイル |
 
 ### パフォーマンス比較
 
-| 実行方式 | 10,000サイクル | 速度比 |
-|---------|---------------|--------|
-| インタプリタ（iris-sim） | 約19秒 | 1x（基準） |
-| コンパイル（debug） | 約0.2秒 | 約96倍 |
-| コンパイル（release） | 約0.005秒 | **約3,800倍** |
+`example/counter/src/counter.iris`を100,000サイクル実行した場合。
 
-### テスト宣言のコンパイル
+| 実行方式 | 100,000サイクル | 速度比 |
+|---------|----------------|--------|
+| インタプリタ（iris-sim、release） | 約0.23秒 | 1x（基準） |
+| コンパイル（debug） | 約0.34秒 | 約0.7倍 |
+| コンパイル（release） | 約0.05秒 | 約4.5倍 |
 
-`test` 宣言を使用したテストベンチは、DUTモジュールと一緒にコンパイルできます。
+デバッグビルドはインタプリタより遅い。速度を目的とする場合は`--release`を使う。
+
+### インタプリタとの一致
+
+同じ設計を両方で実行し、波形と全信号の最終値が一致することを回帰テストで確認している
+（`tests/compiled.rs`）。
+対象はカウンタ、メモリとブロックローカル、`match`とパート選択、符号付き演算、
+インスタンス内のFSM、入れ子インスタンス、失敗するassert、
+そして`example/async_fifo`そのものである。
 
 ```bash
-# テストベンチとDUTをまとめてコンパイル
-iris-compile -i counter.iris -i counter_test.iris -o counter_tb_sim --release --runtime-path ./iris-runtime
-
-# 生成されたテストシミュレータを実行
-./counter_tb_sim 100 output.vcd
+# 例: async_fifoを両方で実行して波形を比べる
+cd example/async_fifo/sim
+./run.sh            # インタプリタ
+./run_compiled.sh   # コンパイル型（末尾で波形の一致を確認する）
 ```
 
-**出力例:**
+クイックスタートの2ファイルをコンパイルして100サイクル実行すると、
+`iris-sim`と同じ最終値になる。
+
+```bash
+iris-compile -i counter.iris -i counter_test.iris -o counter_sim --release
+./counter_sim -c 100 -o counter.vcd -v
 ```
-Simulation completed: 100 cycles
-Final values:
-  dut.counter: 100
-  test_result: 1
-  test_pass: 1
+
+```
+Simulation completed successfully.
+
+Final signal values:
+  clk: 1'h0
+  rst: 1'h0
+  enable_sig: 1'h1
+  cycle_count: 16'h005f
+  count_out: 8'h5f
+  dut.clk: 1'h1
+  dut.rst: 1'h0
+  dut.enable: 1'h1
+  dut.count: 8'h5f
+  dut.counter: 8'h5f
 ```
 
-テスト宣言のコンパイル時の特徴:
-- `test` キーワードを持つモジュールが自動検出される
-- `inst` 構文でインスタンス化されたDUTも自動的にコンパイルされる
-- DUT内部の信号への階層参照（例: `dut.count`）がサポートされる
-- テスト変数とDUT信号の両方が波形出力に含まれる
-
-**テストベンチ例（counter_test.iris）:**
-```iris
-test CounterTB {
-    let clk: clock;
-    let rst: reset;
-
-    var enable_sig: bit = 1;
-    var cycle_count: bit[16] = 0;
-    var test_result: bit = 0;
-    var count_out: bit[8] = 0;
-    var test_pass: bit = 0;
-
-    inst dut = Counter {
-        clk: clk,
-        rst: rst,
-        enable: enable_sig,
-    };
-
-    sync(clk.posedge, rst.async) {
-        cycle_count = cycle_count + 1;
-        if cycle_count == 16'd50 {
-            test_result = 1;
-        }
-    }
-
-    comb {
-        count_out = dut.count;
-        test_pass = test_result;
-    }
-}
-```
+`test`宣言は自動検出され、`inst`でインスタンス化したDUTも一緒にコンパイルされる。
+DUT内部への階層参照（`dut.count`）も、テスト側の信号もそのまま波形に出る。
 
 ---
 
@@ -381,9 +395,11 @@ mod TrafficLight(
     var timer: bit[8] = 0;
 
     fsm controller(clk.posedge, rst.async) {
-        state Red[red=1, yellow=0, green=0];
-        state Green[red=0, yellow=0, green=1];
-        state Yellow[red=0, yellow=1, green=0];
+        state enum {
+            Red[red=1, yellow=0, green=0],
+            Green[red=0, yellow=0, green=1],
+            Yellow[red=0, yellow=1, green=0]
+        }
 
         transitions {
             Red => {
@@ -429,9 +445,10 @@ test CounterTB {
     }
 
     initial {
-        assert dut.count == 8'd0, "Initial count should be 0";
+        assert dut.count == 8'd0, "Count starts at 0";
     }
 
+    // await は seq ブロックを中断する。その間も設計は動く。
     seq {
         await clk.cycles(50);
         assert dut.count == 8'd45, "Count should be 45 after 50 cycles";
@@ -503,21 +520,60 @@ iris-sim/
 
 ## 対応機能
 
-### パーサー機能
-- mod/test宣言
-- comb/syncブロック
-- seq_block/initial_block
-- FSM（状態機械）構文
-- メモリ宣言（RAM/ROM）
-- インターフェース定義
-- for/while ループ
-- inst（モジュールインスタンス化）
+### 型
+
+- `bit` / `bit[N]`
+- `int[N]` / `uint[N]` と、その別名`iN` / `uN`（`u8`は`uint[8]`）
+- `bool`
+- `clock` / `reset`（`period`、`active_low`、`assert_cycles`、`assert_time`）
+- 配列サフィックス（`bit[8][4]`は32ビット）
+
+`int[N]`と`iN`は2の補数として扱う。
+比較、除算、剰余、算術右シフト`>>>`が符号付きで評価される。
+`bit[N]`は既定で符号なしであり、`.signed()`で読み替えられる。
+
+### 文と式
+
+- `comb` / `sync`ブロック、`seq` / `initial`ブロック
+- `if` / `else`、`match`（文形式と式形式）、`for` / `while`
+- ブロックローカルの`let`宣言
+- ビットスライス`v[高:低]`（境界は定数式）とパート選択`v[添字 +: 幅]`
+- 連結`{a, b}`
+- システム関数`$clog2`、`$bits`（合成可能）
+- 検証用のシステム関数`$display`、`$finish`、`$isunknown`、`$onehot`、`$size`
+- `assert 条件, "メッセージ";` と `assert 条件 else error("...")`
+  （`error` / `warning` / `fatal`の重大度を指定できる）
+
+### モジュールと階層
+
+- `inst`によるインスタンス化（入れ子の深さに制限はない）
+- ジェネリックパラメータと`where`句による制約
+  パラメータの組み合わせごとにモジュールが特殊化される
+- メモリ宣言（`mem`）とインデックスによる読み書き。インスタンス内のメモリも扱える
+- FSM（状態機械）。`initial:`による初期状態指定と、FSM本体でのローカル信号宣言に対応する
 
 ### シミュレーション機能
-- 組み合わせ論理/順序論理
-- 複数モジュール階層シミュレーション
+
+- 組み合わせ論理／順序論理
+- 複数モジュールの階層シミュレーション
+- 複数クロック。周期の異なるクロックをイベント駆動でそれぞれの周期で駆動する
+- クロックドメインの分離。`sync`ブロックとFSMは、自分が指定したクロックのエッジでのみ動く
+- リセットは`sync`ブロック単位。あるブロックが駆動する信号だけが初期値に戻る
 - メタステーブル検出警告
-- アサーション（assert文）
+- アサーション（失敗時はソース位置、両辺の値、メッセージ、時刻を表示し、終了コード1を返す）
+- 静的検査（下記）
+
+### 静的検査
+
+シミュレーション開始前に、仕様が定める規則を検査する。
+エラーがあればシミュレーションを開始せず、警告では止めない。
+
+| コード | 内容 | 仕様 |
+|--------|------|------|
+| O1005 | ジェネリックパラメータが`where`句の制約に違反している | 3.3.3 |
+| O2006 | `match`が網羅的でない（幅4以上で`_`がない場合は警告） | 5.6.2 |
+| O2007 | スライスの上限・下限が定数式でない | 9.6.2 |
+| O7009 | 検証専用のシステム関数を合成可能な論理で使っている | 3.3.4 |
 
 ### クロック・リセット構文
 
@@ -565,6 +621,51 @@ sync(clk.posedge, rst.sync) {
     counter = counter + 1;
 }
 ```
+
+---
+
+## 制限事項
+
+以下はいずれも、その構文を使う設計を実行して確認した内容である。
+
+### 言語
+
+- スライスの上限・下限は定数式でなければならない（O2007で検査する）。
+  実行時に変わる位置を選ぶにはパート選択`v[添字 +: 幅]`を使う。
+  両端が動くスライスは幅が定まらず合成できないため、これは設計上の判断である。
+- `match`の網羅性は、対象の幅が静的に決まる場合に検査する。
+  ポート、信号、式、インスタンスへの階層参照（`dut.count`）まで判定できる。
+- タグ付きユニオンのペイロードは`match`の文形式でのみ取り出せる。
+  式形式ではO2008で拒否する。
+- 仕様第2.4節の予約語58語はすべて意味を持つ。
+- 関数（`fn`）の本体は`let`と`return`1つで書く。呼び出しはエラボレーションで展開される。
+- `$randomize`は決まった種から乱数を作る。同じ設計は何度実行しても同じ値を引き、
+  インタプリタとコンパイル型でも一致する。
+- `extern mod`は宣言できるがシミュレータは実行できない。
+  インスタンス化するとO1007で警告し、出力は初期値のままになる。
+
+### インターフェース
+
+`interface`と`view`は、メンバごとの信号に展開してシミュレーションする。
+インターフェース型のポートはビューの向きに従って入出力に分かれ、
+同じバスを複数のインスタンスに渡せる。
+`extends`による単一継承にも対応する。
+波形にはメンバごとの名前（`link.valid`）で現れる。
+
+### コンパイル型シミュレータ（iris-compile）
+
+`iris-compile`は`iris-sim`が実行できる設計をすべて扱う。
+値の意味（演算、幅、符号）と波形の記録は`iris-runtime`にあり、
+インタプリタと生成コードの双方がそれを呼ぶ。
+このため同じ設計は両者で同じ結果になる。
+
+次の点だけが異なる。
+
+- 波形は生成された実行ファイルに`-o`を渡したときだけ書き出す
+- スライスの境界のような定数式は、コード生成の時点で畳み込む。
+  畳み込めない場合はその時点でエラーになる（インタプリタは実行時に評価する）
+- 宣言のない名前に代入した場合、最初に代入した値の幅を採用する。
+  これはインタプリタと同じ挙動だが、波形には出力しない
 
 ---
 

@@ -316,6 +316,11 @@ export abstract class BaseVisitor<R = void> implements AstVisitor<R> {
     switch (node.kind) {
       case 'ModDef':
         return this.visitModDef(node);
+      case 'ExternModDef':
+        // Ports but no body, so there is nothing below to walk.
+        return undefined as R;
+      case 'UnionDef':
+        return undefined as R;
       case 'EnumDef':
         return this.visitEnumDef(node);
       case 'StructDef':
@@ -1056,6 +1061,8 @@ export abstract class BaseVisitor<R = void> implements AstVisitor<R> {
         return this.visitBlockStmt(node);
       case 'ExprStmt':
         return this.visitExprStmt(node);
+      case 'AssertStmt':
+        return this.visitAssertStmt(node);
     }
   }
 

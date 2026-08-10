@@ -150,10 +150,23 @@ async function compileFile(
   const result = compiler.compile(source, inputFile);
 
   // Report parse errors
+  //
+  // These went through `console.error(error)`, which prints the object: a brace,
+  // a message, and eight lines of span. The same run reports every other
+  // diagnostic through the formatter, with the file, the line and a caret. One
+  // class of error was unreadable for no reason other than the path it took.
   if (result.parseErrors.length > 0) {
-    for (const error of result.parseErrors) {
-      console.error(error);
-    }
+    console.error(
+      formatter.formatDiagnostics(
+        result.parseErrors.map((error) => ({
+          severity: 'error' as const,
+          message: error.message,
+          span: error.span,
+          code: undefined,
+        })),
+        inputFile
+      )
+    );
     return { success: false, errors: result.parseErrors.length, warnings: 0 };
   }
 

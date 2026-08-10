@@ -40,6 +40,7 @@ export const KEYWORDS: ReadonlyMap<string, TokenType> = new Map([
     ['unsigned', TokenType.UNSIGNED],
     ['enum', TokenType.ENUM],
     ['struct', TokenType.STRUCT],
+    ['union', TokenType.UNION],
     ['typedef', TokenType.TYPEDEF],
     ['packed', TokenType.PACKED],
 
@@ -80,6 +81,7 @@ export const KEYWORDS: ReadonlyMap<string, TokenType> = new Map([
     ['automatic', TokenType.AUTOMATIC],
 
     // Interface
+    ['assert', TokenType.ASSERT],
     ['interface', TokenType.INTERFACE],
     ['endinterface', TokenType.ENDINTERFACE],
     ['modport', TokenType.MODPORT],
@@ -139,6 +141,8 @@ export const OPERATORS: readonly [string, TokenType][] = [
     ['|=', TokenType.PIPE_EQ],
     ['^=', TokenType.CARET_EQ],
     ['::', TokenType.DOUBLE_COLON],
+    ['+:', TokenType.PLUS_COLON],
+    ['-:', TokenType.MINUS_COLON],
 
     // 1-character operators
     ['+', TokenType.PLUS],

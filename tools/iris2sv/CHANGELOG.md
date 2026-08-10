@@ -125,12 +125,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New statement types: SvDelayStmt, SvEventControlStmt, SvWaitStmt
 - Emitter support for time control statements
 
+#### Core Package (@iris2sv/core) — conversion of example/async_fifo
+- System function tokens (`$clog2`, `$display`, `$finish`) in the lexer and parser
+- Trailing commas in parameter lists, port lists, `where` clauses and port connections
+- Clock and reset attributes: `clock(period: 10ns)`, `reset(active_low: true)`
+- `arraySize` on `InstDecl`, so `inst u[4] = M { ... };` is no longer parsed and discarded
+
+#### Transform Package (@iris2sv/transform) — conversion of example/async_fifo
+- `mem` declarations lower to unpacked array signals
+- Generic parameters lower to SystemVerilog module parameters, defaults included
+- Widths stay symbolic: `bit[DataWidth]` keeps the parameter instead of collapsing to one bit
+- Size casts preserve IRIS arithmetic width, so `(p + 1) >> 1` does not keep a carry
+  bit that IRIS would have dropped
+
+#### SV Backend Package (@iris2sv/sv-backend) — conversion of example/async_fifo
+- `SvSizeCastExpr`, emitted as `Width'(expr)`
+- Unpacked array dimensions emitted after the signal name
+
+### Changed
+- Constructs the lowering cannot convert now fail with a diagnostic instead of
+  being skipped silently
+- Lowering diagnostics reach the compilation result. They previously appeared
+  only under `--verbose` and did not affect success
+
+### Fixed
+- `mem name: bit[Width][Depth];` parses the depth from the type expression
+  rather than demanding a further bracket group
+- `parsePortConnection` referenced a method that does not exist, so an instance
+  inside a `test` module failed to build
+
+### Verified
+- `example/async_fifo` converts and runs under Verilator, reproducing the
+  IRIS simulator's result: 40 words verified, no mismatch
+
 ### Planned
 - FSM block support
+- Lowering of `test` modules to SystemVerilog testbenches
+  (the parser accepts them; the lowering reports them as unsupported)
+- Time literals (`10ns`) in expressions
+- `match` used as an expression
 - Watch mode (--watch)
 - Configuration file support
 - Interface definitions
-- Memory declarations
 - Improved error messages with suggestions
 - External Rust function DPI-C conversion
 - Signal access API conversion

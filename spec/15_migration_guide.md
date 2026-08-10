@@ -1,6 +1,6 @@
 # 第15章 SystemVerilog移行ガイド
 
-[<< エラーメッセージ](./14_error_messages.md) | [目次](./iris_spec_0.1.0.md) | [文法定義 >>](./16_grammar.md)
+[<< エラーメッセージ](./14_error_messages.md) | [目次](./iris_spec.md) | [文法定義 >>](./16_grammar.md)
 
 ---
 
@@ -29,11 +29,13 @@ module Counter #(
 
 **IRIS:**
 ```rust
-mod Counter[Width: uint = 8] {
+mod Counter[Width: uint = 8](
     in  clk: clock,
     in  rst_n: reset,
     in  en: bit,
     out count: bit[Width],
+) {
+    // 本体
 }
 ```
 
@@ -128,7 +130,7 @@ end
 
 **IRIS:**
 ```rust
-fsm Controller(clk.posedge, rst_n.async.active_low) {
+fsm Controller(clk.posedge, rst_n.async) {
     state enum { Idle, Run, Done }
 
     transitions {
@@ -160,12 +162,16 @@ module Fifo #(
 
 **IRIS:**
 ```rust
-mod Fifo[Width: uint = 8, Depth: uint = 16, T: type = bit[Width]] {
+mod Fifo[Width: uint = 8, Depth: uint = 16, T: type = bit[Width]](
     in  clk: clock,
     in  din: T,
     out dout: T,
+) {
+    // 本体
 }
 ```
+
+**`T: type`という型の境界は、文法にはあるが基準実装がまだ読めない。**
 
 ### 15.5.2 generate文
 
@@ -269,7 +275,8 @@ b = a as bit[16];    // キャスト
 
 ### 15.6.2 代入演算子の統一
 
-IRISでは代入演算子を`=`に統一。コンテキストに応じてコンパイラが適切に解釈。
+IRISでは代入演算子を`=`に統一。
+コンテキストに応じてコンパイラが適切に解釈。
 
 | SystemVerilog | IRIS | 説明 |
 |---------------|------|------|
@@ -373,4 +380,4 @@ sync(clk.posedge) {
 
 ---
 
-[<< エラーメッセージ](./14_error_messages.md) | [目次](./iris_spec_0.1.0.md) | [文法定義 >>](./16_grammar.md)
+[<< エラーメッセージ](./14_error_messages.md) | [目次](./iris_spec.md) | [文法定義 >>](./16_grammar.md)

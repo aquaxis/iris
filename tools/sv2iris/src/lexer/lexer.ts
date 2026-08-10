@@ -293,6 +293,13 @@ export class Lexer {
             return this.makeTokenAt(keywordType, value, startPos);
         }
 
+        // `PtrWidth'(expr)` is a size cast whose width is a parameter rather
+        // than a literal. iris2sv emits this form for every generic design.
+        if (this.peek() === "'" && this.peekNext() === '(') {
+            this.advance(); // '
+            return this.makeTokenAt(TokenType.SIZE_CAST, value, startPos);
+        }
+
         return this.makeTokenAt(TokenType.IDENTIFIER, value, startPos);
     }
 
@@ -390,6 +397,13 @@ export class Lexer {
     private scanBasedNumberWithSize(size: string, startPos: SourcePosition): Token {
         let value = size;
         value += this.advance(); // '
+
+        // `8'(expr)` is a size cast, not a based literal. iris2sv emits these
+        // for every width conversion, so refusing them meant the two
+        // transpilers could not be chained on any design at all.
+        if (this.peek() === '(') {
+            return this.makeTokenAt(TokenType.SIZE_CAST, size, startPos);
+        }
 
         // Optional signed specifier
         if (this.peek() === 's' || this.peek() === 'S') {

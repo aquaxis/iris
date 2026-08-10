@@ -1,6 +1,6 @@
 # IRIS-RUNTIME
 
-iris-compileによって生成されるコンパイル型シミュレータ用のランタイムライブラリ。
+IRISの値の意味と波形の記録を担うライブラリ。インタプリタと生成コードの双方が使う。
 
 ## 目次
 
@@ -15,15 +15,24 @@ iris-compileによって生成されるコンパイル型シミュレータ用�
 
 ## 概要
 
-iris-runtimeは、IRISソースからRustコードを生成するiris-compileのサポートライブラリです。クロック、リセット、ビットベクタ、波形トレーサーなどのシミュレーション基本型を提供します。
+iris-runtimeは、IRISの値（`SignalValue`）、その上の演算（`ops`）、
+波形の記録とVCD出力（`trace`）、そしてコンパイル型シミュレータの実行時状態（`engine`）を提供します。
+
+このライブラリは`iris-compile`が生成したコードだけでなく、`iris-sim`のインタプリタも使います。
+演算の意味と波形の書式が1か所にしかないため、同じ設計はどちらで実行しても同じ結果になります。
 
 ### アーキテクチャ
 
 ```
-IRISソース → iris-compile → Rustコード → cargo build → 実行ファイル
-                               ↓
-                        iris-runtime（リンク）
+                    ┌─ iris-sim（インタプリタ）──────────────┐
+IRISソース ─────────┤                                        ├─→ 波形・実行結果
+                    └─ iris-compile → Rustコード → 実行ファイル ─┘
+                                       ↓            ↓
+                                 iris-runtime（両者が同じ実装を呼ぶ）
 ```
+
+`Clock`、`Reset`、`BitVec`、`WaveTracer`は以前の生成コードが使っていた型で、
+現在の生成コードは使いません。互換のために残しています。
 
 ---
 
@@ -69,11 +78,10 @@ ls -la target/release/libiris_runtime.rlib
 
 ```bash
 # 1. iris-compileでシミュレータを生成
-cd ../iris-sim
-iris-compile -i tests/counter.iris -o counter_sim --release -v
+iris-compile -i counter.iris -o counter_sim --release -v
 
 # 2. 生成されたシミュレータを実行
-./counter_sim/target/release/counter-sim 10000 output.vcd
+./counter_sim -c 10000 -o output.vcd
 
 # 3. 波形を確認
 gtkwave output.vcd
@@ -328,10 +336,14 @@ iris-runtime/
 ├── README.md           # このファイル
 └── src/
     ├── lib.rs          # ライブラリルート（型エクスポート）
-    ├── clock.rs        # Clock構造体
-    ├── reset.rs        # Reset構造体
-    ├── bitvec.rs       # BitVec構造体
-    └── tracer.rs       # WaveTracer構造体
+    ├── value.rs        # SignalValue、BitValue（値そのもの）
+    ├── ops.rs          # 演算、スライス、パート選択、幅の収め方
+    ├── trace.rs        # SignalTraceとVCD出力
+    ├── engine.rs       # Runtime（コンパイル型の実行時状態）
+    ├── clock.rs        # Clock構造体（互換のため）
+    ├── reset.rs        # Reset構造体（互換のため）
+    ├── bitvec.rs       # BitVec構造体（互換のため）
+    └── tracer.rs       # WaveTracer構造体（互換のため）
 ```
 
 ---

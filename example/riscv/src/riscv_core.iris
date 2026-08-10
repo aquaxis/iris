@@ -1,0 +1,238 @@
+/// RV32Iコア（単サイクル）
+///
+/// 1クロックで命令を1つ実行する。フェッチ、デコード、実行、メモリ、書き戻しを
+/// 同じサイクルで行う。パイプラインは持たない。
+///
+/// 主題は命令セットであってマイクロアーキテクチャではない。
+/// パイプライン化するとハザードや転送の不具合が入り、
+/// SRAIが正しく符号拡張するかという問題と混ざる。
+///
+/// ## 中間信号の書き方
+///
+/// 中間信号はすべて`var`で宣言し`comb`で代入する。
+/// モジュール直下の`let x = <非定数>;`は時刻0で1度だけ評価され、
+/// 以後更新されないため、組み合わせ論理の中間値には使えない。
+///
+/// 書き戻しの制御信号も組み合わせ論理で作る。
+/// レジスタに入れると書き込み要求が1サイクル遅れて届き、
+/// 単サイクルのつもりで2段パイプラインになってしまう。
+///
+/// ## メモリ
+///
+/// 命令メモリは外部にある。imem_addrを出しimem_rdataを受け取る。
+/// テストプログラムごとに別のROMを繋げられるようにするためである。
+///
+/// データメモリはコアの中に置き、ワード単位で持つ（`bit[32][DataWords]`）。
+/// バイトとハーフワードのアクセスは、語の中の位置をaddr[1:0]で選ぶ。
+/// 書き込みは語を読んで該当部分だけ差し替えてから書き戻す。
+/// アラインメントは検査せず、addr[1:0]をそのまま語内位置として使う。
+mod RiscvCore[
+    DataWords: uint = 1024,
+](
+    in  clk: clock,
+    in  rst_n: reset(active_low: true),
+
+    // 命令メモリ（外部、非同期読み出し）
+    out imem_addr: bit[32],
+    in  imem_rdata: bit[32],
+
+    // 観測用
+    out pc_out: bit[32],
+    out halted: bit,
+    out illegal_op: bit,
+
+    // 検証用のレジスタ読み出し
+    in  dbg_addr: bit[5],
+    out dbg_data: bit[32],
+) {
+    var pc: bit[32] = 0;
+    var halt_reg: bit = 0;
+    var illegal_reg: bit = 0;
+
+    mem dmem: bit[32][DataWords];
+
+    // ===== デコーダ =====
+    inst dec = Decoder {
+        instr: imem_rdata,
+    };
+
+    // ===== レジスタファイル =====
+    var wb_en: bit = 0;
+    var wb_data: bit[32] = 0;
+
+    inst rf = RegFile {
+        clk: clk,
+        rst_n: rst_n,
+        we: wb_en,
+        waddr: dec.rd,
+        wdata: wb_data,
+        raddr1: dec.rs1,
+        raddr2: dec.rs2,
+        dbg_addr: dbg_addr,
+    };
+
+    // ===== ALU =====
+    var alu_a: bit[32] = 0;
+    var alu_b: bit[32] = 0;
+
+    inst alu = Alu {
+        op: dec.alu_op,
+        a: alu_a,
+        b: alu_b,
+    };
+
+    // ===== 分岐条件 =====
+    var s_rs1: int[32] = 0;
+    var s_rs2: int[32] = 0;
+    var branch_taken: bit = 0;
+
+    // ===== インスタンス出力の写し =====
+    //
+    // インスタンスの出力ポートを直接スライスすると、診断なしで0が返る。
+    // `alu.y[1:0]`は0になるが、いったんvarへ写してから`addr[1:0]`とすれば正しい。
+    // 値をまるごと読む分には問題ない。
+    var alu_y: bit[32] = 0;
+    var src2: bit[32] = 0;
+
+    // ===== メモリアクセス =====
+    var mem_word_addr: bit[32] = 0;
+    var mem_byte_sel: bit[2] = 0;
+    var mem_rword: bit[32] = 0;
+    var load_byte: bit[8] = 0;
+    var load_half: bit[16] = 0;
+    var load_data: bit[32] = 0;
+    var store_word: bit[32] = 0;
+
+    // ===== 次のPC =====
+    var pc_plus4: bit[32] = 0;
+    var jalr_target: bit[32] = 0;
+    var next_pc: bit[32] = 0;
+
+    var is_ecall_or_ebreak: bit = 0;
+
+    comb {
+        imem_addr  = pc;
+        pc_out     = pc;
+        halted     = halt_reg;
+        illegal_op = illegal_reg;
+        dbg_data   = rf.dbg_data;
+
+        pc_plus4 = pc + 32'd4;
+
+        // ---- ALUの入力 ----
+        alu_a = if dec.alu_a_pc { pc } else { rf.rdata1 };
+        alu_b = if dec.alu_b_imm { dec.imm } else { rf.rdata2 };
+
+        // ---- 分岐条件 ----
+        s_rs1 = rf.rdata1;
+        s_rs2 = rf.rdata2;
+        branch_taken = if dec.is_branch {
+            match dec.funct3 {
+                3'b000 => if rf.rdata1 == rf.rdata2 { 1'b1 } else { 1'b0 },  // BEQ
+                3'b001 => if rf.rdata1 != rf.rdata2 { 1'b1 } else { 1'b0 },  // BNE
+                3'b100 => if s_rs1 < s_rs2 { 1'b1 } else { 1'b0 },           // BLT  符号付き
+                3'b101 => if s_rs1 < s_rs2 { 1'b0 } else { 1'b1 },           // BGE  符号付き
+                3'b110 => if rf.rdata1 < rf.rdata2 { 1'b1 } else { 1'b0 },   // BLTU 符号なし
+                3'b111 => if rf.rdata1 < rf.rdata2 { 1'b0 } else { 1'b1 },   // BGEU 符号なし
+                _      => 1'b0,
+            }
+        } else { 1'b0 };
+
+        // ---- データメモリ ----
+        // アドレスはALUが計算する（rs1 + 即値）
+        alu_y = alu.y;
+        src2  = rf.rdata2;
+        mem_word_addr = alu_y >> 2;
+        mem_byte_sel  = alu_y[1:0];
+        mem_rword     = dmem[mem_word_addr];
+
+        load_byte = match mem_byte_sel {
+            2'd0 => mem_rword[7:0],
+            2'd1 => mem_rword[15:8],
+            2'd2 => mem_rword[23:16],
+            _    => mem_rword[31:24],
+        };
+        load_half = if mem_byte_sel[1] { mem_rword[31:16] } else { mem_rword[15:0] };
+
+        load_data = match dec.funct3 {
+            3'b000 => load_byte.sign_extend[32](),   // LB
+            3'b001 => load_half.sign_extend[32](),   // LH
+            3'b010 => mem_rword,                     // LW
+            3'b100 => load_byte.extend[32](),        // LBU
+            3'b101 => load_half.extend[32](),        // LHU
+            _      => mem_rword,
+        };
+
+        // 書き込む語。語を読んで該当部分だけ差し替える。
+        store_word = match dec.funct3 {
+            3'b000 => match mem_byte_sel {           // SB
+                2'd0 => {mem_rword[31:8], src2[7:0]},
+                2'd1 => {mem_rword[31:16], src2[7:0], mem_rword[7:0]},
+                2'd2 => {mem_rword[31:24], src2[7:0], mem_rword[15:0]},
+                _    => {src2[7:0], mem_rword[23:0]},
+            },
+            3'b001 => if mem_byte_sel[1] {           // SH
+                {src2[15:0], mem_rword[15:0]}
+            } else {
+                {mem_rword[31:16], src2[15:0]}
+            },
+            _      => src2,                          // SW
+        };
+
+        // ---- 書き戻す値 ----
+        jalr_target = (rf.rdata1 + dec.imm) & 32'hFFFFFFFE;
+
+        wb_data = if dec.is_lui {
+            dec.imm
+        } else {
+            if dec.mem_read {
+                load_data
+            } else {
+                if dec.is_jal { pc_plus4 } else {
+                    if dec.is_jalr { pc_plus4 } else { alu_y }
+                }
+            }
+        };
+
+        wb_en = if halt_reg { 1'b0 } else { dec.reg_write };
+
+        // ---- 次のPC ----
+        is_ecall_or_ebreak = dec.is_system;
+
+        next_pc = if branch_taken {
+            pc + dec.imm
+        } else {
+            if dec.is_jal {
+                alu_y
+            } else {
+                if dec.is_jalr { jalr_target } else { pc_plus4 }
+            }
+        };
+    }
+
+    sync(clk.posedge, rst_n.async) {
+        if ~rst_n {
+            pc = 0;
+            halt_reg = 0;
+            illegal_reg = 0;
+        } else {
+            if ~halt_reg {
+                if is_ecall_or_ebreak {
+                    // ECALLとEBREAKはどちらも停止として扱う。
+                    // 観測できる形で止めることが目的であり、トラップは実装しない。
+                    halt_reg = 1;
+                } else {
+                    if dec.illegal {
+                        illegal_reg = 1;
+                        halt_reg = 1;
+                    } else {
+                        if dec.mem_write {
+                            dmem[mem_word_addr] = store_word;
+                        }
+                        pc = next_pc;
+                    }
+                }
+            }
+        }
+    }
+}

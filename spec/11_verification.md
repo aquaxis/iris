@@ -1,6 +1,6 @@
 # 第11章 検証機能
 
-[<< メモリ](./10_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./12_package_system.md)
+[<< メモリ](./10_memory.md) | [目次](./iris_spec.md) | [パッケージシステム >>](./12_package_system.md)
 
 ---
 
@@ -286,6 +286,40 @@ sequence read_burst {
 @(clk.posedge) restrict reset |=> ##[1:5] !reset;
 ```
 
+### 11.2.7 三つの検査の違い
+
+`assert`、`expect`、`assume`は同じ形で書くが、違反したときの扱いが異なる。
+
+| 文 | 違反したとき |
+|----|-------------|
+| `assert` | 報告し、実行の結果を失敗にする |
+| `expect` | 報告するが、実行は続き、結果も失敗にしない |
+| `assume` | 同上。前提が破れたことを知らせる |
+
+```rust
+assert count < 8'd200, "hard check";
+expect count < 8'd200, "soft check";
+assume count != 8'd255, "premise";
+```
+
+`assert`は`else`で重大度を指定できる。
+`warning`は報告するが結果を失敗にせず、`fatal`はその場で実行を止める。
+
+### 11.2.8 カバレッジ点（cover）
+
+`cover`は条件が成立した回数を数える。
+実行の最後に一覧を表示する。
+
+```rust
+cover count == 8'd5, "reached five";
+cover valid && ready, "handshake";
+```
+
+名前を省くと条件式がそのまま名前になる。
+設計中のすべてのカバレッジ点を実行前に登録するため、
+一度も成立しなかった点も一覧に出る。
+「出力がない」ことと「一度も成立しなかった」ことは区別できなければならない。
+
 ---
 
 ## 11.3 カバレッジ
@@ -360,7 +394,7 @@ let data_bus: bit[32];
 // FSM カバレッジ
 #[coverage(fsm)]
 fsm Controller(...) {
-    // 状態・遷移カバレッジ自動収集
+    // 状態と遷移のカバレッジを自動で集める
 }
 ```
 
@@ -385,6 +419,43 @@ rand packet: Packet {
     }
 }
 ```
+
+### 11.4.1a ランダム化の実行
+
+`$randomize`で、`rand`と付けた変数すべてに新しい値を引く。
+`constraint`ブロックに書いた条件をすべて満たすまで引き直す。
+
+```rust
+test T {
+    rand size: bit[16];
+
+    constraint valid_size {
+        size >= 16'd64;
+        size <= 16'd1518;
+    }
+
+    seq {
+        $randomize;
+        assert size >= 16'd64, "constraint held";
+    }
+}
+```
+
+**決定性:**
+
+乱数は決まった種から作る。
+同じ設計は何度実行しても同じ値を引く。
+テストの再現性のために必要であり、
+インタプリタとコンパイル型の結果が一致するためにも必要である。
+
+**解き方:**
+
+制約は棄却法で解く。
+全変数を引き、全制約を試し、満たすまで繰り返す。
+ソルバではないため、めったに満たせない制約は遅くなる。
+一定回数（1000回）引いても満たせない場合は、
+最後に引いた値を残して警告する。
+黙って進めてはならない。
 
 ### 11.4.2 制約定義
 
@@ -411,7 +482,8 @@ constraint valid_transaction {
 
 ## 11.5 テストモジュール
 
-テストベンチ専用のモジュール定義として`test`キーワードを使用できる。`test`モジュールはSystemVerilogのテストベンチのトップ階層と同等の役割を持つ。
+テストベンチ専用のモジュール定義として`test`キーワードを使用できる。
+`test`モジュールはSystemVerilogのテストベンチのトップ階層と同等の役割を持つ。
 
 ### 11.5.1 testモジュールの特徴
 
@@ -435,10 +507,17 @@ constraint valid_transaction {
 
 ```ebnf
 test_mod_def = "test" identifier "{" { test_item } "}" ;
-test_item    = let_decl | var_decl | const_decl | inst_decl
-             | comb_block | sync_block | initial_block
-             | test_stmt ;
+
+test_item = signal_decl | const_decl | inst_decl | mem_decl | fsm_block
+          | comb_block | sync_block | initial_block | seq_block
+          | constraint_block
+          | use_rust_decl | extern_rust_block | test_stmt ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+`let`と`var`は`signal_decl`にまとまる。
+テストモジュールにはメモリ、FSM、制約ブロックも置ける。
 
 ### 11.5.4 基本的なtestモジュール
 
@@ -579,7 +658,8 @@ endmodule
 
 ## 11.6 シーケンシャル処理ブロック（seq）
 
-`seq`ブロックは、テストモジュール内でシーケンシャル（順次）処理を記述するための特殊なブロックである。`seq`ブロック内ではRust言語の制御構文を直接使用でき、複雑なテストシーケンスを記述できる。
+`seq`ブロックは、テストモジュール内でシーケンシャル（順次）処理を記述するための特殊なブロックである。
+`seq`ブロック内ではRust言語の制御構文を直接使用でき、複雑なテストシーケンスを記述できる。
 
 ### 11.6.1 seqブロックの特徴
 
@@ -594,16 +674,27 @@ endmodule
 ### 11.6.2 構文定義
 
 ```ebnf
-seq_block       = "seq" [ identifier ] "{" seq_content "}" ;
-seq_content     = { seq_statement } ;
-seq_statement   = rust_statement | signal_access | time_control | assert_stmt ;
-signal_access   = signal_read | signal_write ;
-signal_read     = signal_path ".value()" ;
-signal_write    = signal_path ".set(" expr ")" ;
-time_control    = await_stmt | delay_stmt ;
-await_stmt      = "await" await_expr ";" ;
-delay_stmt      = "#" time_literal ";" ;
+seq_block = "seq" [ identifier ] "{" { seq_statement } "}" ;
+
+seq_statement = rust_statement | signal_access | time_control
+              | assert_stmt | cover_stmt
+              | seq_if_stmt | seq_for_stmt | seq_while_stmt
+              | break_stmt | continue_stmt | assign_stmt ;
+
+signal_access = signal_read | signal_write ;
+signal_read = signal_path ".value()" ;
+signal_write = signal_path ".set(" expr ")" ;
+signal_path = identifier { "." identifier } ;
+
+time_control = await_stmt | delay_stmt ;
+await_stmt = "await" await_expr ";" ;
+delay_stmt = "#" ( number | duration ) ";" ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+`seq`ブロックには分岐と繰り返し、カバレッジも書ける。
+遅延は`#10;`のように単位を省いても書ける。
 
 ### 11.6.3 基本的なseqブロック
 
@@ -773,7 +864,8 @@ test ParallelTest {
 
 ## 11.7 外部Rust関数の直接呼び出し
 
-`seq`ブロック内から外部の`.rs`ファイルで定義されたRust関数を直接呼び出すことができる。これにより、テストヘルパー関数、データ生成、検証ロジックなどをRustで実装し、テストベンチから利用できる。
+`seq`ブロック内から外部の`.rs`ファイルで定義されたRust関数を直接呼び出すことができる。
+これにより、テストヘルパー関数、データ生成、検証ロジックなどをRustで実装し、テストベンチから利用できる。
 
 ### 11.7.1 概要
 
@@ -803,6 +895,8 @@ use rust::test_utils;
 ```
 
 #### extern rust ブロック
+
+**この構文は基準実装がまだ読めない。**
 
 関数シグネチャを明示的に宣言する方法。
 
@@ -1017,4 +1111,4 @@ test ProtocolTest {
 
 ---
 
-[<< メモリ](./10_memory.md) | [目次](./iris_spec_0.1.0.md) | [パッケージシステム >>](./12_package_system.md)
+[<< メモリ](./10_memory.md) | [目次](./iris_spec.md) | [パッケージシステム >>](./12_package_system.md)

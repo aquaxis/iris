@@ -41,7 +41,7 @@ irisfmt-lintが提供するリントルールの詳細なリファレンスで�
 
 ```iris
 mod counter(in clk: clock) {  // モジュール名はPascalCaseであるべき
-  let mySignal: bit<8> = 0;   // シグナル名はsnake_caseであるべき
+  let mySignal: bit[8] = 0;   // シグナル名はsnake_caseであるべき
 }
 ```
 
@@ -49,7 +49,7 @@ mod counter(in clk: clock) {  // モジュール名はPascalCaseであるべき
 
 ```iris
 mod Counter(in clk: clock) {
-  let my_signal: bit<8> = 0;
+  let my_signal: bit[8] = 0;
 }
 ```
 
@@ -84,9 +84,9 @@ mod Counter(in clk: clock) {
 ### 非推奨な例
 
 ```iris
-fn calculate() -> bit<8> {
-  let unused: bit<8> = 0;  // 未使用
-  let result: bit<8> = 42;
+fn calculate() -> bit[8] {
+  let unused: bit[8] = 0;  // 未使用
+  let result: bit[8] = 42;
   return result;
 }
 ```
@@ -94,8 +94,8 @@ fn calculate() -> bit<8> {
 ### 推奨される例
 
 ```iris
-fn calculate() -> bit<8> {
-  let result: bit<8> = 42;
+fn calculate() -> bit[8] {
+  let result: bit[8] = 42;
   return result;
 }
 ```
@@ -105,7 +105,7 @@ fn calculate() -> bit<8> {
 アンダースコアで始まる変数名（`_unused`）は意図的に未使用であることを示し、警告の対象外となります。
 
 ```iris
-fn calculate(_param: bit<8>) -> bit<8> {
+fn calculate(_param: bit[8]) -> bit[8] {
   // _param は意図的に未使用
   return 42;
 }
@@ -130,9 +130,9 @@ fn calculate(_param: bit<8>) -> bit<8> {
 ### 非推奨な例
 
 ```iris
-mod Counter(in clk: clock, out count: bit<8>) {
-  let unused_signal: bit<8> = 0;  // 未使用
-  var counter: bit<8> = 0;
+mod Counter(in clk: clock, out count: bit[8]) {
+  let unused_signal: bit[8] = 0;  // 未使用
+  var counter: bit[8] = 0;
 
   sync(clk.posedge) {
     counter = counter + 1;
@@ -147,8 +147,8 @@ mod Counter(in clk: clock, out count: bit<8>) {
 ### 推奨される例
 
 ```iris
-mod Counter(in clk: clock, out count: bit<8>) {
-  var counter: bit<8> = 0;
+mod Counter(in clk: clock, out count: bit[8]) {
+  var counter: bit[8] = 0;
 
   sync(clk.posedge) {
     counter = counter + 1;
@@ -185,10 +185,10 @@ mod Counter(in clk: clock, out count: bit<8>) {
 
 ```iris
 import std::io;      // 未使用
-import std::mem;
+import std::math;
 
 mod Counter(in clk: clock) {
-  // mem のみ使用
+  // math のみ使用
 }
 ```
 
@@ -235,8 +235,8 @@ mod Counter(in clk: clock) {
 ### 推奨される例
 
 ```iris
-mod Counter(in clk: clock, out count: bit<8>) {
-  var counter: bit<8> = 0;
+mod Counter(in clk: clock, out count: bit[8]) {
+  var counter: bit[8] = 0;
 
   sync(clk.posedge) {
     counter = counter + 1;
@@ -254,7 +254,11 @@ mod Counter(in clk: clock, out count: bit<8>) {
 
 ### 説明
 
-`var`宣言が適切なコンテキスト（sync/fsmブロック内）でのみ使用されることを強制します。`var`は状態を持つシグナルを宣言するため、クロック同期ブロック外での使用は設計上の問題を示します。
+`var`宣言の代入が適切なコンテキスト（sync/fsmブロック内）でのみ行われることを強制します。
+
+`var`は順序回路専用の宣言子であり、モジュールレベルで宣言し、sync/fsmブロック内で代入するのが推奨される使用方法です。`var`の**宣言**はモジュールレベルで行えますが、**代入**はsync/fsmブロック内でのみ許可されます。`comb`ブロック内での`var`への代入はコンパイルエラーになります。
+
+`comb`ブロック内で`var`を宣言・代入しようとする使用は設計上の問題を示します。組み合わせ論理には`let`を使用してください。
 
 ### カテゴリ
 
@@ -268,10 +272,8 @@ mod Counter(in clk: clock, out count: bit<8>) {
 
 ```iris
 mod Counter(in clk: clock) {
-  var counter: bit<8> = 0;  // モジュールレベルでのvar
-
   comb {
-    var temp: bit<8> = 0;  // combブロック内でのvar
+    var temp: bit[8] = 0;  // エラー: combブロック内でのvar宣言・代入
   }
 }
 ```
@@ -279,11 +281,15 @@ mod Counter(in clk: clock) {
 ### 推奨される例
 
 ```iris
-mod Counter(in clk: clock, out count: bit<8>) {
-  let counter: bit<8> = 0;  // 組み合わせ論理にはletを使用
+mod Counter(in clk: clock, out count: bit[8]) {
+  var counter: bit[8] = 0;  // OK: モジュールレベルでvarを宣言
 
   sync(clk.posedge) {
-    var state: bit<8> = 0;  // syncブロック内でのvar（順序回路）
+    counter = counter + 1;  // OK: syncブロック内でvarに代入
+  }
+
+  comb {
+    count = counter;  // OK: combブロックからvarを参照
   }
 }
 ```

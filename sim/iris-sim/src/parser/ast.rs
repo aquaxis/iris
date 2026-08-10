@@ -28,7 +28,13 @@ impl Span {
 #[derive(Clone, Debug)]
 pub struct Module {
     pub name: String,
+    /// Declared `pub`, so other packages may import it
+    pub is_public: bool,
+    /// Declared `extern`: implemented outside IRIS, so it drives nothing here
+    pub is_extern: bool,
     pub generics: Vec<GenericParam>,
+    /// Constraints on the generic parameters, from a `where` clause
+    pub where_constraints: Vec<Constraint>,
     pub ports: Vec<Port>,
     pub signals: Vec<Signal>,
     pub logic_blocks: Vec<LogicBlock>,
@@ -44,6 +50,64 @@ pub struct Module {
     pub fsm_blocks: Vec<FsmBlock>,
     /// Memory declarations
     pub memories: Vec<MemDecl>,
+    /// Constraints on this module's random variables
+    pub constraints: Vec<ConstraintBlock>,
+}
+
+/// A constraint on a generic parameter, such as `Depth <= 65536`
+#[derive(Clone, Debug)]
+pub enum Constraint {
+    /// `identifier operator const_expr`, such as `Depth >= 4`
+    Compare {
+        param: String,
+        op: BinOp,
+        bound: Expression,
+        span: Option<Span>,
+    },
+    /// `identifier : type_expr`, such as `Depth : uint`
+    TypeBound {
+        param: String,
+        ty: Type,
+        span: Option<Span>,
+    },
+    /// `expr . identifier ( args )`, such as `Depth.is_power_of_two()`
+    Predicate {
+        subject: Expression,
+        method: String,
+        args: Vec<Expression>,
+        span: Option<Span>,
+    },
+}
+
+impl Constraint {
+    /// Where the constraint was written
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            Constraint::Compare { span, .. }
+            | Constraint::TypeBound { span, .. }
+            | Constraint::Predicate { span, .. } => span.clone(),
+        }
+    }
+}
+
+impl fmt::Display for Constraint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Constraint::Compare {
+                param, op, bound, ..
+            } => write!(f, "{} {} {}", param, op, bound),
+            Constraint::TypeBound { param, ty, .. } => write!(f, "{}: {}", param, ty),
+            Constraint::Predicate {
+                subject,
+                method,
+                args,
+                ..
+            } => {
+                let rendered: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                write!(f, "{}.{}({})", subject, method, rendered.join(", "))
+            }
+        }
+    }
 }
 
 /// Generic parameter
@@ -102,8 +166,80 @@ pub enum Type {
     Reset { active_low: bool },
     /// Array type
     Array { element: Box<Type>, size: usize },
+    /// Integer: `int[N]`/`iN` (signed) or `uint[N]`/`uN` (unsigned).
+    /// Signedness is recorded but arithmetic is evaluated unsigned.
+    Int { width: usize, signed: bool },
+    /// Boolean, one bit
+    Bool,
+    /// Bit vector whose width is a constant expression (may mention generic
+    /// parameters or `$clog2`), resolved at elaboration
+    BitVecExpr { expr: Box<Expression> },
+    /// A user-defined enumeration, resolved from `Type::Named` at elaboration
+    Enum { name: String, width: usize },
     /// Named type (for generics or user-defined types)
     Named(String),
+}
+
+/// A user-defined enumeration (spec 3.2.1)
+#[derive(Clone, Debug)]
+pub struct EnumDecl {
+    pub name: String,
+    /// Declared `pub`, so other packages may import it
+    pub is_public: bool,
+    /// The declared underlying type, if one was given
+    pub underlying: Option<Type>,
+    /// Variants in declaration order, with any explicit value
+    pub variants: Vec<EnumVariant>,
+    pub span: Option<Span>,
+}
+
+/// A named group of constraints on random variables (spec 11.4.2)
+#[derive(Clone, Debug)]
+pub struct ConstraintBlock {
+    pub name: String,
+    /// Every expression here must hold after a draw
+    pub conditions: Vec<Expression>,
+    pub span: Option<Span>,
+}
+
+/// A user-defined function (spec 12.1)
+#[derive(Clone, Debug)]
+pub struct FnDecl {
+    pub name: String,
+    /// Declared `pub`, so other packages may import it
+    pub is_public: bool,
+    /// Parameters in order, with their types
+    pub params: Vec<(String, Type)>,
+    /// The declared return type, if one was given
+    pub return_type: Option<Type>,
+    /// Bindings the returned expression may use, in order
+    pub bindings: Vec<(String, Expression)>,
+    /// What the function returns
+    pub body: Expression,
+    pub span: Option<Span>,
+}
+
+/// A structure or a union (spec 3.2.2, 3.2.3)
+#[derive(Clone, Debug)]
+pub struct StructDecl {
+    pub name: String,
+    /// Declared `pub`, so other packages may import it
+    pub is_public: bool,
+    /// Fields in declaration order
+    pub fields: Vec<(String, Type)>,
+    /// A union's fields share their bits; a structure's sit side by side
+    pub is_union: bool,
+    pub span: Option<Span>,
+}
+
+/// One variant of an enumeration
+#[derive(Clone, Debug)]
+pub struct EnumVariant {
+    pub name: String,
+    /// The value written after `=`, if any
+    pub value: Option<Expression>,
+    /// The type this variant carries, for a tagged union
+    pub payload: Option<Type>,
 }
 
 impl Type {
@@ -115,6 +251,10 @@ impl Type {
             Type::Clock => Some(1),
             Type::Reset { .. } => Some(1),
             Type::Array { element, size } => element.width().map(|w| w * size),
+            Type::Int { width, .. } => Some(*width),
+            Type::Bool => Some(1),
+            Type::BitVecExpr { .. } => None,
+            Type::Enum { width, .. } => Some(*width),
             Type::Named(_) => None,
         }
     }
@@ -125,6 +265,11 @@ impl fmt::Display for Type {
         match self {
             Type::Bit => write!(f, "bit"),
             Type::BitVec { width } => write!(f, "bit[{}]", width),
+            Type::BitVecExpr { expr } => write!(f, "bit[{}]", expr),
+            Type::Int { width, signed } => {
+                write!(f, "{}[{}]", if *signed { "int" } else { "uint" }, width)
+            }
+            Type::Bool => write!(f, "bool"),
             Type::Clock => write!(f, "clock"),
             Type::Reset { active_low } => {
                 if *active_low {
@@ -134,6 +279,7 @@ impl fmt::Display for Type {
                 }
             }
             Type::Array { element, size } => write!(f, "{}[{}]", element, size),
+            Type::Enum { name, .. } => write!(f, "{}", name),
             Type::Named(name) => write!(f, "{}", name),
         }
     }
@@ -175,6 +321,11 @@ impl Default for ResetConfig {
 #[derive(Clone, Debug)]
 pub struct Signal {
     pub name: String,
+    /// Was a type written? `let sum = a + b;` has none, so its width comes
+    /// from the initialiser rather than defaulting to one bit.
+    pub has_explicit_type: bool,
+    /// Declared `rand`: `$randomize` draws a new value for it
+    pub is_rand: bool,
     pub ty: Type,
     pub init_value: Option<Expression>,
     pub is_mutable: bool,
@@ -216,10 +367,30 @@ pub struct FsmBlock {
     pub reset: Option<ResetSpec>,
     /// State enumeration
     pub states: Vec<FsmState>,
+    /// State named by `initial:`; the first state when absent
+    pub initial_state: Option<String>,
+    /// Signals declared inside the FSM body (spec 7.1 fsm_locals)
+    pub locals: Vec<Signal>,
     /// State transitions
     pub transitions: Vec<FsmTransition>,
     /// Output mappings (Mealy-style)
     pub outputs: Vec<FsmOutput>,
+    /// How the state register is encoded, from `output encoding: onehot`.
+    ///
+    /// The clause is in spec 7 and in `tools/iris.ebnf`, and nothing accepted
+    /// it. The simulator holds states as integers whatever this says, so the
+    /// setting is carried for the tools that emit hardware rather than acted on
+    /// here.
+    pub encoding: FsmEncoding,
+}
+
+/// State encoding of an FSM (spec 7, `output encoding`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FsmEncoding {
+    #[default]
+    Binary,
+    OneHot,
+    Gray,
 }
 
 /// FSM state definition
@@ -252,6 +423,12 @@ pub struct FsmWhenClause {
 /// FSM action (within a when clause)
 #[derive(Clone, Debug)]
 pub enum FsmAction {
+    /// Conditional actions inside a `when` clause
+    If {
+        condition: Expression,
+        then_branch: Vec<FsmAction>,
+        else_branch: Option<Vec<FsmAction>>,
+    },
     /// Go to another state
     Goto(String),
     /// Assignment
@@ -274,8 +451,10 @@ pub struct MemDecl {
     pub name: String,
     /// Element type
     pub element_type: Type,
-    /// Depth (number of elements)
+    /// Depth (number of elements); resolved from `depth_param` at elaboration
     pub depth: usize,
+    /// Constant expression giving the depth, when it is not a literal
+    pub depth_expr: Option<Expression>,
     /// Configuration options
     pub config: MemConfig,
     /// Initial values (if any)
@@ -331,6 +510,10 @@ pub enum MemInit {
 pub struct Interface {
     /// Interface name
     pub name: String,
+    /// Declared `pub`, so other packages may import it
+    pub is_public: bool,
+    /// The interface this one extends, if any (spec 8.5.1)
+    pub extends: Option<String>,
     /// Generic parameters
     pub generics: Vec<GenericParam>,
     /// Interface signals
@@ -428,6 +611,14 @@ pub enum SeqStatement {
         condition: Expression,
         body: Vec<SeqStatement>,
     },
+    /// System call used as a statement, such as `$display(...)` or `$finish`
+    SysCall(Expression),
+    /// Leave the innermost loop
+    Break,
+    /// Start the innermost loop's next iteration
+    Continue,
+    /// Coverage point
+    Cover(CoverStmt),
 }
 
 /// Await expression
@@ -503,8 +694,64 @@ impl Default for TimeUnit {
 pub struct AssertStmt {
     pub condition: Expression,
     pub message: Option<String>,
+    /// How a violation should be reported
+    pub severity: AssertSeverity,
+    /// Which of `assert`, `expect` or `assume` was written
+    pub kind: AssertKind,
     /// Source location for error reporting
     pub span: Option<Span>,
+}
+
+/// The three forms of check the specification gives (spec 11.2)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssertKind {
+    /// `assert` — a violation fails the run
+    Assert,
+    /// `expect` — a soft check; the run continues
+    Expect,
+    /// `assume` — a premise; reported but the run continues
+    Assume,
+}
+
+impl fmt::Display for AssertKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AssertKind::Assert => write!(f, "assert"),
+            AssertKind::Expect => write!(f, "expect"),
+            AssertKind::Assume => write!(f, "assume"),
+        }
+    }
+}
+
+/// A coverage point: how often its condition held
+#[derive(Clone, Debug)]
+pub struct CoverStmt {
+    pub condition: Expression,
+    /// The name reported for it
+    pub name: Option<String>,
+    pub span: Option<Span>,
+}
+
+/// Severity attached to a failing assertion
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AssertSeverity {
+    /// A violation fails the simulation (the default)
+    #[default]
+    Error,
+    /// A violation is reported but the simulation still succeeds
+    Warning,
+    /// A violation fails the simulation and stops it immediately
+    Fatal,
+}
+
+impl fmt::Display for AssertSeverity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AssertSeverity::Error => write!(f, "error"),
+            AssertSeverity::Warning => write!(f, "warning"),
+            AssertSeverity::Fatal => write!(f, "fatal"),
+        }
+    }
 }
 
 /// Combinational logic block
@@ -585,6 +832,12 @@ pub enum Statement {
         target: String,
         value: Expression,
     },
+    /// Memory write: mem[addr] = value
+    MemWrite {
+        mem_name: String,
+        addr: Expression,
+        value: Expression,
+    },
     /// If statement
     If {
         condition: Expression,
@@ -607,6 +860,31 @@ pub enum Statement {
         condition: Expression,
         body: Vec<Statement>,
     },
+    /// Block-local declaration: let name: ty = value;
+    LetLocal {
+        name: String,
+        ty: Option<Type>,
+        value: Option<Expression>,
+    },
+    /// Assertion inside a logic block
+    Assert(AssertStmt),
+    /// System call used as a statement, such as `$display(...)` or `$finish`
+    SysCall(Expression),
+    /// Write to a bit field of a signal: `target[high:low] = value` or
+    /// `target[index +: width] = value`. Both forms reduce to a start bit and
+    /// a width; the width must be constant, the start need not be.
+    SliceWrite {
+        target: String,
+        low: Expression,
+        width: Expression,
+        value: Expression,
+    },
+    /// Leave the innermost loop
+    Break,
+    /// Start the innermost loop's next iteration
+    Continue,
+    /// Coverage point
+    Cover(CoverStmt),
 }
 
 /// Range expression for for loops
@@ -620,15 +898,22 @@ pub struct RangeExpr {
     pub inclusive: bool,
 }
 
-/// Match arm
+/// Match arm whose body is a statement list
 #[derive(Clone, Debug)]
 pub struct MatchArm {
     pub pattern: Pattern,
     pub body: Vec<Statement>,
 }
 
+/// Match arm whose body is a single expression
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MatchExprArm {
+    pub pattern: Pattern,
+    pub value: Expression,
+}
+
 /// Pattern for matching
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pattern {
     /// Literal value
     Literal(Literal),
@@ -636,10 +921,26 @@ pub enum Pattern {
     Ident(String),
     /// Wildcard (_)
     Wildcard,
+    /// `Enum::Variant` or `Enum::Variant(binding)`, before elaboration
+    Path {
+        path: String,
+        binding: Option<String>,
+    },
+    /// A variant of a tagged union, optionally binding its payload
+    Variant {
+        /// The value the tag bits must hold
+        tag: u64,
+        /// How many low bits hold the tag
+        tag_width: usize,
+        /// Name the payload is bound to inside the arm
+        binding: Option<String>,
+        /// How many bits the payload occupies
+        payload_width: usize,
+    },
 }
 
 /// Expression
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expression {
     /// Literal value
     Literal(Literal),
@@ -661,11 +962,25 @@ pub enum Expression {
         base: Box<Expression>,
         index: Box<Expression>,
     },
-    /// Slice access: base[high:low]
+    /// Slice access: base[high:low]. Bounds are constant expressions.
     Slice {
         base: Box<Expression>,
-        high: usize,
-        low: usize,
+        high: Box<Expression>,
+        low: Box<Expression>,
+    },
+    /// Part select: base[index +: width] or base[index -: width].
+    /// The index may vary at run time; the width is constant.
+    PartSelect {
+        base: Box<Expression>,
+        index: Box<Expression>,
+        width: Box<Expression>,
+        /// True for `+:` (upward from index), false for `-:`
+        upward: bool,
+    },
+    /// System function call such as `$clog2(Depth)` or `$display("x = %d", x)`
+    SysFunc {
+        name: String,
+        args: Vec<SysFuncArg>,
     },
     /// Method call: receiver.method(args)
     MethodCall {
@@ -681,15 +996,38 @@ pub enum Expression {
     },
     /// Concatenation: {a, b, c}
     Concat(Vec<Expression>),
+    /// Replication: `{4{8'hAB}}` (spec 9.7.2)
+    Replicate {
+        count: Box<Expression>,
+        value: Vec<Expression>,
+    },
     /// Memory read: mem[addr]
     MemRead {
         mem_name: String,
         addr: Box<Expression>,
     },
+    /// A call to a user-defined function, inlined at elaboration
+    Call {
+        name: String,
+        args: Vec<Expression>,
+    },
+    /// Match expression: match scrutinee { pattern => value, ... }
+    Match {
+        scrutinee: Box<Expression>,
+        arms: Vec<MatchExprArm>,
+    },
+}
+
+/// Argument to a system function: either a value or a type
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SysFuncArg {
+    Expr(Expression),
+    Type(Type),
+    Str(String),
 }
 
 /// Literal value
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Literal {
     /// Binary literal: 8'b10101010
     Binary { width: usize, value: u64 },
@@ -734,6 +1072,8 @@ pub enum BinOp {
     Xor,
     Shl,
     Shr,
+    /// Arithmetic right shift (`>>>`), replicating the sign bit
+    AShr,
     // Comparison
     Eq,
     Ne,
@@ -744,6 +1084,29 @@ pub enum BinOp {
     // Logical
     LogicalAnd,
     LogicalOr,
+}
+
+impl BinOp {
+    /// Binding strength from spec 9.8; a smaller number binds tighter.
+    ///
+    /// The grammar is `expr = unary_expr ~ (bin_op ~ unary_expr)*`, which says
+    /// nothing about grouping, and the builder folded strictly left to right.
+    /// That made `a + b * c` mean `(a + b) * c`, where 9.8 and its own worked
+    /// example say `a + (b * c)`.
+    pub fn precedence(self) -> u8 {
+        match self {
+            BinOp::Mul | BinOp::Div | BinOp::Mod => 4,
+            BinOp::Add | BinOp::Sub => 5,
+            BinOp::Shl | BinOp::Shr | BinOp::AShr => 6,
+            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => 7,
+            BinOp::Eq | BinOp::Ne => 8,
+            BinOp::And => 9,
+            BinOp::Xor => 10,
+            BinOp::Or => 11,
+            BinOp::LogicalAnd => 12,
+            BinOp::LogicalOr => 13,
+        }
+    }
 }
 
 impl fmt::Display for BinOp {
@@ -759,6 +1122,7 @@ impl fmt::Display for BinOp {
             BinOp::Xor => write!(f, "^"),
             BinOp::Shl => write!(f, "<<"),
             BinOp::Shr => write!(f, ">>"),
+            BinOp::AShr => write!(f, ">>>"),
             BinOp::Eq => write!(f, "=="),
             BinOp::Ne => write!(f, "!="),
             BinOp::Lt => write!(f, "<"),
@@ -812,6 +1176,33 @@ impl fmt::Display for Expression {
             Expression::UnaryOp { op, expr } => write!(f, "{}{}", op, expr),
             Expression::Index { base, index } => write!(f, "{}[{}]", base, index),
             Expression::Slice { base, high, low } => write!(f, "{}[{}:{}]", base, high, low),
+            Expression::PartSelect {
+                base,
+                index,
+                width,
+                upward,
+            } => write!(
+                f,
+                "{}[{} {}: {}]",
+                base,
+                index,
+                if *upward { "+" } else { "-" },
+                width
+            ),
+            Expression::SysFunc { name, args } => {
+                write!(f, "${}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    match arg {
+                        SysFuncArg::Expr(e) => write!(f, "{}", e)?,
+                        SysFuncArg::Type(t) => write!(f, "{}", t)?,
+                        SysFuncArg::Str(t) => write!(f, "\"{}\"", t)?,
+                    }
+                }
+                write!(f, ")")
+            }
             Expression::MethodCall { receiver, method, args } => {
                 write!(f, "{}.{}(", receiver, method)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -824,6 +1215,20 @@ impl fmt::Display for Expression {
             }
             Expression::If { condition, then_expr, else_expr } => {
                 write!(f, "if {} {{ {} }} else {{ {} }}", condition, then_expr, else_expr)
+            }
+            Expression::Call { name, args } => {
+                let rendered: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                write!(f, "{}({})", name, rendered.join(", "))
+            }
+            Expression::Replicate { count, value } => {
+                write!(f, "{{{}{{", count)?;
+                for (i, expr) in value.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", expr)?;
+                }
+                write!(f, "}}}}")
             }
             Expression::Concat(exprs) => {
                 write!(f, "{{")?;
@@ -838,6 +1243,46 @@ impl fmt::Display for Expression {
             Expression::MemRead { mem_name, addr } => {
                 write!(f, "{}[{}]", mem_name, addr)
             }
+            Expression::Match { scrutinee, arms } => {
+                write!(f, "match {} {{ ", scrutinee)?;
+                for arm in arms {
+                    write!(f, "{} => {}, ", arm.pattern, arm.value)?;
+                }
+                write!(f, "}}")
+            }
+        }
+    }
+}
+
+impl Pattern {
+    /// The name a matched payload is bound to, and how to extract it
+    pub fn payload_binding(&self) -> Option<(&str, usize, usize)> {
+        match self {
+            Pattern::Variant {
+                binding: Some(name),
+                tag_width,
+                payload_width,
+                ..
+            } => Some((name, *tag_width, *payload_width)),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Pattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Pattern::Literal(lit) => write!(f, "{}", lit),
+            Pattern::Ident(name) => write!(f, "{}", name),
+            Pattern::Wildcard => write!(f, "_"),
+            Pattern::Path { path, binding } => match binding {
+                Some(binding) => write!(f, "{}({})", path, binding),
+                None => write!(f, "{}", path),
+            },
+            Pattern::Variant { tag, binding, .. } => match binding {
+                Some(binding) => write!(f, "tag {}({})", tag, binding),
+                None => write!(f, "tag {}", tag),
+            },
         }
     }
 }

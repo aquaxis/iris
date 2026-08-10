@@ -1,0 +1,32 @@
+mod Demo(
+    in clk: clock, in rst: reset,
+    out red_light: bit, out yellow_light: bit, out green_light: bit,
+) {
+    fsm TrafficLight(clk.posedge, rst.async) {
+        state enum {
+            Red    [red_light = 1, yellow_light = 0, green_light = 0],
+            Green  [red_light = 0, yellow_light = 0, green_light = 1],
+            Yellow [red_light = 0, yellow_light = 1, green_light = 0],
+        }
+        initial: Red
+
+        var timer: bit[8] = 0;
+
+        transitions {
+            Red => {
+                when timer >= 8'd100 { timer = 0; goto Green; }
+                when 1 { timer = timer + 1; }
+            }
+            Green => {
+                when timer >= 8'd80 { timer = 0; goto Yellow; }
+                when 1 { timer = timer + 1; }
+            }
+            Yellow => {
+                when timer >= 8'd20 { timer = 0; goto Red; }
+                when 1 { timer = timer + 1; }
+            }
+        }
+
+        output encoding: onehot
+    }
+}

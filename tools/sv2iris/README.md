@@ -131,6 +131,7 @@ mod counter(
 |---------------|------|----------|
 | `module ... endmodule` | `mod ... { }` | 対応 |
 | `parameter` | ジェネリックパラメータ `[T: type]` | 対応 |
+| `parameter` (範囲制約) | `where` 句制約 | 対応 |
 | `localparam` | `const` | 対応 |
 | `input` | `in` | 対応 |
 | `output` | `out` | 対応 |
@@ -163,8 +164,9 @@ mod counter(
 |---------------|------|----------|
 | `always_ff @(posedge clk)` | `sync(clk.posedge) { }` | 対応 |
 | `always_ff @(negedge clk)` | `sync(clk.negedge) { }` | 対応 |
-| `always_ff @(posedge clk or negedge rst)` | `sync(clk.posedge, rst.async) { }` | 対応 |
+| `always_ff @(posedge clk or negedge rst_n)` | `sync(clk.posedge, rst_n.async) { }` | 対応 |
 | `always @(posedge clk)` | `sync(clk.posedge) { }` | 対応 |
+| `always_ff @(posedge clk or negedge rst_n)` + `if (!rst_n)` | `var x: bit[8] = 0;` + `sync(clk.posedge, rst_n.async) { }` | 対応（active_low） |
 
 ### 演算子
 
@@ -193,7 +195,7 @@ mod counter(
 
 | SystemVerilog | IRIS | 対応状況 |
 |---------------|------|----------|
-| モジュールインスタンス | `inst: Module(.port(signal))` | 対応 |
+| モジュールインスタンス | `inst name = Module { port: signal }` | 対応 |
 | パラメータ指定 `#(.P(V))` | ジェネリック引数 `Module[V]` | 対応 |
 
 ### インターフェース
@@ -230,18 +232,25 @@ endmodule
 ### 出力 (IRIS)
 
 ```
-mod counter[WIDTH: uint = 8](
+mod counter[WIDTH: uint = 8]
+where
+    WIDTH >= 1
+(
     in  clk:   clock,
-    in  rst_n: reset,
+    in  rst_n: reset(active_low: true),
     in  en:    bool,
     out count: bit[WIDTH],
 ) {
+    var count_reg: bit[WIDTH] = 0;
+
     sync(clk.posedge, rst_n.async) {
-        if !rst_n {
-            count = 0;
-        } else if en {
-            count = count + 1;
+        if en {
+            count_reg = count_reg + 1;
         }
+    }
+
+    comb {
+        count = count_reg;
     }
 }
 ```

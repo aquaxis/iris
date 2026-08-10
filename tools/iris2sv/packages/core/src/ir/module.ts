@@ -265,7 +265,7 @@ export interface HirFunction {
 /**
  * Type definition (enum or struct)
  */
-export type HirTypeDef = HirEnumDef | HirStructDef;
+export type HirTypeDef = HirEnumDef | HirStructDef | HirUnionDef;
 
 /**
  * Enum definition
@@ -281,6 +281,13 @@ export interface HirEnumDef {
  */
 export interface HirStructDef {
   readonly kind: 'HirStructDef';
+  readonly name: string;
+  readonly fields: HirStructFieldDef[];
+}
+
+/** A union: the same fields as a struct, overlaid rather than laid end to end. */
+export interface HirUnionDef {
+  readonly kind: 'HirUnionDef';
   readonly name: string;
   readonly fields: HirStructFieldDef[];
 }
@@ -311,6 +318,13 @@ export interface HirModule {
   readonly combBlocks: HirCombBlock[];
   readonly seqBlocks: HirSeqBlock[];
   readonly initialBlocks: HirInitialBlock[];
+  /**
+   * Clocks the testbench has to drive itself, from `clock(period: 10ns)`.
+   *
+   * Only meaningful when `isTestbench`; a synthesizable module receives its
+   * clock through a port.
+   */
+  readonly clockDrivers?: { signal: string; halfPeriod: number }[];
   readonly testSeqBlocks: HirTestSeqBlock[];
   readonly fsms: HirFsm[];
   readonly functions: HirFunction[];
@@ -326,6 +340,32 @@ export interface HirSourceFile {
   readonly modules: HirModule[];
   readonly typeDefs: HirTypeDef[];
   readonly functions: HirFunction[];
+  /** Interfaces, which sit outside any module in SystemVerilog too. */
+  readonly interfaces: HirInterface[];
+}
+
+/** One direction group of a view, which becomes a `modport`. */
+export interface HirModportSignal {
+  readonly name: string;
+  readonly direction: 'input' | 'output' | 'inout';
+}
+
+export interface HirModport {
+  readonly name: string;
+  readonly signals: HirModportSignal[];
+}
+
+/**
+ * An IRIS `interface` and its views.
+ *
+ * SystemVerilog says the same thing with `interface` and `modport`, so this
+ * carries across whole rather than being reported as unsupported.
+ */
+export interface HirInterface {
+  readonly kind: 'HirInterface';
+  readonly name: string;
+  readonly signals: HirSignal[];
+  readonly modports: HirModport[];
 }
 
 // ==================== Helper Functions ====================
@@ -593,12 +633,14 @@ export function createModule(name: string, isPublic = false, isTestbench = false
 export function createSourceFile(
   modules: HirModule[] = [],
   typeDefs: HirTypeDef[] = [],
-  functions: HirFunction[] = []
+  functions: HirFunction[] = [],
+  interfaces: HirInterface[] = []
 ): HirSourceFile {
   return {
     kind: 'HirSourceFile',
     modules,
     typeDefs,
     functions,
+    interfaces,
   };
 }

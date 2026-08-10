@@ -70,6 +70,7 @@
     ]
   },
   "files": [
+    "server",
     "out",
     "syntaxes",
     "language-configuration.json"
@@ -78,7 +79,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "package": "vsce package",
+    "build": "tsc -p ./"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.0"

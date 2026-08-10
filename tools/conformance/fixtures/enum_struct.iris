@@ -1,0 +1,16 @@
+/// 列挙体と構造体
+enum Op { Add, Sub, And, Or }
+
+struct Packet {
+    valid: bit,
+    data: bit[8],
+}
+
+mod TypeUser(
+    in clk: clock,
+    out y: bit[2],
+) {
+    comb {
+        y = 0;
+    }
+}

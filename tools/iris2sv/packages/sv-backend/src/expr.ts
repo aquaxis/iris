@@ -4,7 +4,7 @@
  * Represents SystemVerilog expressions for code generation.
  */
 
-import type { SvDataType } from './types.js';
+import type { SvDataType, SvWidth } from './types.js';
 
 /**
  * SystemVerilog expression
@@ -22,6 +22,7 @@ export type SvExpr =
   | SvConcatExpr
   | SvReplicateExpr
   | SvCastExpr
+  | SvSizeCastExpr
   | SvParenExpr;
 
 // ==================== Literals ====================
@@ -171,6 +172,8 @@ export interface SvSliceExpr {
   readonly base: SvExpr;
   readonly high: SvExpr;
   readonly low: SvExpr;
+  /** `+:` or `-:` for an indexed part select; absent for a plain slice. */
+  readonly partSelect?: '+:' | '-:' | undefined;
 }
 
 /**
@@ -202,6 +205,12 @@ export interface SvReplicateExpr {
 /**
  * Type cast expression (type'(expr))
  */
+export interface SvSizeCastExpr {
+  readonly kind: 'SvSizeCastExpr';
+  readonly width: SvWidth;
+  readonly expr: SvExpr;
+}
+
 export interface SvCastExpr {
   readonly kind: 'SvCastExpr';
   readonly targetType: SvDataType;
@@ -315,8 +324,13 @@ export function index(base: SvExpr, idx: SvExpr): SvIndexExpr {
 /**
  * Create a slice expression
  */
-export function slice(base: SvExpr, high: SvExpr, low: SvExpr): SvSliceExpr {
-  return { kind: 'SvSliceExpr', base, high, low };
+export function slice(
+  base: SvExpr,
+  high: SvExpr,
+  low: SvExpr,
+  partSelect?: '+:' | '-:'
+): SvSliceExpr {
+  return { kind: 'SvSliceExpr', base, high, low, partSelect };
 }
 
 /**
@@ -391,4 +405,15 @@ export function allOnes(width?: number): SvLiteralExpr {
  */
 export function allZeros(width?: number): SvLiteralExpr {
   return intLiteral(0, width);
+}
+
+/**
+ * Create a size cast, as in `PtrWidth'(a + 1)`.
+ *
+ * IRIS evaluates arithmetic in the width of its operands; SystemVerilog widens
+ * to at least 32 bits. Without the cast, `(p + 1) >> 1` keeps a carry bit that
+ * IRIS would have dropped.
+ */
+export function sizeCast(width: SvWidth, expr: SvExpr): SvSizeCastExpr {
+  return { kind: 'SvSizeCastExpr', width, expr };
 }

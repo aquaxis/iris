@@ -1,6 +1,6 @@
 # 第12章 パッケージシステム
 
-[<< 検証機能](./11_verification.md) | [目次](./iris_spec_0.1.0.md) | [アトリビュート >>](./13_attributes.md)
+[<< 検証機能](./11_verification.md) | [目次](./iris_spec.md) | [アトリビュート >>](./13_attributes.md)
 
 ---
 
@@ -11,7 +11,7 @@
 ```ebnf
 package_decl = "package" package_path ";" { package_item } ;
 package_path = identifier { "::" identifier } ;
-package_item = visibility_modifier ( type_def | const_def | fn_def
+package_item = visibility_modifier ( type_def | const_decl | fn_def
              | mod_def | interface_def | enum_def | struct_def ) ;
 visibility_modifier = [ "pub" ] ;
 ```
@@ -64,6 +64,21 @@ pub fn parity(data: Byte) -> bit {
 |--------|----------|------|
 | なし | 同一パッケージ内のみ | 内部実装（プライベート） |
 | `pub` | どこからでもアクセス可能 | 公開API |
+
+パッケージに属する宣言は`パッケージ名::名前`という名前になる。
+トップモジュールを指定するときもこの名前を使う。
+
+`pub`は「宣言したものを公開する」ものであり、
+`export`は「取り込んだものを渡す」ものである。
+役割が異なる。
+別のパッケージから取り込んだ名前を、自分を取り込む側へ渡すには`export`を使う。
+
+```rust
+package facade;
+
+import common::{Doubler};
+export Doubler;          // facade を取り込む側からも Doubler が見える
+```
 
 ```rust
 package mylib::internal;
@@ -202,7 +217,8 @@ IRIS言語ソースファイルには以下の拡張子を使用します：
 | `.iris` | 正式拡張子 | **推奨**。プロジェクトでの使用を推奨 |
 | `.irs` | 短縮形 | 便宜のための短縮形。正式拡張子と同等に扱う |
 
-> **注記**: ツールチェーン（iris-sim, irisfmt, iris2sv等）は両方の拡張子を同等に認識します。プロジェクト内では一貫性のため`.iris`拡張子の使用を推奨します。
+> **注記**: ツールチェーン（iris-sim、irisfmt、iris2svなど）は両方の拡張子を同等に認識します。
+> プロジェクト内では一貫性のため`.iris`拡張子の使用を推奨します。
 
 ### 12.5.3 モジュール解決規則
 
@@ -422,4 +438,4 @@ iris_axi = "2.0"
 
 ---
 
-[<< 検証機能](./11_verification.md) | [目次](./iris_spec_0.1.0.md) | [アトリビュート >>](./13_attributes.md)
+[<< 検証機能](./11_verification.md) | [目次](./iris_spec.md) | [アトリビュート >>](./13_attributes.md)

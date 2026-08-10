@@ -1,6 +1,6 @@
 # 第6章 順序論理
 
-[<< 組み合わせ論理](./05_combinational_logic.md) | [目次](./iris_spec_0.1.0.md) | [FSM >>](./07_fsm.md)
+[<< 組み合わせ論理](./05_combinational_logic.md) | [目次](./iris_spec.md) | [FSM >>](./07_fsm.md)
 
 ---
 
@@ -9,17 +9,22 @@
 ### 6.1.1 EBNF定義
 
 ```ebnf
-sync_block = "sync" "(" clock_spec [ "," reset_spec ] ")"
-             [ domain_attr ] "{" sync_statements "}" ;
-clock_spec = clock_signal "." edge ;
+sync_block = "sync" "(" clock_spec [ "," reset_spec ] ")" [ domain_attr ] "{" { statement } "}" ;
+
+clock_spec = expr "." edge ;
 edge = "posedge" | "negedge" ;
-reset_spec = reset_signal "." reset_mode ;
-reset_mode = "sync" | "async" ;
+reset_spec = expr "." reset_mode ;
+reset_mode = "async" | "sync" ;
 domain_attr = "@" identifier ;
-sync_statements = { sync_statement } ;
-sync_statement = assignment | if_statement ;
-assignment = identifier "=" expression ";" ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+`sync`の中身は`statement`である。
+代入と`if`だけでなく、`match`、`for`、`while`、アサーションも書ける（第9章、第11章）。
+
+クロックとリセットの前は式である。
+`clk.posedge`のような単純な名前に限らず、`bus.clk.posedge`のような参照も置ける。
 
 ### 6.1.2 基本形式
 
@@ -41,13 +46,30 @@ sync(clk.negedge) {
 - syncブロック内の代入はすべてレジスタ更新として合成
 - コンパイラが自動的にフリップフロップを推論
 
+### 6.1.3 syncブロックの評価モデル
+
+syncブロック内の代入は**並行セマンティクス**（ノンブロッキング代入）で評価される。
+全ての右辺が代入前に評価され、代入はクロックエッジで同時に反映される。
+
+```rust
+sync(clk.posedge, rst.async) {
+    stage1 = din;     // dinの現在値
+    stage2 = stage1;   // stage1の古い値（更新前）
+    stage3 = stage2;  // stage2の古い値（更新前）
+}
+```
+
+この並行セマンティクスにより、パイプラインレジスタが正しく合成される。
+同一信号への複数代入は最後の代入が有効である（16.12.3節の規則4）。
+
 ---
 
 ## 6.2 順序回路用の信号宣言
 
 順序回路を記述するには、`let`、`let mut`、または`var`で信号を宣言し、`sync`ブロック内で代入します。
 
-**重要:** IRISでは、信号の合成結果は**使用コンテキスト**によって決定されます。`let`で宣言した信号でも、`sync`ブロック内で代入されると順序回路（レジスタ）として合成されます。
+**重要:** IRISでは、信号の合成結果は**使用コンテキスト**によって決定されます。
+`let`で宣言した信号でも、`sync`ブロック内で代入されると順序回路（レジスタ）として合成されます。
 
 ### 6.2.1 letによる宣言
 
@@ -63,19 +85,20 @@ sync(clk.posedge, rst.async) {
 
 ### 6.2.2 varによる宣言（順序回路専用）
 
-**重要:** `var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。`comb`ブロックや直接代入で使用するとコンパイルエラーになります。
+**重要:** `var`はモジュールレベルで宣言し、`sync`または`fsm`ブロック内でのみ代入可能です。
+`comb`ブロック内や直接代入で`var`に値を代入するとコンパイルエラーになります。
 
 ```rust
-// varによる宣言（順序回路専用）
+// varはモジュールレベルで宣言する
 var counter: bit[8] = 0;  // リセット値あり
 var data: bit[8];         // リセット値なし
 
 sync(clk.posedge, rst.async) {
-    counter = counter + 1;  // OK: sync内で使用
+    counter = counter + 1;  // OK: sync内で代入
 }
 
 // 以下はエラー
-// comb { counter = 0; }  // エラー: varはsync/fsm外で使用不可
+// comb { counter = 0; }  // エラー: varはcombブロック内で代入不可
 ```
 
 ### 6.2.3 let mutによる宣言
@@ -94,7 +117,9 @@ let mut data: bit[8];
 | `var` | 順序回路専用 | **sync/fsmのみ** | 明示的にレジスタであることを示す |
 | `let mut` | 可変信号（初期値付き） | sync/fsm推奨 | 初期値がリセット値となる |
 
-**推奨:** 順序回路用の信号には`var`を使用することを推奨します。`var`は`sync`/`fsm`ブロックでのみ使用可能であるため、意図が明確になります。`let`はどこでも使用可能ですが、使用コンテキストにより回路種別が決定されます。
+**推奨:** 順序回路用の信号には`var`を使用することを推奨します。
+`var`は`sync`/`fsm`ブロックでのみ使用可能であるため、意図が明確になります。
+`let`はどこでも使用可能ですが、使用コンテキストにより回路種別が決定されます。
 
 ---
 
@@ -172,16 +197,48 @@ sync(clk.posedge, rst.async) { ... }
 ### 6.4.2 Active Low
 
 ```rust
-in rst_n: reset(active_low),
+in rst_n: reset(active_low: true),
 
 sync(clk.posedge, rst_n.async) { ... }
 ```
 
 ---
 
-## 6.5 クロックドメイン
+## 6.5 リセットなしsyncブロック
 
-### 6.5.1 ドメイン指定
+リセットを指定しないsyncブロックは、初期値が設定されている場合にのみ初期値でリセットされる。
+
+```rust
+// リセットなしsyncブロック
+// 初期値なしの場合、レジスタはシミュレーション時に不定値（X）となる
+var data: bit[8];
+sync(clk.posedge) {
+    data = din;
+}
+
+// 初期値ありの場合、初期値がパワーアップ時の値となる
+var count: bit[8] = 0;
+sync(clk.posedge) {
+    count = count + 1;
+}
+```
+
+**リセットなしの動作:**
+
+| 宣言形式 | パワーアップ時の値 | 合成結果 |
+|----------|-------------------|----------|
+| `var x: bit[8];`（初期値なし） | 不定値（X） | レジスタ（リセットなし） |
+| `var x: bit[8] = 0;`（初期値あり） | 初期値（0） | レジスタ（パワーアップ初期値付き） |
+| `let x: bit[8] = 0;` + `sync(clk.posedge)` | 初期値（0） | レジスタ（パワーアップ初期値付き） |
+
+初期値ありの`var`または`let`宣言は、パワーアップ時にその値でレジスタを初期化する。
+ただし、この初期化はFPGAの初期値機能に依存するため、ASICでは初期値が保証されない場合がある。
+
+---
+
+## 6.6 クロックドメイン
+
+### 6.6.1 ドメイン指定
 
 ```rust
 // ドメインAのレジスタ
@@ -274,7 +331,7 @@ mod Counter(
     in  load: bit,
     in  load_value: bit[8],
     out count: bit[8],
-    out overflow: bit,
+    out overflow_pending: bit,
 ) {
     var counter: bit[8] = 0;
 
@@ -288,7 +345,7 @@ mod Counter(
 
     comb {
         count = counter;
-        overflow = (counter == 8'hFF) && enable;
+        overflow_pending = (counter == 8'hFF) && enable;
     }
 }
 ```
@@ -400,4 +457,4 @@ mod Example(
 
 ---
 
-[<< 組み合わせ論理](./05_combinational_logic.md) | [目次](./iris_spec_0.1.0.md) | [FSM >>](./07_fsm.md)
+[<< 組み合わせ論理](./05_combinational_logic.md) | [目次](./iris_spec.md) | [FSM >>](./07_fsm.md)

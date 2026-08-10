@@ -43,6 +43,7 @@ export class Lexer {
     ['return', TokenKind.Return],
     ['type', TokenKind.Type],
     ['struct', TokenKind.Struct],
+    ['union', TokenKind.Union],
     ['enum', TokenKind.Enum],
     ['interface', TokenKind.Interface],
     ['import', TokenKind.Import],
@@ -410,13 +411,24 @@ export class Lexer {
         break;
 
       case '+':
-        kind = TokenKind.Plus;
+        // `+:` is one token. Left as `+` then `:`, the expression parser took
+        // the `+` as addition and then found no right operand, so every part
+        // select failed to parse.
+        if (this.peek() === ':') {
+          text += this.advance();
+          kind = TokenKind.PlusColon;
+        } else {
+          kind = TokenKind.Plus;
+        }
         break;
 
       case '-':
         if (this.peek() === '>') {
           text += this.advance();
           kind = TokenKind.Arrow;
+        } else if (this.peek() === ':') {
+          text += this.advance();
+          kind = TokenKind.MinusColon;
         } else {
           kind = TokenKind.Minus;
         }
@@ -530,10 +542,21 @@ export class Lexer {
   }
 
   private isIdentStart(ch: string): boolean {
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_';
+    // '$' starts a system function such as `$clog2` or `$display`. Treating it
+    // as an identifier start lets the parser handle `$clog2(Depth)` through the
+    // ordinary call path, and the name keeps its '$'.
+    return (
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      ch === '_' ||
+      ch === '$'
+    );
   }
 
   private isIdentContinue(ch: string): boolean {
+    // '$' must continue a name as well as start one. The scanner advances
+    // while this holds, so excluding '$' here produces a zero-length token at
+    // a '$' and the lexer never moves on — a hang, not an error.
     return this.isIdentStart(ch) || this.isDigit(ch);
   }
 

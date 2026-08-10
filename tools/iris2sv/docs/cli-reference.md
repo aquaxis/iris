@@ -38,12 +38,13 @@ iris2sv src/
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--output <dir>` | `-o` | Output directory for generated files |
-| `--watch` | `-w` | Watch mode - recompile on file changes (planned) |
+| `--watch` | `-w` | Accepted but not implemented; the option has no effect |
 | `--verbose` | `-v` | Verbose output |
 | `--strict` | | Treat warnings as errors |
 | `--check` | | Check only, do not generate output |
 | `--no-color` | | Disable colored output |
 | `--dry-run` | | Show what would be done without writing files |
+| `--auto-output-wire` | `-a` | Auto-generate internal wires for output ports that are read |
 | `--version` | | Show version number |
 | `--help` | `-h` | Show help message |
 
@@ -113,11 +114,12 @@ By default, `iris2sv` generates SystemVerilog files with:
 
 Input (`counter.iris`):
 ```iris
-mod counter {
+mod counter(
     in  clk: clock,
     in  rst: reset,
     in  enable: bool,
-    out count: uint<8>
+    out count: bit[8],
+) {
 }
 ```
 
@@ -165,7 +167,7 @@ error[E0001]: Type mismatch in assignment
   --> input.iris:10:5
    |
 10 |     y = x;
-   |     ^^^^^ expected uint<8>, found uint<16>
+   |     ^^^^^ expected bit[8], found bit[16]
 ```
 
 ### Warnings

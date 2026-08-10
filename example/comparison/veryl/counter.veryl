@@ -1,0 +1,23 @@
+/// Counter
+/// Used to check single-clock behaviour of the IRIS simulator and to compare speed
+module Counter (
+    clk   : input  clock   ,
+    rst   : input  reset   ,
+    enable: input  logic   ,
+    count : output logic<8>,
+) {
+    var counter: logic<8>;
+
+    // The IRIS source names the reset on the block but assigns nothing under
+    // it, so the counter holds its value through reset. Reproduced here so the
+    // two modules can be compared.
+    always_ff (clk) {
+        if enable {
+            counter = counter + 1;
+        }
+    }
+
+    always_comb {
+        count = counter;
+    }
+}

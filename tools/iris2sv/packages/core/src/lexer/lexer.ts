@@ -179,11 +179,19 @@ export class Lexer {
         break;
 
       case '+':
-        this.addTokenAt(TokenKind.Plus, '+', startPos, startLine, startColumn);
+        // `+:` is one token. Left as `+` then `:`, the expression parser takes
+        // the `+` as addition and finds no right operand.
+        if (this.match(':')) {
+          this.addTokenAt(TokenKind.PlusColon, '+:', startPos, startLine, startColumn);
+        } else {
+          this.addTokenAt(TokenKind.Plus, '+', startPos, startLine, startColumn);
+        }
         break;
 
       case '-':
-        if (this.match('>')) {
+        if (this.match(':')) {
+          this.addTokenAt(TokenKind.MinusColon, '-:', startPos, startLine, startColumn);
+        } else if (this.match('>')) {
           this.addTokenAt(TokenKind.Arrow, '->', startPos, startLine, startColumn);
         } else {
           this.addTokenAt(TokenKind.Minus, '-', startPos, startLine, startColumn);
@@ -286,6 +294,11 @@ export class Lexer {
       // String literal
       case '"':
         this.scanString(startPos, startLine, startColumn);
+        break;
+
+      // System function: $clog2, $display, $finish
+      case '$':
+        this.scanSysFunc(startPos, startLine, startColumn);
         break;
 
       // Whitespace
@@ -441,6 +454,22 @@ export class Lexer {
     const text = this.source.slice(startPos, this.pos);
     const kind = KEYWORDS.get(text) ?? TokenKind.Identifier;
     this.addTokenAt(kind, text, startPos, startLine, startColumn);
+  }
+
+  /**
+   * Scan a system function name. The leading '$' has already been consumed.
+   * The name is kept with its '$' so it can be emitted to SystemVerilog as-is.
+   */
+  private scanSysFunc(startPos: number, startLine: number, startColumn: number): void {
+    if (!this.isIdentifierStart(this.peek())) {
+      this.addError('Expected a name after $', startPos, startLine, startColumn);
+      return;
+    }
+    while (this.isIdentifierPart(this.peek())) {
+      this.advance();
+    }
+    const text = this.source.slice(startPos, this.pos);
+    this.addTokenAt(TokenKind.SysFunc, text, startPos, startLine, startColumn);
   }
 
   private isWhitespace(ch: string): boolean {

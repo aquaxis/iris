@@ -1,0 +1,13 @@
+/// 可変位置のビット取り出し
+mod PartSelect(
+    in clk: clock,
+    in a: bit[32],
+    in i: bit[5],
+    out y: bit[8],
+    out z: bit[8],
+) {
+    comb {
+        y = a[i +: 8];
+        z = a[i -: 8];
+    }
+}

@@ -1,0 +1,18 @@
+/// 列挙体に対する網羅的なmatch
+enum Op { Add, Sub, And }
+
+mod EnumMatch(
+    in clk: clock,
+    in s: bit[2],
+    out y: bit[8],
+) {
+    var op: Op = Op::Add;
+
+    comb {
+        y = match op {
+            Op::Add => 8'd1,
+            Op::Sub => 8'd2,
+            Op::And => 8'd3,
+        };
+    }
+}

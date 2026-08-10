@@ -1,6 +1,6 @@
 # 第8章 インターフェース
 
-[<< FSM](./07_fsm.md) | [目次](./iris_spec_0.1.0.md) | [演算子 >>](./09_operators.md)
+[<< FSM](./07_fsm.md) | [目次](./iris_spec.md) | [演算子 >>](./09_operators.md)
 
 ---
 
@@ -9,17 +9,23 @@
 ### 8.1.1 EBNF定義
 
 ```ebnf
-interface_decl = "interface" identifier [ generic_params ] [ where_clause ]
-                 "{" interface_body "}" ;
-interface_body = { signal_decl } { view_decl } ;
-signal_decl = identifier ":" type [ "," ] ;
-view_decl = "view" view_name "{" view_body "}" ;
-view_name = "initiator" | "target" | identifier ;
-view_body = { direction_list } ;
+interface_def = "interface" identifier [ generic_params ] [ "extends" identifier ]
+                [ where_clause ] "{" { interface_signal | view_def } "}" ;
+
+interface_signal = identifier ":" type_expr [ "," ] ;
+
+view_def = "view" view_name "{" { direction_list } "}" ;
+view_name = "initiator" | "target" | "monitor" | identifier ;
 direction_list = direction ":" signal_list ;
-direction = "in" | "out" | "inout" ;
+direction = "inout" | "out" | "in" ;
 signal_list = identifier { "," identifier } [ "," ] ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+インターフェースの信号は`interface_signal`である。
+`signal_decl`はモジュールの`let`／`var`宣言を指す別の規則なので、
+この章では使わない。
 
 ### 8.1.2 基本定義
 
@@ -280,6 +286,21 @@ interface AxiStream extends StreamBase {
 - 継承元と継承先で同名の信号がある場合はコンパイルエラー
 - 多重継承は禁止（単一継承のみ）
 - 継承の深さは3レベルまでを推奨
+- 同名のビューを継承先が書き直した場合は、継承先の定義が優先する
+
+**インターフェースの展開:**
+
+インターフェースはメンバごとの信号に展開される。
+`initiator bus: Simple`というポートは、メンバの数だけのポートになり、
+それぞれの向きはポートの方向が指すビューから決まる。
+そのビューが`out`とした信号はこのモジュールが駆動し、`in`とした信号は受け取る。
+`monitor`はすべてを受け取る。
+ビューが触れていないメンバも受け取る。
+
+バスは信号として宣言し、両側のインスタンスに同じものを渡す。
+接続もメンバごとに展開される。
+波形には`link.valid`や`p.bus.valid`のような名前で現れ、
+インターフェースそのものは信号にならない。
 
 ### 8.5.2 インターフェースのコンポジション
 
@@ -342,4 +363,4 @@ error[O0030]: incompatible interface views
 
 ---
 
-[<< FSM](./07_fsm.md) | [目次](./iris_spec_0.1.0.md) | [演算子 >>](./09_operators.md)
+[<< FSM](./07_fsm.md) | [目次](./iris_spec.md) | [演算子 >>](./09_operators.md)

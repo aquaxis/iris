@@ -1,0 +1,170 @@
+/// RV32I 演算命令のテスト
+///
+/// R形式10命令、I形式9命令、LUI、EBREAKを検証する。
+/// EBREAKはこのテストの停止そのものが検証になっている。停止しなければ打ち切りでFAILになる。
+/// SRA/SRL と SLT/SLTU は負の値で試し、符号の扱いを取り違えたら落ちるようにしてある。
+///
+/// 命令の符号化はriscv64-unknown-elf-asで組み立てたものである。
+/// 期待値はRISC-Vの仕様から導いたものであり、このコアが出した値ではない。
+///
+/// 検証の進め方:
+///   コアが停止したら、レジスタx0からx31までを1サイクルに1本ずつ読み、
+///   期待値表と突き合わせる。
+///   レジスタの中身は検証用ポート（dbg_addr／dbg_data）で見る。
+///   テストベンチから階層越しにmemを読むと診断なしで0が返るためである。
+
+/// 命令ROM
+///
+/// memの初期化子が使えないため、アドレスに対するmatchでプログラムを表す。
+mod RomAlu(
+    in  addr: bit[32],
+    out rdata: bit[32],
+) {
+    comb {
+        rdata = match addr[9:2] {
+            8'd0   => 32'h00C00093,  // addi  x1 = 12
+            8'd1   => 32'h00500113,  // addi  x2 = 5
+            8'd2   => 32'hFF000F93,  // addi  x31 = -16
+            8'd3   => 32'h002081B3,  // add   12 + 5
+            8'd4   => 32'h40208233,  // sub   12 - 5
+            8'd5   => 32'h002112B3,  // sll   5 << 5
+            8'd6   => 32'h00112333,  // slt   5 < 12 signed
+            8'd7   => 32'h0020B3B3,  // sltu  12 < 5 unsigned
+            8'd8   => 32'h0020C433,  // xor   12 ^ 5
+            8'd9   => 32'h002FD4B3,  // srl   -16 >> 5 logical
+            8'd10  => 32'h402FD533,  // sra   -16 >> 5 arithmetic
+            8'd11  => 32'h0020E5B3,  // or    12 | 5
+            8'd12  => 32'h0020F633,  // and   12 & 5
+            8'd13  => 32'hFFF08693,  // addi  12 + (-1)
+            8'd14  => 32'h000FA713,  // slti  -16 < 0 signed
+            8'd15  => 32'h000FB793,  // sltiu 0xFFFFFFF0 < 0 unsigned
+            8'd16  => 32'hFFF0C813,  // xori  12 ^ -1
+            8'd17  => 32'h0030E893,  // ori   12 | 3
+            8'd18  => 32'h0060F913,  // andi  12 & 6
+            8'd19  => 32'h00409993,  // slli  12 << 4
+            8'd20  => 32'h004FDA13,  // srli  -16 >> 4 logical
+            8'd21  => 32'h404FDA93,  // srai  -16 >> 4 arithmetic
+            8'd22  => 32'h12345B37,  // lui   upper immediate
+            8'd23  => 32'h00100073,  // ebreak 停止
+            _      => 32'h00000013,  // nop
+        };
+    }
+}
+
+test TestAlu {
+    let clk: clock(period: 10ns);
+    let rst_n: reset(active_low: true);
+
+    var idx: bit[6] = 0;
+    var fails: bit[8] = 0;
+    var done: bit = 0;
+
+    // 打ち切り。
+    // コアが停止しないと検証そのものが走らず、
+    // 何も報告しないまま成功扱いで終わってしまう。
+    var cycles: bit[16] = 0;
+
+    var expected: bit[32] = 0;
+    var matched: bit = 0;
+
+    inst rom = RomAlu {
+        addr: core.imem_addr,
+    };
+
+    inst core = RiscvCore {
+        clk: clk,
+        rst_n: rst_n,
+        imem_rdata: rom.rdata,
+        dbg_addr: idx[4:0],
+    };
+
+    comb {
+        // 期待値表。プログラムが書き換えないレジスタは0のままである。
+        expected = match idx {
+            6'd0  => 32'h00000000,
+            6'd1  => 32'h0000000C,
+            6'd2  => 32'h00000005,
+            6'd3  => 32'h00000011,
+            6'd4  => 32'h00000007,
+            6'd5  => 32'h000000A0,
+            6'd6  => 32'h00000001,
+            6'd7  => 32'h00000000,
+            6'd8  => 32'h00000009,
+            6'd9  => 32'h07FFFFFF,
+            6'd10 => 32'hFFFFFFFF,
+            6'd11 => 32'h0000000D,
+            6'd12 => 32'h00000004,
+            6'd13 => 32'h0000000B,
+            6'd14 => 32'h00000001,
+            6'd15 => 32'h00000000,
+            6'd16 => 32'hFFFFFFF3,
+            6'd17 => 32'h0000000F,
+            6'd18 => 32'h00000004,
+            6'd19 => 32'h000000C0,
+            6'd20 => 32'h0FFFFFFF,
+            6'd21 => 32'hFFFFFFFF,
+            6'd22 => 32'h12345000,
+            6'd23 => 32'h00000000,
+            6'd24 => 32'h00000000,
+            6'd25 => 32'h00000000,
+            6'd26 => 32'h00000000,
+            6'd27 => 32'h00000000,
+            6'd28 => 32'h00000000,
+            6'd29 => 32'h00000000,
+            6'd30 => 32'h00000000,
+            6'd31 => 32'hFFFFFFF0,
+            _      => 32'h00000000,
+        };
+        matched = if core.dbg_data == expected { 1'b1 } else { 1'b0 };
+    }
+
+    sync(clk.posedge, rst_n.async) {
+        if ~rst_n {
+            idx = 0;
+            fails = 0;
+            done = 0;
+            cycles = 0;
+        } else {
+            cycles = cycles + 1;
+
+            if ~core.halted {
+                if cycles == 16'd400 {
+                    $display("");
+                    $display("=== TestAlu ===");
+                    $display("  RESULT: FAIL - core did not halt within 400 cycles");
+                    $display("  pc = %0d", core.pc_out);
+                    assert 1'b0 else error("core did not halt");
+                    $finish;
+                }
+            }
+
+            if core.halted {
+                if ~done {
+                    if ~matched {
+                        fails = fails + 1;
+                        $display("FAIL x%0d: expected %0d, got %0d",
+                                 idx, expected, core.dbg_data);
+                    }
+                    assert matched else error("register does not match the expected value");
+
+                    if idx == 6'd31 {
+                        done = 1;
+                        $display("");
+                        $display("=== TestAlu ===");
+                        $display("  instructions verified: 21");
+                        $display("  registers checked:     32");
+                        $display("  mismatches:            %0d", fails);
+                        if fails == 8'd0 {
+                            $display("  RESULT: PASS");
+                        } else {
+                            $display("  RESULT: FAIL");
+                        }
+                        $finish;
+                    } else {
+                        idx = idx + 1;
+                    }
+                }
+            }
+        }
+    }
+}

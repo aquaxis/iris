@@ -1,0 +1,199 @@
+/// RV32I メモリ・分岐・ジャンプのテスト
+///
+/// ロード5命令、ストア3命令、分岐6命令、JAL/JALR、AUIPC、FENCEを検証する。
+/// 符号拡張とゼロ拡張、符号付き比較と符号なし比較を取り違えたら落ちる値を選んである。
+///
+/// 命令の符号化はriscv64-unknown-elf-asで組み立てたものである。
+/// 期待値はRISC-Vの仕様から導いたものであり、このコアが出した値ではない。
+///
+/// 検証の進め方:
+///   コアが停止したら、レジスタx0からx31までを1サイクルに1本ずつ読み、
+///   期待値表と突き合わせる。
+///   レジスタの中身は検証用ポート（dbg_addr／dbg_data）で見る。
+///   テストベンチから階層越しにmemを読むと診断なしで0が返るためである。
+
+/// 命令ROM
+///
+/// memの初期化子が使えないため、アドレスに対するmatchでプログラムを表す。
+mod RomMem(
+    in  addr: bit[32],
+    out rdata: bit[32],
+) {
+    comb {
+        rdata = match addr[9:2] {
+            8'd0   => 32'h10000093,  // addi  基準アドレス 0x100
+            8'd1   => 32'h89ABD137,  // lui   0x89ABD000
+            8'd2   => 32'hDEF10113,  // addi  x2 = 0x89ABCDEF
+            8'd3   => 32'h0020A023,  // sw    語を書く
+            8'd4   => 32'h0000A183,  // lw    0x89ABCDEF
+            8'd5   => 32'h00008203,  // lb    0xEF を符号拡張
+            8'd6   => 32'h0000C283,  // lbu   0xEF をゼロ拡張
+            8'd7   => 32'h00009303,  // lh    0xCDEF を符号拡張
+            8'd8   => 32'h0000D383,  // lhu   0xCDEF をゼロ拡張
+            8'd9   => 32'h00308403,  // lb    バイト3 = 0x89
+            8'd10  => 32'h0020D483,  // lhu   ハーフワード1 = 0x89AB
+            8'd11  => 32'h07F00513,  // addi  x10 = 0x7F
+            8'd12  => 32'h00A08223,  // sb    バイト書き込み
+            8'd13  => 32'h0040C583,  // lbu   0x7F
+            8'd14  => 32'h12300613,  // addi  x12 = 0x123
+            8'd15  => 32'h00C09423,  // sh    ハーフワード書き込み
+            8'd16  => 32'h0080D683,  // lhu   0x123
+            8'd17  => 32'h05A00713,  // addi  x14 = 0x5A
+            8'd18  => 32'h00E086A3,  // sb    語内位置1へ書く
+            8'd19  => 32'h00D0C783,  // lbu   0x5A
+            8'd20  => 32'h00000813,  // addi  分岐の加点を0にする
+            8'd21  => 32'h00108463,  // beq   等しい → 成立
+            8'd22  => 32'h06480813,  //       毒（成立しなければ実行される）
+            8'd23  => 32'h00180813,  //       +1
+            8'd24  => 32'h00208463,  // beq   等しくない → 不成立
+            8'd25  => 32'h00180813,  //       +1
+            8'd26  => 32'h00209463,  // bne   等しくない → 成立
+            8'd27  => 32'h06480813,  //       毒
+            8'd28  => 32'h00180813,  //       +1
+            8'd29  => 32'h00109463,  // bne   等しい → 不成立
+            8'd30  => 32'h00180813,  //       +1
+            8'd31  => 32'h00114463,  // blt   負 < 正 符号付き → 成立
+            8'd32  => 32'h06480813,  //       毒
+            8'd33  => 32'h00180813,  //       +1
+            8'd34  => 32'h00116463,  // bltu  符号なしでは大 → 不成立
+            8'd35  => 32'h00180813,  //       +1
+            8'd36  => 32'h0020D463,  // bge   正 >= 負 符号付き → 成立
+            8'd37  => 32'h06480813,  //       毒
+            8'd38  => 32'h00180813,  //       +1
+            8'd39  => 32'h0020F463,  // bgeu  符号なしでは小 → 不成立
+            8'd40  => 32'h00180813,  //       +1
+            8'd41  => 32'h00800A6F,  // jal   飛ぶ。x20は戻り番地
+            8'd42  => 32'h06300A93,  //       毒
+            8'd43  => 32'h00000B97,  // auipc x23 = このPC
+            8'd44  => 32'h011B8B93,  // addi  飛び先を奇数にする（JALRは最下位ビットを落とす）
+            8'd45  => 32'h000B8C67,  // jalr  飛ぶ。x24は戻り番地
+            8'd46  => 32'h06300D13,  //       毒
+            8'd47  => 32'h00000C97,  //       飛び先。x25は偶数の番地になること
+            8'd48  => 32'h00400DEF,  // jal   x27 = 次の命令の番地
+            8'd49  => 32'h00000E17,  // auipc x28 = この命令の番地
+            8'd50  => 32'h41BE0EB3,  // sub   0でなければAUIPCかJALが誤り
+            8'd51  => 32'h0FF0000F,  // fence nopとして退役
+            8'd52  => 32'h02A00F13,  // addi  fenceの後も進むこと
+            8'd53  => 32'h00100073,  // ebreak 停止
+            _      => 32'h00000013,  // nop
+        };
+    }
+}
+
+test TestMem {
+    let clk: clock(period: 10ns);
+    let rst_n: reset(active_low: true);
+
+    var idx: bit[6] = 0;
+    var fails: bit[8] = 0;
+    var done: bit = 0;
+
+    // 打ち切り。
+    // コアが停止しないと検証そのものが走らず、
+    // 何も報告しないまま成功扱いで終わってしまう。
+    var cycles: bit[16] = 0;
+
+    var expected: bit[32] = 0;
+    var matched: bit = 0;
+
+    inst rom = RomMem {
+        addr: core.imem_addr,
+    };
+
+    inst core = RiscvCore {
+        clk: clk,
+        rst_n: rst_n,
+        imem_rdata: rom.rdata,
+        dbg_addr: idx[4:0],
+    };
+
+    comb {
+        // 期待値表。プログラムが書き換えないレジスタは0のままである。
+        expected = match idx {
+            6'd0  => 32'h00000000,
+            6'd1  => 32'h00000100,
+            6'd2  => 32'h89ABCDEF,
+            6'd3  => 32'h89ABCDEF,
+            6'd4  => 32'hFFFFFFEF,
+            6'd5  => 32'h000000EF,
+            6'd6  => 32'hFFFFCDEF,
+            6'd7  => 32'h0000CDEF,
+            6'd8  => 32'hFFFFFF89,
+            6'd9  => 32'h000089AB,
+            6'd10 => 32'h0000007F,
+            6'd11 => 32'h0000007F,
+            6'd12 => 32'h00000123,
+            6'd13 => 32'h00000123,
+            6'd14 => 32'h0000005A,
+            6'd15 => 32'h0000005A,
+            6'd16 => 32'h00000008,
+            6'd17 => 32'h00000000,
+            6'd18 => 32'h00000000,
+            6'd19 => 32'h00000000,
+            6'd20 => 32'h000000A8,
+            6'd21 => 32'h00000000,
+            6'd22 => 32'h00000000,
+            6'd23 => 32'h000000BD,
+            6'd24 => 32'h000000B8,
+            6'd25 => 32'h000000BC,
+            6'd26 => 32'h00000000,
+            6'd27 => 32'h000000C4,
+            6'd28 => 32'h000000C4,
+            6'd29 => 32'h00000000,
+            6'd30 => 32'h0000002A,
+            6'd31 => 32'h00000000,
+            _      => 32'h00000000,
+        };
+        matched = if core.dbg_data == expected { 1'b1 } else { 1'b0 };
+    }
+
+    sync(clk.posedge, rst_n.async) {
+        if ~rst_n {
+            idx = 0;
+            fails = 0;
+            done = 0;
+            cycles = 0;
+        } else {
+            cycles = cycles + 1;
+
+            if ~core.halted {
+                if cycles == 16'd400 {
+                    $display("");
+                    $display("=== TestMem ===");
+                    $display("  RESULT: FAIL - core did not halt within 400 cycles");
+                    $display("  pc = %0d", core.pc_out);
+                    assert 1'b0 else error("core did not halt");
+                    $finish;
+                }
+            }
+
+            if core.halted {
+                if ~done {
+                    if ~matched {
+                        fails = fails + 1;
+                        $display("FAIL x%0d: expected %0d, got %0d",
+                                 idx, expected, core.dbg_data);
+                    }
+                    assert matched else error("register does not match the expected value");
+
+                    if idx == 6'd31 {
+                        done = 1;
+                        $display("");
+                        $display("=== TestMem ===");
+                        $display("  instructions verified: 17");
+                        $display("  registers checked:     32");
+                        $display("  mismatches:            %0d", fails);
+                        if fails == 8'd0 {
+                            $display("  RESULT: PASS");
+                        } else {
+                            $display("  RESULT: FAIL");
+                        }
+                        $finish;
+                    } else {
+                        idx = idx + 1;
+                    }
+                }
+            }
+        }
+    }
+}

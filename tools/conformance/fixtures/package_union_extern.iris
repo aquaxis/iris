@@ -1,0 +1,22 @@
+/// パッケージ宣言、共用体、外部モジュール
+package demo;
+
+union Word {
+    raw: bit[32],
+    half: bit[16],
+}
+
+extern mod ExternBlock(
+    in clk: clock,
+    out y: bit,
+);
+
+mod PackageUser(
+    in clk: clock,
+    out y: bit,
+) {
+    inst e = ExternBlock {
+        clk: clk,
+        y: y,
+    };
+}

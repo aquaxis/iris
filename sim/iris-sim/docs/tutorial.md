@@ -26,7 +26,7 @@ IRISは、Rustに影響を受けた文法を持つハードウェア記述言語
 - **型安全**: ビット幅の不一致をコンパイル時に検出
 - **明確な意図**: 組み合わせ論理（comb）と順序論理（sync）を明示的に分離
 - **現代的な文法**: Rust風の読みやすい構文
-- **高速シミュレーション**: コンパイル型で最大3,800倍高速
+- **高速シミュレーション**: コンパイル型はインタプリタの約4.5倍速い（release）
 
 ### 学習の流れ
 
@@ -349,15 +349,16 @@ test AssertionExample {
         value = value + 1;
     }
 
-    // initial ブロック - シミュレーション開始時に1回実行
+    // initial ブロック - リセット解除後、最初のエッジを処理してから1回だけ実行する。
+    // この時点で value はすでに 1 になっている。
     initial {
-        assert value == 8'd0, "Initial value should be 0";
+        assert value == 8'd1, "value has advanced one cycle by then";
     }
 
-    // seq ブロック - シーケンシャルテスト
+    // seq ブロック - await で中断でき、その間も設計は動く
     seq {
         await clk.cycles(10);
-        assert value == 8'd10, "Value should be 10 after 10 cycles";
+        assert value == 8'd11, "Value should be 11 ten cycles later";
     }
 }
 ```
@@ -427,9 +428,11 @@ mod TrafficLight(
     // FSM定義
     fsm controller(clk.posedge, rst.async) {
         // 状態定義（Moore出力付き）
-        state Red[red=1, yellow=0, green=0];
-        state Green[red=0, yellow=0, green=1];
-        state Yellow[red=0, yellow=1, green=0];
+        state enum {
+            Red[red=1, yellow=0, green=0],
+            Green[red=0, yellow=0, green=1],
+            Yellow[red=0, yellow=1, green=0]
+        }
 
         // 状態遷移
         transitions {
@@ -522,16 +525,23 @@ mod ROMExample(
 # Rustコードを生成してビルド
 iris-compile -i counter.iris -o counter_sim --release -v
 
-# 生成されたシミュレータで実行（約3,800倍高速）
-./counter_sim/target/release/counter-sim 1000000 output.vcd
+# 生成されたシミュレータで実行
+./counter_sim -c 1000000 -o output.vcd
 ```
+
+コンパイル型は`iris-sim`が実行できる設計をすべて扱い、同じ波形を出力する。
 
 ### パフォーマンス比較
 
-| 方式 | 10,000サイクル | 用途 |
-|------|---------------|------|
-| インタプリタ | 約19秒 | 開発・デバッグ |
-| コンパイル（release） | 約0.005秒 | 大規模シミュレーション |
+`example/counter/src/counter.iris`を100,000サイクル実行した場合。
+
+| 方式 | 時間 | 用途 |
+|------|------|------|
+| インタプリタ（release） | 約0.23秒 | 開発・デバッグ |
+| コンパイル（debug） | 約0.34秒 | 生成コードの確認 |
+| コンパイル（release） | 約0.05秒 | 大規模シミュレーション |
+
+デバッグビルドはインタプリタより遅い。速度を目的とする場合は`--release`を使う。
 
 ---
 

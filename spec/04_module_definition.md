@@ -1,6 +1,6 @@
 # 第4章 モジュール定義
 
-[<< 型システム](./03_type_system.md) | [目次](./iris_spec_0.1.0.md) | [組み合わせ論理 >>](./05_combinational_logic.md)
+[<< 型システム](./03_type_system.md) | [目次](./iris_spec.md) | [組み合わせ論理 >>](./05_combinational_logic.md)
 
 ---
 
@@ -9,16 +9,28 @@
 ### 4.1.1 基本構文（EBNF）
 
 ```ebnf
-module_decl = "mod" identifier [ generic_params ] [ where_clause ]
-              "(" port_list ")" "{" module_body "}" ;
+mod_def = [ attribute ] "mod" identifier [ generic_params ] [ where_clause ]
+          "(" port_list ")" "{" { mod_item } "}" ;
+
 generic_params = "[" generic_param { "," generic_param } "]" ;
-generic_param = identifier ":" type [ "=" default_value ] ;
+generic_param = identifier ":" generic_bound [ "=" default_value ] ;
+generic_bound = "type" | "uint" | "int" | "bool" | type_expr ;
+default_value = const_expr ;
+
 where_clause = "where" constraint { "," constraint } ;
+
 port_list = { port_decl } ;
-port_decl = port_direction identifier ":" type [ "," ] ;
-port_direction = "in" | "out" | "inout" ;
-module_body = { signal_decl | logic_block | instance } ;
+port_decl = port_direction identifier ":" type_expr [ "," ] ;
+port_direction = "initiator" | "monitor" | "target" | "inout" | "out" | "in" ;
+
+mod_item = signal_decl | const_decl | type_alias | logic_block
+         | inst_decl | mem_decl | fsm_block | constraint_block ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+モジュールの前には属性を置ける（第13章）。
+`initiator`、`monitor`、`target`はインターフェースを受けるポートの向きである（第8章）。
 
 **構文の特徴:**
 - ポート宣言は`()`内に記述（Rust関数の引数リストに類似）
@@ -53,11 +65,11 @@ where
     // ===== 組み合わせ論理 =====
     comb {
         next_count = if load {
-            load_value.extend[Width + 1]
+            load_value.extend[Width + 1]()
         } else if enable {
-            count_reg.extend[Width + 1] + 1
+            count_reg.extend[Width + 1]() + 1
         } else {
-            count_reg.extend[Width + 1]
+            count_reg.extend[Width + 1]()
         };
         count = count_reg;
         overflow = next_count[Width];
@@ -81,6 +93,12 @@ where
 | `in` | 入力ポート | input |
 | `out` | 出力ポート | output |
 | `inout` | 双方向ポート | inout（トライステート） |
+| `initiator` | インターフェースを駆動する側 | 第8章 |
+| `target` | インターフェースを受ける側 | 第8章 |
+| `monitor` | インターフェースを観測するだけ | 第8章 |
+
+後ろの3つはインターフェースを受けるポートに使う。
+向きは第8章の`view`が決める。
 
 ### 4.2.2 ポート宣言構文
 
@@ -88,8 +106,8 @@ where
 
 ```ebnf
 port_list = { port_decl } ;
-port_decl = port_direction identifier ":" type [ "," ] ;
-port_direction = "in" | "out" | "inout" ;
+port_decl = port_direction identifier ":" type_expr [ "," ] ;
+port_direction = "initiator" | "monitor" | "target" | "inout" | "out" | "in" ;
 ```
 
 ### 4.2.3 ポート例
@@ -130,19 +148,23 @@ mod Example(
 | `let 名前 = 式;` | 直接代入 | どこでも | 組み合わせ |
 | `let 名前: 型;` | 型のみ宣言 | どこでも | コンテキスト依存 |
 | `let mut 名前 = 初期値;` | 可変信号（初期値付き） | sync/fsm推奨 | 順序（リセット値あり） |
-| `var 名前: 型;` | 順序回路専用 | **sync/fsmのみ** | 順序 |
-| `var 名前 = 初期値;` | 順序回路専用（初期値付き） | **sync/fsmのみ** | 順序（リセット値あり） |
+| `var 名前: 型;` | 順序回路専用 | **モジュールレベルで宣言、sync/fsmで代入** | 順序 |
+| `var 名前 = 初期値;` | 順序回路専用（初期値付き） | **モジュールレベルで宣言、sync/fsmで代入** | 順序（リセット値あり） |
 | `const` | モジュール定数 | どこでも | - |
 | `mem` | メモリ | モジュール | RAM/ROM |
 
 **重要: `var`の使用制限**
 
-`var`宣言は`sync`または`fsm`ブロック内でのみ使用可能です。`comb`ブロックや直接代入で使用するとコンパイルエラーになります。
+`var`宣言はモジュールレベルで行い、`sync`または`fsm`ブロック内でのみ代入可能です。
+`comb`ブロック内で`var`に代入するとコンパイルエラーになります。
+宣言位置はモジュールレベルでもブロック内でも可能ですが、代入は`sync`/`fsm`ブロックに限定されます。
 
 **`let` vs `var` vs `let mut` の違い:**
 
-- `let`: 汎用的な信号宣言。直接代入（`let x = expr;`）は組み合わせ回路。`sync`/`fsm`内で代入すると順序回路
-- `var`: **順序回路専用**。`sync`/`fsm`ブロックでのみ使用可能
+- `let`: 汎用的な信号宣言。
+直接代入（`let x = expr;`）は組み合わせ回路。
+`sync`/`fsm`内で代入すると順序回路
+- `var`: **順序回路専用**。宣言はモジュールレベルで可能だが、代入は`sync`/`fsm`ブロック内のみ
 - `let mut`: 可変信号。初期値を指定して`sync`/`fsm`で使用すると、初期値がリセット値となる
 - `const`: モジュールレベルまたはパッケージレベルの定数
 
@@ -162,6 +184,7 @@ IRISでは、信号の合成結果は**使用コンテキスト**によって決
 
 | 記述方法 | 合成結果 |
 |----------|----------|
+| `let 名前 = 式;`（どのブロックからも代入しない） | 組み合わせ回路（wire）。式が連続代入される |
 | `let 名前 = 式;`（`comb`内で代入） | 組み合わせ回路（wire） |
 | `let 名前: 型;` + `sync`ブロック内で代入 | 順序回路（リセット値なし） |
 | `let 名前: 型 = 初期値;` + `sync`ブロック内で代入 | 順序回路（リセット値あり） |
@@ -171,11 +194,51 @@ IRISでは、信号の合成結果は**使用コンテキスト**によって決
 
 **重要:** `let`/`let mut`/`var`のいずれで宣言しても、`sync`または`fsm`ブロック内で代入された場合は順序回路（レジスタ）として合成されます。
 
+#### モジュール直下の`let`
+
+初期化式を持ち、どのブロックからも代入されない`let`は、
+**その式が連続代入されるwire**である。
+第2.4.3節が`let`のSystemVerilog相当を`wire` + `assign`としているのは、この形を指す。
+
+```rust
+let sum = a + b;              // aかbが変われば sum も変わる
+```
+
+`a`や`b`が変化すれば`sum`も追従する。
+宣言時の値で凍結されるのではない。
+
+型を省いた場合、幅は初期化式から決まる。
+`a`と`b`が`bit[8]`なら`sum`も`bit[8]`である。
+明示することもできる。
+
+```rust
+let sum: bit[8] = a + b;
+```
+
+同じ`let`でも、`sync`ブロックが代入する場合は初期化式の意味が変わる。
+そちらは連続代入ではなくリセット値であり、信号はレジスタになる。
+
+```rust
+let count: bit[8] = 0;                  // 0はリセット値
+sync(clk.posedge, rst.async) {
+    count = count + 1;                  // 代入されるのでレジスタ
+}
+```
+
+つまり、初期化式が連続代入かリセット値かは、
+**その信号がどこかから代入されるかどうか**で決まる。
+
+`const`との違いは、`const`が値そのものであるのに対し、
+`let`は信号である点にある。
+`const`は波形に現れず、エラボレーション時に畳み込まれる。
+`let`は信号として波形に現れ、駆動する式が変われば追従する。
+
 ### 4.3.3 ポート宣言と信号宣言の同等性
 
 **概要:**
 
-`out`および`inout`ポートは`let`宣言と**同等**として扱われます。ポート宣言自体が信号宣言として機能するため、モジュール内で追加の`let`宣言なしに直接代入や参照が可能です。
+`out`および`inout`ポートは`let`宣言と**同等**として扱われます。
+ポート宣言自体が信号宣言として機能するため、モジュール内で追加の`let`宣言なしに直接代入や参照が可能です。
 
 **ポートと信号宣言の対応:**
 
@@ -223,7 +286,7 @@ mod Adder(
     out sum: bit[8],    // let sum: bit[8]; と同等
     out carry: bit,     // let carry: bit; と同等
 ) {
-    let extended = a.extend[9] + b.extend[9];
+    let extended = a.extend[9]() + b.extend[9]();
 
     comb {
         sum = extended[7:0];     // outポートに直接代入
@@ -334,13 +397,20 @@ const MAX_VAL: uint = 255;       // コンパイル時定数
 ### 4.4.1 インスタンス構文
 
 ```ebnf
-instance = "inst" identifier [ "[" size "]" ] "=" module_type
-           [ generic_args ] "{" port_connections "}" ";" ;
+inst_decl = "inst" identifier [ "[" array_size "]" ] "=" path
+            [ generic_args ] "{" port_connections "}" ";" ;
+array_size = const_expr ;
+
 generic_args = "[" generic_arg { "," generic_arg } "]" ;
-generic_arg = identifier ":" value ;
-port_connections = port_connection { "," port_connection } ;
+generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
+port_connections = port_connection { "," port_connection } [ "," ] ;
 port_connection = identifier ":" expression ;
 ```
+
+この文法は`tools/iris.ebnf`および第16章と同一である。
+
+ジェネリック引数は名前を省ける。
+ポート接続には末尾のカンマを置ける。
 
 ### 4.4.2 基本インスタンス
 
@@ -434,6 +504,16 @@ extern mod legacy_fifo[DEPTH: uint, WIDTH: uint](
 );
 ```
 
+**シミュレーションでの扱い:**
+
+`extern mod`はIRISの外で実装されたものを宣言する。
+シミュレータはその中身を持たないため、実行できない。
+インスタンス化した場合、出力は初期値のままになる。
+
+黙って何も駆動しないと、動いているように見えて値だけが合わない。
+そのためシミュレータは警告を出したうえで実行を続ける。
+シミュレーションで動かす必要がある場合は、IRISで書いたモデルに差し替える。
+
 ### 4.5.2 外部モジュールの使用
 
 ```rust
@@ -495,4 +575,4 @@ mod ImportantModule(...) {
 
 ---
 
-[<< 型システム](./03_type_system.md) | [目次](./iris_spec_0.1.0.md) | [組み合わせ論理 >>](./05_combinational_logic.md)
+[<< 型システム](./03_type_system.md) | [目次](./iris_spec.md) | [組み合わせ論理 >>](./05_combinational_logic.md)

@@ -1,6 +1,6 @@
 # 第14章 エラーメッセージ
 
-[<< アトリビュート](./13_attributes.md) | [目次](./iris_spec_0.1.0.md) | [移行ガイド >>](./15_migration_guide.md)
+[<< アトリビュート](./13_attributes.md) | [目次](./iris_spec.md) | [移行ガイド >>](./15_migration_guide.md)
 
 ---
 
@@ -17,7 +17,7 @@
 | O4001-O4999 | インターフェースエラー | インターフェース接続エラー |
 | O5001-O5999 | 合成エラー | 合成不可能な構文 |
 | O6001-O6999 | リンクエラー | モジュール解決エラー |
-| O7001-O7999 | テスト・シミュレーションエラー | seq/外部Rust関連エラー |
+| O7001-O7999 | テストとシミュレーションのエラー | seq/外部Rust関連エラー |
 
 ---
 
@@ -220,6 +220,43 @@ error[O1005]: generic parameter constraint violation
 1. 制約を満たす値を指定
 2. モジュールの制約定義を確認
 
+### O1006: 未定義の関数呼び出し
+
+```
+error[O1006]: call to unknown function 'nope'
+  --> src/calc.iris:12:9
+   |
+   = help: declare it with `fn`, or check the spelling
+```
+
+**原因:** `fn`で宣言されていない名前を呼び出している
+
+**修正方法:**
+1. 関数を`fn`で宣言する
+2. 別のパッケージのものであれば`import`する
+3. 綴りを確認する
+
+---
+
+### O1007: 外部モジュールのインスタンス化
+
+```
+warning[O1007]: instance 'u' is an extern module, which this simulator cannot execute
+  --> src/top.iris:8:5
+   |
+   = note: 'legacy_uart' is implemented outside IRIS, so its outputs stay at their initial value
+   = help: replace it with an IRIS model for simulation
+```
+
+**原因:** `extern mod`で宣言したモジュールをインスタンス化している。
+IRISの外で実装されたものなので、シミュレータは中身を持たない
+
+**修正方法:**
+1. シミュレーションで動かす必要があるなら、IRISで書いたモデルに差し替える
+2. 合成のみが目的なら、この警告のまま進めてよい
+
+警告であり、実行は止まらない。
+
 ---
 
 ## 14.4 論理エラー（O2001-O2999）
@@ -244,7 +281,7 @@ error[O2001]: combinational loop detected
 1. レジスタを挿入してループを断つ
 2. ロジックを再設計して依存関係を解消
 
-### O2002: syncブロック・combブロック外での信号代入
+### O2002: syncブロックとcombブロックの外での信号代入
 
 ```
 error[O2002]: signal assigned outside logic block
@@ -324,6 +361,53 @@ warning[O2005]: clock domain crossing detected
 **修正方法:**
 1. `sync_ff`などの同期化プリミティブを使用
 2. 適切なCDC手法を適用
+
+---
+
+### O2006: matchの網羅性
+
+```
+error[O2006]: non-exhaustive match on enum Colour: 2 of 3 variants are covered
+  --> module Painter
+   = note: variants not covered: Colour::Blue
+   = help: add the missing arms, or a '_' arm
+```
+
+**原因:** `match`が対象の取りうる値をすべて覆っていない。
+`bit[N]`なら2^N通り、列挙型なら宣言したバリアントで判定する
+
+**修正方法:**
+1. 足りないアームを追加する
+2. `_`アームを追加する
+
+対象の幅が静的に決まらない場合は判定しない。
+
+`bit[N]`で`N >= 4`のとき、すべての値を並べる代わりに`_`を使うことを警告で勧める。
+
+---
+
+### O2007: 定数でないスライス境界
+
+```
+error[O2007]: slice bound is not a constant
+  --> module M
+   = help: use a part select `v[index +: width]` for a position that varies
+```
+
+**原因:** スライスの上限または下限が実行時に変わる。
+両端が動くと幅が定まらず、合成できない
+
+**修正方法:**
+1. パート選択`v[index +: width]`を使う。位置は変わってよく、幅は定数である
+
+ビットフィールドへの代入で幅が定数でない場合も同じである。
+
+---
+
+### O2008: 未使用（欠番）
+
+以前、`match`の式形式でペイロードを束縛することを拒否するために使っていた。
+束縛がそのアームの中だけで見えるようになったため、この制限はなくなった。
 
 ---
 
@@ -441,7 +525,7 @@ error[O6001]: module not found
 
 ---
 
-## 14.9 テスト・シミュレーションエラー（O7001-O7999）
+## 14.9 テストとシミュレーションのエラー（O7001-O7999）
 
 ### O7001: seqブロックのtestモジュール外での使用
 
@@ -602,6 +686,25 @@ error[O7008]: invalid Rust configuration in iris.toml
 
 ---
 
+### O7009: 検証専用システム関数の文脈違反
+
+```
+error[O7009]: verification-only system function $display in synthesizable logic
+  --> module Counter
+   = note: $display, $finish, $isunknown and $onehot may only appear in a
+           verification context
+   = help: move it to a test module, a seq block or an initial block
+```
+
+**原因:** 検証専用のシステム関数を、合成可能な`comb`または`sync`ブロックで使っている
+
+**修正方法:**
+1. `test`モジュール、`seq`ブロック、`initial`ブロックへ移す
+
+`$clog2`と`$bits`は合成可能であり、どこでも使える。
+
+---
+
 ## 14.10 警告一覧
 
 | コード | 説明 | デフォルト |
@@ -638,7 +741,7 @@ let _unused_debug: bit[32];
 
 ---
 
-## 14.11 エラーメッセージの読み方
+## 14.12 エラーメッセージの読み方
 
 IRISのエラーメッセージは以下の構造で表示される：
 
@@ -666,4 +769,4 @@ error[CODE]: エラーの概要
 
 ---
 
-[<< アトリビュート](./13_attributes.md) | [目次](./iris_spec_0.1.0.md) | [移行ガイド >>](./15_migration_guide.md)
+[<< アトリビュート](./13_attributes.md) | [目次](./iris_spec.md) | [移行ガイド >>](./15_migration_guide.md)

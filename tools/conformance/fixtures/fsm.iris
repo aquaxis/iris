@@ -1,0 +1,38 @@
+mod Blinker(
+    in clk: clock,
+    in rst_n: reset(active_low: true),
+    in go: bit,
+    out led: bit,
+) {
+    fsm main(clk.posedge, rst_n.async) {
+        state enum { Idle, Run, Done }
+        initial: Idle
+
+        var ticks: bit[8] = 0;
+
+        transitions {
+            Idle => {
+                when go { goto Run; }
+            }
+            Run => {
+                when ticks == 8'd3 { goto Done; }
+                when go {
+                    if ticks == 8'd0 {
+                        ticks = 8'd1;
+                    } else {
+                        ticks = ticks + 8'd1;
+                    }
+                }
+            }
+            Done => {
+                when go { goto Idle; }
+            }
+        }
+
+        output led {
+            Idle => 0,
+            Run => 1,
+            Done => 0,
+        }
+    }
+}

@@ -1,0 +1,53 @@
+/// レジスタファイル（RV32I）
+///
+/// 32本の32ビットレジスタ x0〜x31 を持つ。
+/// x0は仕様上つねに0であり、書き込んでも変化しない。
+/// この2つはどちらも必要である。
+/// 書き込みを無視するだけでは、リセット前の不定値が読めてしまう。
+///
+/// 読み出しポートは2本ある。RV32Iのレジスタ間演算がrs1とrs2を同時に要るためである。
+/// 読み出しは非同期（組み合わせ論理）で、単サイクル実行に合わせている。
+///
+/// 書き込みと同じレジスタを同じサイクルに読む場合、読める値は書き込み前の値である。
+/// 単サイクル設計では、書き込みは次のクロックエッジで起きるため問題にならない。
+mod RegFile(
+    in  clk: clock,
+    in  rst_n: reset(active_low: true),
+
+    // 書き込みポート
+    in  we: bit,
+    in  waddr: bit[5],
+    in  wdata: bit[32],
+
+    // 読み出しポート
+    in  raddr1: bit[5],
+    in  raddr2: bit[5],
+    out rdata1: bit[32],
+    out rdata2: bit[32],
+
+    // 検証用の読み出しポート
+    //
+    // テストベンチから`core.rf.regs[1]`のように階層越しにmemを読むと、
+    // 診断なしで0が返る。レジスタの中身はポートに出して見せる。
+    in  dbg_addr: bit[5],
+    out dbg_data: bit[32],
+) {
+    mem regs: bit[32][32];
+
+    sync(clk.posedge, rst_n.async) {
+        if we {
+            // x0への書き込みは捨てる
+            if waddr != 5'd0 {
+                regs[waddr] = wdata;
+            }
+        }
+    }
+
+    comb {
+        // x0は記憶域を読まずに0を返す。
+        // 記憶域の初期値に依存させないためである。
+        rdata1 = if raddr1 == 5'd0 { 32'd0 } else { regs[raddr1] };
+        rdata2 = if raddr2 == 5'd0 { 32'd0 } else { regs[raddr2] };
+        dbg_data = if dbg_addr == 5'd0 { 32'd0 } else { regs[dbg_addr] };
+    }
+}

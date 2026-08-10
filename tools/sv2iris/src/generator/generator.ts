@@ -37,6 +37,7 @@ import type {
     IrIndexExpr,
     IrFieldExpr,
     IrCastExpr,
+    IrMethodCall,
     IrConcatExpr,
     IrRepeatExpr,
     IrParenExpr,
@@ -44,6 +45,10 @@ import type {
     IrEnumDef,
     IrStructDef,
     IrTypeAlias,
+    IrFnDef,
+    IrUnionDef,
+    IrInterfaceDef,
+    IrWhereConstraint,
 } from '../ast/iris-ast.js';
 
 /**
@@ -118,7 +123,73 @@ export class Generator {
             case 'ConstDecl':
                 this.generateConst(item);
                 break;
+            case 'FnDef':
+                this.generateFn(item);
+                break;
+            case 'UnionDef':
+                this.generateUnion(item);
+                break;
+            case 'InterfaceDef':
+                this.generateInterface(item);
+                break;
         }
+    }
+
+    /** `interface Bus { valid: bit, view initiator { out: valid, } }` */
+    private generateInterface(iface: IrInterfaceDef): void {
+        this.writeLine(`interface ${iface.name} {`);
+        this.indent();
+        for (const signal of iface.signals) {
+            this.writeLine(`${signal.name}: ${this.generateType(signal.typeExpr)},`);
+        }
+        for (const view of iface.views) {
+            this.writeLine('');
+            this.writeLine(`view ${view.name} {`);
+            this.indent();
+            // Signals sharing a direction go on one line, as the grammar's
+            // `direction_list` has it.
+            let index = 0;
+            while (index < view.signals.length) {
+                const direction = view.signals[index].direction;
+                let end = index;
+                while (end < view.signals.length && view.signals[end].direction === direction) {
+                    end++;
+                }
+                const names = view.signals.slice(index, end).map((s) => s.name).join(', ');
+                this.writeLine(`${direction}: ${names},`);
+                index = end;
+            }
+            this.dedent();
+            this.writeLine('}');
+        }
+        this.dedent();
+        this.writeLine('}');
+    }
+
+    /** `union U { a: bit[8], b: bit[8], }` */
+    private generateUnion(u: IrUnionDef): void {
+        this.writeLine(`union ${u.name} {`);
+        this.indent();
+        for (const field of u.fields) {
+            this.writeLine(`${field.name}: ${this.generateType(field.typeExpr)},`);
+        }
+        this.dedent();
+        this.writeLine('}');
+    }
+
+    /** `fn name(a: bit[8]) -> bit[8] { ... }` */
+    private generateFn(fn: IrFnDef): void {
+        const params = fn.params
+            .map((p) => `${p.name}: ${this.generateType(p.typeExpr)}`)
+            .join(', ');
+        const ret = fn.returnType ? ` -> ${this.generateType(fn.returnType)}` : '';
+        this.writeLine(`fn ${fn.name}(${params})${ret} {`);
+        this.indent();
+        for (const stmt of fn.body) {
+            this.generateStatement(stmt);
+        }
+        this.dedent();
+        this.writeLine('}');
     }
 
     // =========================================================================
@@ -126,7 +197,7 @@ export class Generator {
     // =========================================================================
 
     private generateModule(mod: IrModDef): void {
-        // Module header: pub mod name[generics](ports)
+        // Module header: pub mod name[generics] where constraints (ports)
         let header = '';
         if (mod.isPublic) {
             header += 'pub ';
@@ -136,6 +207,20 @@ export class Generator {
         // Generics
         if (mod.generics.length > 0) {
             header += '[' + mod.generics.map((g) => this.generateGenericParam(g)).join(', ') + ']';
+        }
+
+        // Where clause
+        if (mod.whereClause && mod.whereClause.length > 0) {
+            this.writeLine(header);
+            this.writeLine('where');
+            this.indent();
+            for (let i = 0; i < mod.whereClause.length; i++) {
+                const constraint = mod.whereClause[i];
+                const comma = i < mod.whereClause.length - 1 ? ',' : '';
+                this.writeLine(this.generateWhereConstraint(constraint) + comma);
+            }
+            this.dedent();
+            header = '';
         }
 
         // Ports
@@ -159,6 +244,16 @@ export class Generator {
         }
         this.dedent();
         this.writeLine('}');
+    }
+
+    private generateWhereConstraint(constraint: IrWhereConstraint): string {
+        switch (constraint.kind) {
+            case 'ComparisonConstraint':
+                return `${this.generateExpr(constraint.left)} ${constraint.operator} ${this.generateExpr(constraint.right)}`;
+            case 'MethodConstraint':
+                const args = constraint.args.map((a) => this.generateExpr(a)).join(', ');
+                return `${this.generateExpr(constraint.expr)}.${constraint.method}(${args})`;
+        }
     }
 
     private generateGenericParam(param: IrGenericParam): string {
@@ -231,6 +326,9 @@ export class Generator {
             case 'clock':
                 return 'clock';
             case 'reset':
+                if (type.activeLow) {
+                    return 'reset(active_low: true)';
+                }
                 return 'reset';
             case 'string':
                 return 'string';
@@ -297,35 +395,29 @@ export class Generator {
     }
 
     private generateInst(inst: IrInstDecl): void {
-        // IRIS syntax: inst name: ModulePath[GenericArgs](.port(expr), ...);
-        let line = 'inst ' + inst.name + ': ' + inst.modulePath;
+        // instance = "inst" ~ identifier ~ array_size? ~ "=" ~ identifier
+        //            ~ generic_args? ~ "{" ~ port_connections ~ "}" ~ ";"
+        // port_connection = identifier ~ ":" ~ expr
+        //
+        // The SystemVerilog spelling `inst u0: sub(.a(a));` was emitted instead,
+        // which no IRIS front-end accepts.
+        let line = 'inst ' + inst.name + ' = ' + inst.modulePath;
         if (inst.genericArgs && inst.genericArgs.length > 0) {
             line += '[' + inst.genericArgs.map((a) => this.generateExpr(a)).join(', ') + ']';
         }
-        line += '(';
 
         if (inst.connections.length === 0) {
-            line += ');';
-            this.writeLine(line);
-        } else if (inst.connections.length <= 2) {
-            // Short form: single line
-            line += inst.connections
-                .map((c) => `.${c.portName}(${this.generateExpr(c.expr)})`)
-                .join(', ');
-            line += ');';
-            this.writeLine(line);
-        } else {
-            // Long form: multiple lines
-            this.writeLine(line);
-            this.indent();
-            for (let i = 0; i < inst.connections.length; i++) {
-                const conn = inst.connections[i];
-                const comma = i < inst.connections.length - 1 ? ',' : '';
-                this.writeLine(`.${conn.portName}(${this.generateExpr(conn.expr)})${comma}`);
-            }
-            this.dedent();
-            this.writeLine(');');
+            this.writeLine(line + ' {};');
+            return;
         }
+
+        this.writeLine(line + ' {');
+        this.indent();
+        for (const conn of inst.connections) {
+            this.writeLine(`${conn.portName}: ${this.generateExpr(conn.expr)},`);
+        }
+        this.dedent();
+        this.writeLine('};');
     }
 
     private generateMem(mem: IrMemDecl): void {
@@ -400,6 +492,19 @@ export class Generator {
 
     private generateStatement(stmt: IrStmt): void {
         switch (stmt.kind) {
+            case 'ReturnStmt':
+                this.writeLine(`return ${this.generateExpr(stmt.value)};`);
+                break;
+            case 'ExprStmt':
+                this.writeLine(`${this.generateExpr(stmt.expr)};`);
+                break;
+            case 'AssertStmt':
+                this.writeLine(
+                    stmt.message !== undefined
+                        ? `assert ${this.generateExpr(stmt.condition)} else error("${stmt.message}");`
+                        : `assert ${this.generateExpr(stmt.condition)};`
+                );
+                break;
             case 'AssignStmt':
                 this.generateAssign(stmt);
                 break;
@@ -553,6 +658,8 @@ export class Generator {
                 return this.generateMatchExpr(expr);
             case 'CallExpr':
                 return this.generateCall(expr);
+            case 'MethodCall':
+                return this.generateMethodCall(expr);
             case 'IndexExpr':
                 return this.generateIndex(expr);
             case 'FieldExpr':
@@ -579,14 +686,38 @@ export class Generator {
             case 'string':
                 return `"${expr.value}"`;
             case 'integer':
+                // sized_literal = integer ~ "'" ~ (bin_literal | hex_literal | dec_literal)
+                // IRIS spells these exactly as SystemVerilog does, so 8'hFF stays
+                // 8'hFF. The old form `8h_FF` is not a literal in either language.
                 if (expr.width !== undefined && expr.base) {
-                    // Sized literal: 8'hFF -> 8h_FF
-                    return `${expr.width}${expr.base}_${expr.value}`;
+                    return `${expr.width}'${expr.base}${expr.value}`;
                 } else if (expr.base) {
-                    // Unsized literal with base
-                    return `0${expr.base}${expr.value}`;
+                    // Unsized in SystemVerilog; IRIS has no unsized based literal,
+                    // so give it the natural width of its digits.
+                    return `${this.baseLiteralWidth(expr.base, expr.value)}'${expr.base}${expr.value}`;
                 }
                 return expr.value;
+        }
+    }
+
+    /**
+     * Width to give a based literal that SystemVerilog left unsized.
+     *
+     * IRIS has no unsized based literal, so one has to be chosen. The digits
+     * decide it: four bits per hex digit, one per binary digit, and enough bits
+     * to hold the value for decimal.
+     */
+    private baseLiteralWidth(base: string, value: string): number {
+        const digits = value.replace(/_/g, '');
+        switch (base) {
+            case 'h':
+                return Math.max(1, digits.length * 4);
+            case 'b':
+                return Math.max(1, digits.length);
+            default: {
+                const n = Number.parseInt(digits, 10);
+                return Number.isFinite(n) && n > 0 ? Math.max(1, Math.ceil(Math.log2(n + 1))) : 1;
+            }
         }
     }
 
@@ -632,7 +763,9 @@ export class Generator {
         const index = this.generateExpr(expr.index);
         if (expr.endIndex) {
             const end = this.generateExpr(expr.endIndex);
-            return `${base}[${index}:${end}]`;
+            return expr.partSelect
+                ? `${base}[${index} ${expr.partSelect} ${end}]`
+                : `${base}[${index}:${end}]`;
         }
         return `${base}[${index}]`;
     }
@@ -642,10 +775,33 @@ export class Generator {
         return `${obj}.${expr.field}`;
     }
 
+    private generateMethodCall(expr: IrMethodCall): string {
+        const needsParens =
+            expr.receiver.kind === 'BinaryExpr' ||
+            expr.receiver.kind === 'UnaryExpr' ||
+            expr.receiver.kind === 'IfExpr';
+        const receiver = this.generateExpr(expr.receiver);
+        const args = expr.args.map((a) => this.generateExpr(a)).join(', ');
+        return `${needsParens ? `(${receiver})` : receiver}.${expr.method}(${args})`;
+    }
+
     private generateCast(expr: IrCastExpr): string {
+        // IRIS has no `as` operator. Resizing is a method on the value:
+        // `.truncate[N]()` (spec 3, "Width conversion"). The old `x as bit[8]`
+        // form was not accepted by any IRIS front-end.
         const inner = this.generateExpr(expr.expr);
-        const type = this.generateType(expr.targetType);
-        return `${inner} as ${type}`;
+        const width = expr.targetType.width
+            ? this.generateExpr(expr.targetType.width)
+            : undefined;
+        if (width === undefined) {
+            return inner;
+        }
+        const needsParens =
+            expr.expr.kind === 'BinaryExpr' ||
+            expr.expr.kind === 'UnaryExpr' ||
+            expr.expr.kind === 'IfExpr';
+        const receiver = needsParens ? `(${inner})` : inner;
+        return `${receiver}.truncate[${width}]()`;
     }
 
     private generateConcat(expr: IrConcatExpr): string {
