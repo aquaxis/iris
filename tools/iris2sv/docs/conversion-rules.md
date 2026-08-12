@@ -20,6 +20,7 @@ said.
 | Concatenation, replication, bit and range selection | Supported |
 | Part select (`a[i +: 8]`) | Supported |
 | System functions (`$clog2`, `$display`) | Supported |
+| Width conversions (`extend`, `sign_extend`, `truncate`, `resize`) | Supported, as size casts |
 | `where` clause | Accepted; no SystemVerilog equivalent, so it does not appear in the output |
 | `fsm` blocks | Supported, as a state register and a `case` |
 | `enum`, `struct`, `union` definitions | Supported, as `typedef` |
@@ -236,6 +237,43 @@ always_ff @(posedge clk or posedge rst) begin
   end
 end
 ```
+
+#### The reset branch does not have to be written
+
+Specification 6.3.1: the reset value is the declaration's initial value. A
+design that names a reset and does not go on to write `if rst { ... }` is not
+asking for no reset.
+
+```iris
+// IRIS
+var counter: bit[8] = 0;
+
+sync(clk.posedge, rst.async) {
+    if enable {
+        counter = counter + 1;
+    }
+}
+```
+
+```systemverilog
+// SystemVerilog
+always_ff @(posedge clk or posedge rst)
+  if (rst)
+    counter <= 0;
+  else if (enable)
+    counter <= 8'(counter + 1);
+```
+
+The reset branch is built from the initial values of the signals the block
+assigns. A signal with no initial value gets no reset assignment; there is
+nothing to reset it to.
+
+**A block that resets nothing does not carry the reset edge.** A `mem` has no
+initial value, so a `sync` block that only writes memory comes out as
+`always_ff @(posedge clk)`. Listing the reset edge and then never acting on it
+describes a register that changes on that edge without saying what it changes
+to; yosys rejects it outright, and simulation quietly takes the normal path on
+a reset edge.
 
 ### Clock/Reset Specifications
 
@@ -463,6 +501,21 @@ A width written in terms of a parameter stays a parameter in the output. It is
 never folded to a number: doing so would turn `bit[DataWidth]` into a one-bit
 port, which compiles cleanly and is wrong.
 
+A width that is a compound expression is emitted as that expression:
+
+```iris
+in wr_data: bit[DataWidth - 1 + 1],
+```
+
+```systemverilog
+input logic [(DataWidth - 1 + 1)-1:0] wr_data,
+```
+
+**A width that cannot be written down fails the conversion.** It is never
+replaced with a placeholder. `input logic [/* expr */-1:0] wr_data` is not a
+width, and a file containing one is not a converted design however cleanly the
+conversion reports.
+
 ## Expression Width
 
 **This is the rule most likely to surprise.**
@@ -551,6 +604,47 @@ alu alu_inst (
   .result(output_result)
 );
 ```
+
+### Reading an instance's output
+
+IRIS reads an output by naming it: `alu.y`, `rf.rdata1`, `dec.imm`. Emitted
+verbatim that is a SystemVerilog hierarchical reference, and it leaves the port
+unconnected in the instantiation. Each read port is therefore given a wire.
+
+```iris
+// IRIS
+inst alu = Alu { op: op, a: a, b: b };
+comb {
+    result = alu.y;
+    low    = alu.y[1:0];
+}
+```
+
+```systemverilog
+// SystemVerilog
+logic [31:0] alu_y;
+
+Alu alu (.op(op), .a(a), .b(b), .y(alu_y));
+
+always_comb begin
+  result = alu_y;
+  low    = alu_y[1:0];
+end
+```
+
+A port the source already connected keeps that connection; the reference is
+pointed at whatever it was connected to rather than a second wire being made for
+the same signal.
+
+**Why it matters.** Verilator reads a hierarchical reference. Yosys does not
+resolve it and does not stop either: it declares each name as an implicit wire,
+warns, and builds a model in which the submodule's outputs are absent and those
+wires are undriven. A model like that is not refused, it is wrong, and anything
+proven against it is a statement about a different circuit.
+
+The widths come from the instantiated module's port declarations, which are
+usually in another file. Every input file is scanned for module ports before any
+of them is converted, so the order the files are named in does not matter.
 
 ## Signal Declarations
 

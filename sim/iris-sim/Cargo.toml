@@ -22,6 +22,10 @@ path = "src/main.rs"
 name = "iris-compile"
 path = "src/bin/iris-compile.rs"
 
+[[bin]]
+name = "iris-formal"
+path = "src/bin/iris-formal.rs"
+
 [lib]
 name = "iris_sim"
 path = "src/lib.rs"

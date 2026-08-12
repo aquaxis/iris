@@ -269,7 +269,13 @@ fn main() -> Result<()> {
 
         // An expression the evaluator could not handle used to leave its target
         // untouched, so an unsupported construct read as zero. Report it.
+        //
+        // The report alone is not enough. It goes to stderr while the run still
+        // printed "completed successfully" and still exited 0, so a harness
+        // reading the status saw a pass over values that were never computed.
+        // The count is carried to the verdict below.
         let eval_failures = simulator.get_eval_failures().to_vec();
+        let has_eval_failures = !eval_failures.is_empty();
         if !eval_failures.is_empty() {
             eprintln!();
             for message in &eval_failures {
@@ -323,6 +329,8 @@ fn main() -> Result<()> {
 
         if has_failures {
             println!("Simulation completed with assertion failures.");
+        } else if has_eval_failures {
+            println!("Simulation completed with evaluation failures.");
         } else {
             println!("Simulation completed successfully.");
         }
@@ -338,8 +346,11 @@ fn main() -> Result<()> {
             }
         }
 
-        // Return non-zero exit code if assertions failed
-        if has_failures {
+        // Return non-zero exit code if assertions failed, or if an expression
+        // could not be evaluated. The second case produced zeros in place of
+        // real values, so reporting success would be reporting a result the
+        // simulator never computed.
+        if has_failures || has_eval_failures {
             std::process::exit(1);
         }
     }

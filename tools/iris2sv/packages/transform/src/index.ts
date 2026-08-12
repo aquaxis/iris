@@ -23,3 +23,6 @@ export * from './module-transformer.js';
 
 // Output wire transform
 export * from './output-wire-transform.js';
+
+// Instance read transform
+export * from './instance-read-transform.js';

@@ -775,14 +775,37 @@ export class Generator {
         return `${obj}.${expr.field}`;
     }
 
+    /**
+     * The width-carrying conversions of specification 3.4.2
+     *
+     * These take their width in brackets, not as an argument:
+     * `x.sign_extend[32]()`, not `x.sign_extend(32)`. generateCast() already
+     * writes `.truncate[N]()` correctly, so the two forms were coming out of
+     * the same tool side by side, and the second one is not IRIS: no front end
+     * accepts it, and a decoder converted this way would not compile back.
+     */
+    private static readonly WIDTH_METHODS = new Set([
+        'extend',
+        'sign_extend',
+        'truncate',
+        'resize',
+        'saturate',
+    ]);
+
     private generateMethodCall(expr: IrMethodCall): string {
         const needsParens =
             expr.receiver.kind === 'BinaryExpr' ||
             expr.receiver.kind === 'UnaryExpr' ||
             expr.receiver.kind === 'IfExpr';
         const receiver = this.generateExpr(expr.receiver);
+        const target = `${needsParens ? `(${receiver})` : receiver}`;
+
+        if (Generator.WIDTH_METHODS.has(expr.method) && expr.args.length === 1) {
+            return `${target}.${expr.method}[${this.generateExpr(expr.args[0]!)}]()`;
+        }
+
         const args = expr.args.map((a) => this.generateExpr(a)).join(', ');
-        return `${needsParens ? `(${receiver})` : receiver}.${expr.method}(${args})`;
+        return `${target}.${expr.method}(${args})`;
     }
 
     private generateCast(expr: IrCastExpr): string {

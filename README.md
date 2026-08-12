@@ -27,6 +27,7 @@ SystemVerilogの複雑さを解消し、Rustの設計思想を取り入れた次
 - **コンテキストベース合成**: `comb`ブロックで組み合わせ回路、`sync`ブロックで順序回路を明確に分離
 - **FSM専用構文**: `fsm`ブロックによる状態機械の直感的な記述
 - **言語組み込み検証**: UVM不要の検証機能（テスト構文、アサーション、カバレッジ）
+- **形式的等価性検証**: IRISと変換後SystemVerilogの等価性を、標本ではなく証明で確かめる
 
 ## SystemVerilogとの比較
 
@@ -141,7 +142,8 @@ iris/
 │   ├── irisfmt/           # フォーマッタ / リンタ
 │   ├── iris2sv/           # IRIS → SystemVerilog トランスパイラ
 │   ├── sv2iris/           # SystemVerilog → IRIS トランスパイラ
-│   └── conformance/       # 3つのツールを全設計に通す突き合わせ
+│   ├── conformance/       # 3つのツールを全設計に通す突き合わせ
+│   └── formal/            # IRISと変換後SystemVerilogの形式的等価性検証
 ├── example/
 │   ├── async_fifo/        # 非同期FIFO（2クロックドメイン、SystemVerilog変換つき）
 │   ├── riscv/             # RV32Iプロセッサ（単サイクル、40命令）
@@ -170,6 +172,15 @@ cargo run --bin iris-compile -- -i input.iris -o input_sim --release
 
 どちらも同じ設計を受け付け、同じ波形を出力します。
 コンパイラモードはリリースビルドでインタプリタの約93倍速く動きます。
+
+**iris-formal**：形式的等価性検証のための基準モデル生成
+
+IRISの設計から、構造的なSystemVerilogのモデルを出します。
+`iris2sv`の出力を証明する相手であり、`tools/formal`が使います。
+
+```bash
+cargo run --release --bin iris-formal -- -i input.iris -o out/
+```
 
 **iris-runtime**：ランタイムライブラリ
 
@@ -211,6 +222,36 @@ IRISはクロックもリセットも宣言から駆動するため戻す先が�
 ```bash
 tools/conformance/run.sh
 ```
+
+**tools/formal**：形式的等価性検証
+
+IRISの設計と、`iris2sv`がそれを変換したSystemVerilogが同じ回路であることを、
+すべての入力と到達しうるすべての状態について証明します。
+
+```bash
+tools/formal/run.sh
+```
+
+`example/`の6設計すべてについて、段数無しで証明されています。
+
+| 設計 | IRISとの等価性 | 往復の等価性 |
+|---|---|---|
+| `alu`、`decoder` | proven | proven |
+| `counter`、`regfile` | proven | proven |
+| `async_fifo` | proven | proven |
+| `riscv_core` | proven | proven |
+
+往復とは、`iris2sv`から`sv2iris`を経由して`iris2sv`へ戻す経路のことです。
+
+**ベクタは差を見つけることしかできず、差が無いことは言えません。**
+`example/comparison/equiv/`のテストベンチは33,024本の入力を与えますが、
+ALUの入力空間は2^68通りあり、その10^-15にも満たない標本です。
+
+判定は「証明した」「反例付きで否定した」「試していない、理由はこれ」の3つだけです。
+**`skipped`は合格ではありません。**
+
+仕組みは[`doc/formal_verification.md`](./doc/formal_verification.md)、
+使い方は[`tools/formal/README.md`](./tools/formal/README.md)にあります。
 
 ## サンプル
 
@@ -321,9 +362,10 @@ pnpm -r --config.manage-package-manager-versions=false build
 
 ## 現在のステータス
 
-- **バージョン**: 0.4.0（開発中）
+- **バージョン**: 0.5.0（開発中）
 - **仕様書日付**: 2026-08-09
 - **対応SystemVerilog**: IEEE 1800-2017準拠を目標
+- **形式的等価性**: `example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明済み（`tools/formal/run.sh`）
 
 ## ライセンス
 

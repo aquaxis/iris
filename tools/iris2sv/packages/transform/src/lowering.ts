@@ -1482,7 +1482,13 @@ function lowerCallExpr(expr: CallExpr, ctx: LoweringContext): HirExpr {
     const receiver = lowerExpr(expr.callee.base.base, ctx);
     const width = lowerExpr(expr.callee.index, ctx);
 
-    if (method !== 'sign_extend' && method !== 'extend') {
+    // Specification 3.4.2 lists the width-carrying conversions. `truncate` was
+    // missing here, which made a round trip through sv2iris fail to close:
+    // sv2iris emits `(a + b).truncate[32]()` and this rejected it, while
+    // iris-sim and iris-compile both implement it and chapters 9, 14, 18 and 19
+    // all use it. Error message O2003 tells the reader to write it.
+    const WIDTH_METHODS = ['extend', 'sign_extend', 'truncate', 'resize'];
+    if (!WIDTH_METHODS.includes(method)) {
       ctx.errors.push({
         message: `Method '${method}' is not supported`,
         location: undefined,

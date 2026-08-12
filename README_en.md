@@ -34,6 +34,8 @@ needs with 58.
   time
 - **Synthesis by context**: `comb` blocks are combinational, `sync` blocks are
   sequential, and the two do not mix
+- **Formal equivalence**: that a design and its generated SystemVerilog agree is
+  proven, not sampled
 - **A syntax for state machines**: `fsm` blocks describe them directly
 - **Verification in the language**: test syntax, assertions and coverage,
   without UVM
@@ -151,7 +153,8 @@ iris/
 │   ├── irisfmt/           # Formatter and linter
 │   ├── iris2sv/           # IRIS to SystemVerilog
 │   ├── sv2iris/           # SystemVerilog to IRIS
-│   └── conformance/       # The three tools checked against each other
+│   ├── conformance/       # The three tools checked against each other
+│   └── formal/            # Formal equivalence: IRIS against its SystemVerilog
 ├── example/
 │   ├── async_fifo/        # Asynchronous FIFO, two clock domains, with SystemVerilog
 │   ├── riscv/             # RV32I processor, single cycle, 40 instructions
@@ -180,6 +183,15 @@ cargo run --bin iris-compile -- -i input.iris -o input_sim --release
 
 Both accept the same designs and produce the same waveforms. In a release build
 the compiler is about 93 times faster than the interpreter.
+
+**iris-formal**: the reference model for formal equivalence checking
+
+It emits a structural SystemVerilog model of an IRIS design. That model is what
+`iris2sv`'s output is proven against, and `tools/formal` drives it.
+
+```bash
+cargo run --release --bin iris-formal -- -i input.iris -o out/
+```
 
 **iris-runtime**: the runtime library
 
@@ -223,6 +235,36 @@ Runs every design through all three and enforces these invariants:
 ```bash
 tools/conformance/run.sh
 ```
+
+**tools/formal**: formal equivalence checking
+
+It proves that an IRIS design and the SystemVerilog `iris2sv` produces from it
+are the same circuit, for every input and in every reachable state.
+
+```bash
+tools/formal/run.sh
+```
+
+All six designs in `example/` are proven, with no bound.
+
+| Design | Against its IRIS | Round trip |
+|---|---|---|
+| `alu`, `decoder` | proven | proven |
+| `counter`, `regfile` | proven | proven |
+| `async_fifo` | proven | proven |
+| `riscv_core` | proven | proven |
+
+The round trip is `iris2sv` to `sv2iris` and back to `iris2sv`.
+
+**Vectors can only find a difference; they cannot establish there is none.** The
+benches in `example/comparison/equiv/` drive 33,024 inputs, which is under
+10^-15 of the ALU's 2^68 input space.
+
+There are three verdicts and no others: proven, disproven with a counterexample,
+or not attempted with the reason. **A skip is not a pass.**
+
+The mechanism is in [`doc/formal_verification_en.md`](./doc/formal_verification_en.md),
+the usage in [`tools/formal/README.md`](./tools/formal/README.md).
 
 ## Sample designs
 
@@ -334,9 +376,10 @@ Every IRIS tool (`iris-sim`, `irisfmt`, `iris2sv` and the rest) accepts both.
 
 ## Current status
 
-- **Version**: 0.4.0, in development
+- **Version**: 0.5.0, in development
 - **Specification dated**: 2026-08-09
 - **SystemVerilog target**: conformance with IEEE 1800-2017
+- **Formal equivalence**: all six designs in `example/` proven equivalent to their generated SystemVerilog, with no bound (`tools/formal/run.sh`)
 
 ## Licence
 

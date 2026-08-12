@@ -3150,9 +3150,13 @@ impl<'a> HierarchicalEvaluator<'a> {
                     )));
                 }
 
-                // Handle dut.count style references
-                if let Expression::Ident(inst_name) = receiver.as_ref() {
-                    let full_name = format!("{}.{}", inst_name, method);
+                // `dut.count` reads an instance's port, and `m.inner.rdata`
+                // reads one two levels down. The second parses as a method call
+                // whose receiver is itself a method call, so the chain is walked
+                // back to the instance name rather than requiring a bare
+                // identifier. The indexed forms above already do this.
+                if let Some(base) = dotted_path(receiver) {
+                    let full_name = format!("{}.{}", base, method);
                     self.resolve_signal(&full_name)
                         .cloned()
                         .ok_or_else(|| super::eval::EvalError::UndefinedSignal(full_name))

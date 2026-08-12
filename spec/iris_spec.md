@@ -1,4 +1,4 @@
-# IRIS 言語仕様書 v0.4.0
+# IRIS 言語仕様書 v0.5.0
 
 ---
 
@@ -81,7 +81,7 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 
 | 項目 | 値 |
 |------|-----|
-| バージョン | 0.4.0 |
+| バージョン | 0.5.0 |
 | 言語名 | IRIS (Immutable RTL, Intentional Semantics) |
 | 予約語数 | 58語 |
 | 対応するSystemVerilogバージョン | IEEE 1800-2017 |
@@ -96,6 +96,7 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 | 0.2.0 | 2026-08-08 | 予約語数修正（54→55）、演算子優先順位表統一、EBNF文法拡張、欠落キーワード追加、意味論の明確化、章番号修正 |
 | 0.3.0 | 2026-08-08 | sv2iris where句生成追加、active_lowリセット処理改善、ツール間整合性完了 |
 | 0.4.0 | 2026-08-09 | 文法の一本化（第16章と`tools/iris.ebnf`を同一に）、タグ付き列挙型、構造体、共用体、パッケージ、関数、`extends`、ランダム化、カバレッジの挙動を明記、診断O1006／O1007／O2006／O2007／O7009を追加 |
+| 0.5.0 | 2026-08-12 | 形式的等価性検証の追加（`tools/formal`、`iris-formal`）。`example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明。`iris2sv`／`iris-sim`／`sv2iris`の不具合9件を改修。仕様書の本文は変更なし |
 
 ---
 

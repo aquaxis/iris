@@ -49,6 +49,81 @@ export function createTypeMapperContext(): TypeMapperContext {
 /**
  * Map HIR width to SV width
  */
+/**
+ * Render a width expression
+ *
+ * A width is a constant expression: a parameter, a literal, arithmetic over
+ * those, or `$clog2` of one. That subset is rendered here rather than by the
+ * general expression transformer, which imports this module and would make the
+ * dependency circular.
+ *
+ * An expression outside the subset throws. It used to return the string
+ * `/* expr *\/`, which was emitted into the port declaration verbatim:
+ *
+ *   input logic [/* expr *\/-1:0] wr_data
+ *
+ * That is not a width, and iris2sv reported the file as converted. A round trip
+ * through sv2iris produces `bit[DataWidth - 1 + 1]`, which is exactly this
+ * shape, so the output silently became a design with two-bit ports. Refusing is
+ * the only honest option when the width cannot be written down.
+ */
+export type WidthExpr = { readonly kind: string } & Record<string, unknown>;
+
+/**
+ * HIR spells its operators as words; SystemVerilog wants the symbols
+ *
+ * expr-transformer.ts has the full table, and importing it here would make the
+ * dependency circular, so the arithmetic subset a width can use is repeated.
+ */
+const WIDTH_OPS: Record<string, string> = {
+  add: '+',
+  sub: '-',
+  mul: '*',
+  div: '/',
+  mod: '%',
+  shl: '<<',
+  shr: '>>',
+};
+
+const WIDTH_UNARY_OPS: Record<string, string> = {
+  neg: '-',
+  pos: '+',
+};
+
+export function renderWidthExpr(expr: WidthExpr): string {
+  // `HirExprWidth.expr` carries the forward declaration in core/ir/types.ts,
+  // whose only field is `kind`, so the shape is narrowed structurally here.
+  const e = expr;
+  switch (e.kind) {
+    case 'IntegerLiteral':
+      return String(e.value);
+    case 'Identifier':
+      return String(e.name);
+    case 'ParenExpr':
+      return `(${renderWidthExpr(e.expr as WidthExpr)})`;
+    case 'UnaryExpr': {
+      const op = WIDTH_UNARY_OPS[String(e.op)];
+      if (op === undefined) {
+        throw new Error(`A width cannot use the operator '${String(e.op)}'`);
+      }
+      return `(${op}${renderWidthExpr(e.operand as WidthExpr)})`;
+    }
+    case 'BinaryExpr': {
+      const op = WIDTH_OPS[String(e.op)];
+      if (op === undefined) {
+        throw new Error(`A width cannot use the operator '${String(e.op)}'`);
+      }
+      return `(${renderWidthExpr(e.left as WidthExpr)} ${op} ${renderWidthExpr(e.right as WidthExpr)})`;
+    }
+    case 'CallExpr':
+      return `${String(e.callee)}(${(e.args as WidthExpr[]).map(renderWidthExpr).join(', ')})`;
+    default:
+      throw new Error(
+        `A width must be a constant expression; '${e.kind}' cannot be written as one`
+      );
+  }
+}
+
 export function mapWidth(width: HirWidth): SvWidth {
   switch (width.kind) {
     case 'ConstWidth':
@@ -56,9 +131,7 @@ export function mapWidth(width: HirWidth): SvWidth {
     case 'ParamWidth':
       return paramWidth(width.param);
     case 'ExprWidth':
-      // For expression widths, emit as string
-      // This is a simplification; in practice we'd convert the expression
-      return exprWidth('/* expr */');
+      return exprWidth(renderWidthExpr(width.expr as unknown as WidthExpr));
     default: {
       const _exhaustive: never = width;
       throw new Error(`Unknown width kind: ${(_exhaustive as HirWidth).kind}`);

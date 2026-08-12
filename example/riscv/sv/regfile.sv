@@ -24,7 +24,7 @@ module RegFile (
     dbg_data = dbg_addr == 5'd0 ? 32'h0 : regs[dbg_addr];
   end
 
-  always_ff @(posedge clk or negedge rst_n) 
+  always_ff @(posedge clk) 
     if (we) 
       if (waddr != 5'd0) 
         regs[waddr] <= wdata;
