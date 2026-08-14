@@ -38,6 +38,10 @@ struct Args {
     /// Enable metastability warnings (async reset deassert coinciding with clock edge)
     #[arg(short = 'W', long = "warn-metastability", default_value = "false")]
     warn_metastability: bool,
+
+    /// Record every memory element as its own waveform signal
+    #[arg(long = "dump-arrays", default_value = "false")]
+    dump_arrays: bool,
 }
 
 /// Print metastability warnings in a formatted style
@@ -241,6 +245,7 @@ fn main() -> Result<()> {
     {
         // Use hierarchical simulator
         let mut simulator = HierarchicalSimulator::with_options(project.clone(), args.warn_metastability);
+        simulator.set_dump_arrays(args.dump_arrays);
 
         // Reset sequence - only for non-test modules
         // Test modules handle reset automatically based on their reset signal configuration

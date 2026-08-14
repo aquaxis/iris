@@ -154,7 +154,9 @@ iris/
 │   ├── iris2sv/           # IRIS to SystemVerilog
 │   ├── sv2iris/           # SystemVerilog to IRIS
 │   ├── conformance/       # The three tools checked against each other
-│   └── formal/            # Formal equivalence: IRIS against its SystemVerilog
+│   ├── formal/            # Formal equivalence: IRIS against its SystemVerilog
+│   ├── schematic/         # block diagram viewer (frontend only)
+│   └── surfer-plugin/     # translator plugin for Surfer
 ├── example/
 │   ├── async_fifo/        # Asynchronous FIFO, two clock domains, with SystemVerilog
 │   ├── riscv/             # RV32I processor, single cycle, 40 instructions
@@ -265,6 +267,60 @@ or not attempted with the reason. **A skip is not a pass.**
 
 The mechanism is in [`doc/formal_verification_en.md`](./doc/formal_verification_en.md),
 the usage in [`tools/formal/README.md`](./tools/formal/README.md).
+
+**tools/schematic**: block diagram viewer
+
+Draws how the modules of an IRIS design are wired together, in a browser.
+**Frontend only; no server is required.** The parser `@iris2sv/core` is already
+TypeScript, so the `.iris` files you pick never leave the browser.
+
+```bash
+cd tools/schematic && npm install && npm run dev
+```
+
+![Block diagram of RiscvCore](./doc/images/schematic_riscv_core.png)
+
+There are three kinds of box: instances (blue), boundary ports (amber) and
+registers (grey). Registers are boxes so that a traced edge cannot cross one
+and claim a value arrives in the same cycle when it arrives in the next.
+
+**Half of an IRIS design's wiring is not written down.**
+
+| Subject | Nodes | Stated edges | Traced edges |
+|---|---|---|---|
+| `RiscvCore` | 16 | 4 | **20** |
+| All of `example/` and `fixtures/` | 32 | 12 | **27** |
+
+20 of `RiscvCore`'s 24 edges appear only after walking `comb` and `sync`.
+
+Details are in [`doc/schematic_en.md`](./doc/schematic_en.md) and
+[`tools/schematic/README.md`](./tools/schematic/README.md).
+
+**tools/surfer-plugin**: a translator plugin for Surfer
+
+An extension for reading waveforms in [Surfer](https://surfer-project.org/).
+**Surfer itself is not bundled.**
+
+```bash
+iris-sim -i design.iris -o out.vcd --dump-arrays
+surfer out.vcd
+```
+
+![A memory array expanded in Surfer](./doc/images/surfer_memory_array.png)
+
+With `--dump-arrays`, a `mem` reaches the waveform as a scope with one variable
+per element. `64` to `67` above are words 64 to 67 of `mem dmem`.
+
+| | `$var` count |
+|---|---|
+| Default | 91 |
+| `--dump-arrays` | 1147 (1024 words of `dmem`, 32 of `regs`) |
+
+A signed `int[N]` is written as `$var integer`, so negative values display as
+negative.
+
+Details are in [`doc/surfer_plugin_en.md`](./doc/surfer_plugin_en.md) and
+[`tools/surfer-plugin/README.md`](./tools/surfer-plugin/README.md).
 
 ## Sample designs
 

@@ -103,6 +103,8 @@ pub struct HierarchicalSimulator {
     clock_period: SimTime,
     /// Signal trace
     trace: SignalTrace,
+    /// Record every memory element as its own waveform signal
+    dump_arrays: bool,
     /// All reset signals with their active-low configuration
     reset_signals: Vec<ResetInfo>,
     /// All clock signals with their period information
@@ -189,6 +191,7 @@ impl HierarchicalSimulator {
             time: 0,
             clock_period: 10_000, // 10ns
             trace: SignalTrace::new(),
+            dump_arrays: false,
             reset_signals: Vec::new(),
             clock_signals: Vec::new(),
             reset_active: false,
@@ -248,6 +251,44 @@ impl HierarchicalSimulator {
             self.initialize_test_signals();
         } else {
             self.initialize_port_resets();
+        }
+    }
+
+    /// Record every memory element as its own waveform signal.
+    ///
+    /// Off by default: a 1024-word memory adds 1024 signals to the waveform,
+    /// which is a large change for anyone who only wanted the ports.
+    pub fn set_dump_arrays(&mut self, dump_arrays: bool) {
+        self.dump_arrays = dump_arrays;
+        if !dump_arrays {
+            return;
+        }
+
+        // Memories are filled in during construction, before this can be
+        // called, so the starting contents are recorded here. Without this
+        // only the addresses the design happens to write would ever appear.
+        //
+        // Elements are named by bare index, giving `core.dmem.3`. A viewer
+        // reads brackets in a VCD reference as an index annotation rather
+        // than part of the name, and then lists no variable at all, so
+        // `[3]` would put the elements in the file but leave them
+        // unreachable.
+        //
+        // Names are sorted because a HashMap does not iterate in a stable
+        // order, and an unstable order would give the same design different
+        // identifiers on different runs.
+        let mut snapshot: Vec<(String, Vec<SignalValue>)> = self
+            .memories
+            .iter()
+            .map(|(name, mem)| (name.clone(), mem.data.clone()))
+            .collect();
+        snapshot.sort_by(|a, b| a.0.cmp(&b.0));
+
+        for (name, data) in snapshot {
+            for (index, element) in data.iter().enumerate() {
+                let element_name = format!("{}.{}", name, index);
+                self.trace.record(&element_name, 0, element.clone());
+            }
         }
     }
 
@@ -385,16 +426,26 @@ impl HierarchicalSimulator {
 
     /// Write to memory (returns false if ROM or out of bounds)
     pub fn memory_write(&mut self, mem_name: &str, addr: usize, value: SignalValue) -> bool {
+        let mut written = None;
         if let Some(mem) = self.memories.get_mut(mem_name) {
             if mem.is_rom {
                 return false; // Cannot write to ROM
             }
             if addr < mem.depth {
-                mem.data[addr] = value;
-                return true;
+                mem.data[addr] = value.clone();
+                written = Some(value);
             }
         }
-        false
+
+        let Some(value) = written else {
+            return false;
+        };
+        if self.dump_arrays {
+            let element_name = format!("{}.{}", mem_name, addr);
+            let time = self.time;
+            self.trace.record(&element_name, time, value);
+        }
+        true
     }
 
     /// Get memory state
