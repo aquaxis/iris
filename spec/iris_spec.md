@@ -1,4 +1,4 @@
-# IRIS 言語仕様書 v0.5.0
+# IRIS 言語仕様書 v0.6.0
 
 ---
 
@@ -81,7 +81,7 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 
 | 項目 | 値 |
 |------|-----|
-| バージョン | 0.5.0 |
+| バージョン | 0.6.0 |
 | 言語名 | IRIS (Immutable RTL, Intentional Semantics) |
 | 予約語数 | 58語 |
 | 対応するSystemVerilogバージョン | IEEE 1800-2017 |
@@ -97,6 +97,7 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 | 0.3.0 | 2026-08-08 | sv2iris where句生成追加、active_lowリセット処理改善、ツール間整合性完了 |
 | 0.4.0 | 2026-08-09 | 文法の一本化（第16章と`tools/iris.ebnf`を同一に）、タグ付き列挙型、構造体、共用体、パッケージ、関数、`extends`、ランダム化、カバレッジの挙動を明記、診断O1006／O1007／O2006／O2007／O7009を追加 |
 | 0.5.0 | 2026-08-12 | 形式的等価性検証の追加（`tools/formal`、`iris-formal`）。`example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明。`iris2sv`／`iris-sim`／`sv2iris`の不具合9件を改修。仕様書の本文は変更なし |
+| 0.6.0 | 2026-08-14 | ブロック図ビューア（`tools/schematic`）とSurferの翻訳プラグイン（`tools/surfer-plugin`）を追加。`iris-sim`の波形出力を、入れ子の`$scope`、`--dump-arrays`による`mem`の要素展開、符号付き`int[N]`の`$var integer`に対応。VCDの識別子が94本で一周し黙って衝突する不具合を改修。仕様書の本文は変更なし |
 
 ---
 

@@ -1,0 +1,33 @@
+[package]
+name = "iris-surfer-translator"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Surfer translator plugin that renders IRIS values as the IRIS type system describes them"
+repository = "https://github.com/aquaxis/iris"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+# Surfer loads translators as Extism plugins. The type definitions come from
+# Surfer's own crate, pinned to the release this plugin was tested against;
+# Surfer reports a version mismatch between the PDK a plugin was built with
+# and the SDK it runs under, so the pin is what keeps that from happening.
+#
+# It is a dependency, not a copy. Surfer is EUPL-1.2 and IRIS is MIT, and
+# building against the published interface keeps the two apart.
+[dependencies]
+extism-pdk = "1.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+num-bigint = "0.4"
+
+[dependencies.surfer-translation-types]
+git = "https://gitlab.com/surfer-project/surfer.git"
+tag = "v0.7.0"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

@@ -143,13 +143,15 @@ iris/
 │   ├── iris2sv/           # IRIS → SystemVerilog トランスパイラ
 │   ├── sv2iris/           # SystemVerilog → IRIS トランスパイラ
 │   ├── conformance/       # 3つのツールを全設計に通す突き合わせ
-│   └── formal/            # IRISと変換後SystemVerilogの形式的等価性検証
+│   ├── formal/            # IRISと変換後SystemVerilogの形式的等価性検証
+│   ├── schematic/         # ブロック図ビューア（フロントエンドのみ）
+│   └── surfer-plugin/     # Surferの翻訳プラグイン
 ├── example/
 │   ├── async_fifo/        # 非同期FIFO（2クロックドメイン、SystemVerilog変換つき）
 │   ├── riscv/             # RV32Iプロセッサ（単サイクル、40命令）
 │   ├── counter/           # 単一クロックカウンタ（速度比較に使用）
 │   └── comparison/        # SystemVerilog、Verylとの比較の再生成
-├── doc/                   # 言語比較などの調査資料
+├── doc/                   # 言語比較、形式検証、ブロック図、波形の資料
 └── LICENSE                # MIT License
 ```
 
@@ -252,6 +254,60 @@ ALUの入力空間は2^68通りあり、その10^-15にも満たない標本で�
 
 仕組みは[`doc/formal_verification.md`](./doc/formal_verification.md)、
 使い方は[`tools/formal/README.md`](./tools/formal/README.md)にあります。
+
+**tools/schematic**：ブロック図ビューア
+
+IRISの設計のモジュール接続をブラウザで描きます。
+**フロントエンドのみで動き、サーバは要りません。**
+構文解析器`@iris2sv/core`がすでにTypeScriptなので、
+選んだ`.iris`はブラウザの外に出ません。
+
+```bash
+cd tools/schematic && npm install && npm run dev
+```
+
+![RiscvCoreのブロック図](./doc/images/schematic_riscv_core.png)
+
+箱は3種で、インスタンス（青）、境界端子（橙）、レジスタ（灰）です。
+レジスタを箱にするのは、`comb`を辿った線がレジスタをまたいで
+「同じサイクルで値が届く」と嘘をつくのを防ぐためです。
+
+**IRISの結線は半分しか明示されていません。**
+
+| 対象 | 節点 | 書いてある線 | 辿って得た線 |
+|---|---|---|---|
+| `RiscvCore` | 16 | 4 | **20** |
+| `example/`と`fixtures/`の全体 | 32 | 12 | **27** |
+
+`RiscvCore`の線は24本のうち20本が、`comb`と`sync`を辿らないと出ません。
+
+詳細は[`doc/schematic.md`](./doc/schematic.md)、
+[`tools/schematic/README.md`](./tools/schematic/README.md)にあります。
+
+**tools/surfer-plugin**：Surferの翻訳プラグイン
+
+[Surfer](https://surfer-project.org/)で波形を読むための拡張です。
+**Surfer本体は同梱していません。**
+
+```bash
+iris-sim -i design.iris -o out.vcd --dump-arrays
+surfer out.vcd
+```
+
+![Surferで展開したメモリ配列](./doc/images/surfer_memory_array.png)
+
+`--dump-arrays`を付けると、`mem`が1要素1変数のスコープとして波形に出ます。
+上の図の`64`から`67`は`mem dmem`の64番地から67番地です。
+
+| | `$var`の数 |
+|---|---|
+| 既定 | 91 |
+| `--dump-arrays` | 1147（`dmem`1024語と`regs`32語） |
+
+符号付きの`int[N]`は`$var integer`として書くので、負の値が負として出ます。
+
+詳細は[`doc/surfer_plugin.md`](./doc/surfer_plugin.md)、
+[`tools/surfer-plugin/README.md`](./tools/surfer-plugin/README.md)にあります。
 
 ## サンプル
 
@@ -362,10 +418,11 @@ pnpm -r --config.manage-package-manager-versions=false build
 
 ## 現在のステータス
 
-- **バージョン**: 0.5.0（開発中）
+- **バージョン**: 0.6.0（開発中）
 - **仕様書日付**: 2026-08-09
 - **対応SystemVerilog**: IEEE 1800-2017準拠を目標
 - **形式的等価性**: `example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明済み（`tools/formal/run.sh`）
+- **可視化**: ブロック図をブラウザで表示（`tools/schematic`）、波形をSurferで表示し`mem`を要素ごとに展開（`iris-sim --dump-arrays`）
 
 ## ライセンス
 

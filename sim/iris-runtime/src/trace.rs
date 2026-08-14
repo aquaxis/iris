@@ -19,6 +19,8 @@ pub struct SignalTrace {
     signals: HashMap<String, Vec<(SimTime, SignalValue)>>,
     /// Declared width of each signal
     widths: HashMap<String, usize>,
+    /// Signals whose IRIS type is signed
+    signed: HashMap<String, bool>,
     /// Signal names in the order they were first recorded
     order: Vec<String>,
 }
@@ -32,6 +34,7 @@ impl SignalTrace {
     /// Record a value change. Repeating the current value is ignored.
     pub fn record(&mut self, name: &str, time: SimTime, value: SignalValue) {
         self.widths.insert(name.to_string(), value.width());
+        self.signed.insert(name.to_string(), value.is_signed());
 
         let changes = match self.signals.get_mut(name) {
             Some(changes) => changes,
@@ -61,6 +64,15 @@ impl SignalTrace {
         self.widths.get(name).copied()
     }
 
+    /// Whether the signal's IRIS type is signed.
+    ///
+    /// VCD has no field for a source-language type, but it does distinguish
+    /// `wire` from `integer`, and a reader passes that distinction on. It is
+    /// the only place the signedness of an `int[N]` survives into the file.
+    pub fn is_signed(&self, name: &str) -> bool {
+        self.signed.get(name).copied().unwrap_or(false)
+    }
+
     /// Every signal with its changes
     pub fn signals(&self) -> impl Iterator<Item = (&String, &Vec<(SimTime, SignalValue)>)> {
         self.signals.iter()
@@ -83,6 +95,107 @@ impl SignalTrace {
     }
 }
 
+/// VCD identifier code for the `n`-th signal.
+///
+/// A VCD identifier is a *string* of printable ASCII, not a single character.
+/// Emitting one character caps a file at 94 signals; beyond that the codes
+/// wrap and two signals share one code, which no reader can tell apart and
+/// which no diagnostic reports. `n` below 94 yields the same single character
+/// as before, so files that never reached the cap are unchanged.
+pub fn vcd_ident(mut n: usize) -> String {
+    const FIRST: u8 = b'!';
+    const COUNT: usize = (b'~' - b'!' + 1) as usize; // 94 printable codes
+
+    let mut chars = Vec::new();
+    loop {
+        chars.push((FIRST + (n % COUNT) as u8) as char);
+        if n < COUNT {
+            break;
+        }
+        n = n / COUNT - 1;
+    }
+    chars.iter().rev().collect()
+}
+
+/// One `$var` declaration: full dotted name, identifier code, bit width, and
+/// whether the IRIS type is signed.
+pub type VarDecl = (String, String, usize, bool);
+
+/// A level of the `$scope` tree, holding the variables declared at this level
+/// and the child scopes below it, both in first-seen order.
+#[derive(Default)]
+struct ScopeNode {
+    /// Child scopes, in the order their first signal appeared
+    children: Vec<(String, ScopeNode)>,
+    /// Variables at this level: leaf name, identifier, width, signedness
+    vars: Vec<VarDecl>,
+}
+
+impl ScopeNode {
+    fn child_mut(&mut self, name: &str) -> &mut ScopeNode {
+        if let Some(pos) = self.children.iter().position(|(n, _)| n == name) {
+            return &mut self.children[pos].1;
+        }
+        self.children.push((name.to_string(), ScopeNode::default()));
+        &mut self.children.last_mut().expect("just pushed").1
+    }
+
+    fn insert(&mut self, path: &[&str], leaf: &str, id: &str, width: usize, signed: bool) {
+        match path.split_first() {
+            None => self
+                .vars
+                .push((leaf.to_string(), id.to_string(), width, signed)),
+            Some((head, rest)) => self.child_mut(head).insert(rest, leaf, id, width, signed),
+        }
+    }
+
+    fn emit<W: Write>(&self, out: &mut W) -> std::io::Result<()> {
+        for (name, id, width, signed) in &self.vars {
+            // `integer` is VCD's own word for a signed quantity. Emitting it
+            // is what lets a viewer, or a plugin behind one, render `int[32]`
+            // as a negative number rather than a large positive one.
+            let kind = if *signed { "integer" } else { "wire" };
+            if *width == 1 {
+                writeln!(out, "$var {} {} {} {} $end", kind, width, id, name)?;
+            } else {
+                writeln!(
+                    out,
+                    "$var {} {} {} {} [{}:0] $end",
+                    kind,
+                    width,
+                    id,
+                    name,
+                    width - 1
+                )?;
+            }
+        }
+        for (name, child) in &self.children {
+            writeln!(out, "$scope module {} $end", name)?;
+            child.emit(out)?;
+            writeln!(out, "$upscope $end")?;
+        }
+        Ok(())
+    }
+}
+
+/// Write `$var` declarations with hierarchy expressed as nested `$scope`
+/// blocks.
+///
+/// A recorded name already carries its hierarchy as dot-separated segments
+/// (`dut.wr_ptr`). Emitting that verbatim inside a single scope leaves every
+/// signal in one flat list, which is not how VCD represents a hierarchy and
+/// not what a viewer can navigate. The leading segments become scopes and the
+/// last segment becomes the signal name.
+pub fn write_scoped_vars<W: Write>(out: &mut W, decls: &[VarDecl]) -> std::io::Result<()> {
+    let mut root = ScopeNode::default();
+    for (full_name, id, width, signed) in decls {
+        let parts: Vec<&str> = full_name.split('.').collect();
+        let (leaf, path) = parts.split_last().expect("split always yields one part");
+        root.insert(path, leaf, id, *width, *signed);
+    }
+    root.emit(out)
+}
+
 /// Render a trace in VCD form
 pub fn write_vcd_to<W: Write>(
     out: &mut W,
@@ -103,26 +216,15 @@ pub fn write_vcd_to<W: Write>(
 
     // VCD identifies signals by a short printable code
     let names: Vec<String> = trace.signal_names().cloned().collect();
-    let mut ids: HashMap<String, char> = HashMap::new();
-    let mut next_id = b'!';
-    for name in &names {
-        let id = next_id as char;
-        ids.insert(name.clone(), id);
+    let mut ids: HashMap<String, String> = HashMap::new();
+    let mut decls: Vec<VarDecl> = Vec::with_capacity(names.len());
+    for (index, name) in names.iter().enumerate() {
+        let id = vcd_ident(index);
         let width = trace.get_width(name).unwrap_or(1);
-        if width == 1 {
-            writeln!(out, "$var wire {} {} {} $end", width, id, name)?;
-        } else {
-            writeln!(
-                out,
-                "$var wire {} {} {} [{}:0] $end",
-                width,
-                id,
-                name,
-                width - 1
-            )?;
-        }
-        next_id = if next_id >= b'~' { b'!' } else { next_id + 1 };
+        decls.push((name.clone(), id.clone(), width, trace.is_signed(name)));
+        ids.insert(name.clone(), id);
     }
+    write_scoped_vars(out, &decls)?;
 
     writeln!(out, "$upscope $end")?;
     writeln!(out, "$enddefinitions $end")?;
@@ -140,7 +242,7 @@ pub fn write_vcd_to<W: Write>(
     for name in &names {
         if let (Some(id), Some(changes)) = (ids.get(name), trace.get_changes(name)) {
             if let Some((_, value)) = changes.first() {
-                write_value(out, *id, value)?;
+                write_value(out, id, value)?;
             }
         }
     }
@@ -172,7 +274,7 @@ pub fn write_vcd_to<W: Write>(
                         time_written = true;
                     }
                     if let Some(id) = ids.get(name) {
-                        write_value(out, *id, value)?;
+                        write_value(out, id, value)?;
                     }
                     current.insert(name.as_str(), value);
                 }
@@ -183,7 +285,7 @@ pub fn write_vcd_to<W: Write>(
     Ok(())
 }
 
-fn write_value<W: Write>(out: &mut W, id: char, value: &SignalValue) -> std::io::Result<()> {
+fn write_value<W: Write>(out: &mut W, id: &str, value: &SignalValue) -> std::io::Result<()> {
     let width = value.width();
     if width == 1 {
         let bit = value.get_bit(0).unwrap_or(BitValue::X);
@@ -195,5 +297,50 @@ fn write_value<W: Write>(out: &mut W, id: char, value: &SignalValue) -> std::io:
             write!(out, "{}", bit.to_char())?;
         }
         writeln!(out, " {}", id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// Below the 94-code ceiling the identifier is a single character, so
+    /// waveforms that never reached the ceiling are byte-identical to those
+    /// written before multi-character codes existed.
+    #[test]
+    fn short_identifiers_are_unchanged() {
+        assert_eq!(vcd_ident(0), "!");
+        assert_eq!(vcd_ident(1), "\"");
+        assert_eq!(vcd_ident(93), "~");
+    }
+
+    /// Past the ceiling the code grows instead of wrapping onto a code that
+    /// is already in use.
+    #[test]
+    fn identifiers_grow_past_the_ceiling() {
+        assert_eq!(vcd_ident(94), "!!");
+        assert_eq!(vcd_ident(95), "!\"");
+        assert!(vcd_ident(10_000).len() > 1);
+    }
+
+    /// The defect this guards: signal 94 once received the same code as
+    /// signal 0, and no diagnostic reported it.
+    #[test]
+    fn identifiers_never_collide() {
+        let mut seen = HashSet::new();
+        for n in 0..20_000 {
+            assert!(seen.insert(vcd_ident(n)), "code reused at index {}", n);
+        }
+    }
+
+    /// Every code must be printable ASCII, as VCD requires.
+    #[test]
+    fn identifiers_are_printable() {
+        for n in 0..5_000 {
+            for c in vcd_ident(n).chars() {
+                assert!(('!'..='~').contains(&c), "index {} produced {:?}", n, c);
+            }
+        }
     }
 }
