@@ -145,7 +145,8 @@ iris/
 │   ├── conformance/       # 3つのツールを全設計に通す突き合わせ
 │   ├── formal/            # IRISと変換後SystemVerilogの形式的等価性検証
 │   ├── schematic/         # ブロック図ビューア（フロントエンドのみ）
-│   └── surfer-plugin/     # Surferの翻訳プラグイン
+│   ├── surfer-plugin/     # Surferの翻訳プラグイン
+│   └── veryl2iris/        # VerylとIRISの相互変換
 ├── example/
 │   ├── async_fifo/        # 非同期FIFO（2クロックドメイン、SystemVerilog変換つき）
 │   ├── riscv/             # RV32Iプロセッサ（単サイクル、40命令）
@@ -309,6 +310,29 @@ surfer out.vcd
 詳細は[`doc/surfer_plugin.md`](./doc/surfer_plugin.md)、
 [`tools/surfer-plugin/README.md`](./tools/surfer-plugin/README.md)にあります。
 
+**tools/veryl2iris**：VerylとIRISの相互変換
+
+[Veryl](https://veryl-lang.org/)との間でソースコードを変換します。
+
+```bash
+veryl2iris design.veryl    # Veryl -> IRIS
+iris2veryl design.iris     # IRIS  -> Veryl
+```
+
+**どちらの言語仕様も変えないので、共通部分でしか完全になりません。**
+その外は落とさず、位置を添えて拒否します。
+
+| 拒否の種類 | 例 |
+|---|---|
+| 言語に対応物が無い | `f32`、`tri`、`bind`（Veryl側）／`fsm`、`rand`（IRIS側） |
+| この変換器が未実装 | 総称、インスタンスのポート読み、複数値のcaseアーム |
+
+往復は模擬実行で一致することを`tools/conformance/run.sh`が検査します。
+いま往復するのは`counter`、`alu`、`regfile`、`decoder`の4本です。
+
+詳細は[`doc/veryl.md`](./doc/veryl.md)、
+[`tools/veryl2iris/README.md`](./tools/veryl2iris/README.md)にあります。
+
 ## サンプル
 
 **example/async_fifo**：非同期FIFO（2クロックドメイン、GRAY符号ポインタ同期）
@@ -416,9 +440,30 @@ pnpm -r --config.manage-package-manager-versions=false build
 
 すべてのIRISツール（iris-sim, irisfmt, iris2sv等）は両方の拡張子を同等に認識します。
 
+## ドキュメント
+
+`doc/`に資料があります。日本語を既定とし、`_en`付きが英語版です。
+
+| 資料 | 内容 |
+|---|---|
+| [言語の比較](./doc/language_comparison.md) | IRIS、SystemVerilog、Verylの構文、記述量、速度 |
+| [Verylとの相互変換](./doc/veryl.md) | 何が変換でき、何ができないか |
+| [形式的等価性検証](./doc/formal_verification.md) | IRISと変換後SystemVerilogが同じ回路であることの証明 |
+| [仕様書と実装の差](./doc/grammar_gaps.md) | 仕様書のコード例のうち構文解析を通らないもの |
+| [ブロック図ビューア](./doc/schematic.md) | モジュール接続をブラウザで描く |
+| [Surferでの波形表示](./doc/surfer_plugin.md) | 波形を読み、`mem`を要素ごとに展開する |
+
+リポジトリ直下の`report_*.md`は資料ではなく**作業の記録**です。
+経緯、測定、判断、そこで出た誤りを残しています。
+
+| | 何か | 読み手 |
+|---|---|---|
+| `doc/*.md` | 成果物の説明。何がどう動くか | 道具を使う者 |
+| `report_*.md` | その作業の記録 | 作業を追う者 |
+
 ## 現在のステータス
 
-- **バージョン**: 0.6.0（開発中）
+- **バージョン**: 0.7.0（開発中）
 - **仕様書日付**: 2026-08-09
 - **対応SystemVerilog**: IEEE 1800-2017準拠を目標
 - **形式的等価性**: `example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明済み（`tools/formal/run.sh`）

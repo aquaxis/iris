@@ -1,0 +1,13 @@
+[package]
+name = "veryl2iris-mapping"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "What corresponds between Veryl and IRIS, and what does not"
+publish = false
+
+# No dependencies. Both directions read this crate, and it must not drag a
+# parser into either of them.
+[dependencies]
+
+[workspace]

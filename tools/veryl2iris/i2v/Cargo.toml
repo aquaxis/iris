@@ -1,0 +1,17 @@
+[package]
+name = "iris2veryl"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Convert IRIS source to Veryl"
+publish = false
+
+[dependencies]
+veryl2iris-mapping = { path = "../mapping" }
+iris-sim = { path = "../../../sim/iris-sim" }
+
+[[bin]]
+name = "iris2veryl"
+path = "src/bin/iris2veryl.rs"
+
+[workspace]

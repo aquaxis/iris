@@ -90,6 +90,7 @@ pub fn check_project(project: &Project) -> Vec<Diagnostic> {
         };
         check_generic_constraints(project, module, &mut diagnostics);
         check_extern_instances(project, module, &mut diagnostics);
+        check_unknown_types(project, module, &mut diagnostics);
         check_module_statements(project, module, &mut diagnostics);
     }
     // Deterministic order regardless of how the modules are stored
@@ -310,6 +311,69 @@ fn satisfies(actual: i64, op: BinOp, bound: i64) -> bool {
 }
 
 /// Walk a module's blocks, checking statements and expressions
+/// O1008: a type name that nothing declares
+///
+/// An unresolved name reaches the simulator as `Type::Named`, whose width is
+/// unknown, and every caller falls back to one bit. A signal declared with a
+/// misspelt or foreign type name silently becomes one bit and carries the
+/// wrong value, with nothing to say so.
+///
+/// This matters beyond typos. Veryl has ten type names IRIS does not
+/// (`f32`, `f64`, `p8`..`p64`, `bbool`, `lbool`), so a converter that passes
+/// one through unchanged would produce a design that simulates, reports
+/// success, and is wrong. `iris2sv` already warns here; until this check the
+/// two tools disagreed about the same input.
+fn check_unknown_types(project: &Project, module: &Module, out: &mut Vec<Diagnostic>) {
+    let mut report = |kind: &str, holder: &str, ty: &Type| {
+        let Type::Named(name) = ty else {
+            return;
+        };
+        if is_known_type(project, name) {
+            return;
+        }
+        out.push(
+            Diagnostic::warning(
+                "O1008",
+                &module.name,
+                format!("user type '{}' is not declared anywhere", name),
+            )
+            .with_note(format!(
+                "{} '{}' has no known width, so it is treated as 1 bit",
+                kind, holder
+            ))
+            .with_help("declare the type, or use a built-in type such as bit[N]"),
+        );
+    };
+
+    for port in &module.ports {
+        report("port", &port.name, &port.ty);
+    }
+    for signal in &module.signals {
+        report("signal", &signal.name, &signal.ty);
+    }
+    for mem in &module.memories {
+        report("memory", &mem.name, &mem.element_type);
+    }
+}
+
+/// Whether a name is declared as an enumeration, structure, union or interface
+fn is_known_type(project: &Project, name: &str) -> bool {
+    let base = base_name(name);
+    let known = |n: &str| {
+        project.enums.contains_key(n)
+            || project.structs.contains_key(n)
+            || project.interfaces.contains_key(n)
+    };
+    if known(name) || known(base) {
+        return true;
+    }
+    // A name written with a package path resolves on its last segment
+    match name.rsplit("::").next() {
+        Some(last) if last != name => known(last) || known(base_name(last)),
+        _ => false,
+    }
+}
+
 fn check_module_statements(project: &Project, module: &Module, out: &mut Vec<Diagnostic>) {
     for block in &module.logic_blocks {
         let statements = match block {
@@ -913,7 +977,10 @@ fn unsized_literal(expr: &Expression) -> bool {
 }
 
 /// Width an expression evaluates to, when that can be settled statically
-fn expr_width(project: &Project, module: &Module, expr: &Expression) -> Option<usize> {
+///
+/// `None` means the width could not be settled, never that it is zero. A
+/// caller that needs a width must refuse the input rather than assume one.
+pub fn expr_width(project: &Project, module: &Module, expr: &Expression) -> Option<usize> {
     match expr {
         Expression::Literal(lit) => Some(lit.width().unwrap_or(32)),
         Expression::Ident(name) => declared_width(module, name),

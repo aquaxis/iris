@@ -156,7 +156,8 @@ iris/
 │   ├── conformance/       # The three tools checked against each other
 │   ├── formal/            # Formal equivalence: IRIS against its SystemVerilog
 │   ├── schematic/         # block diagram viewer (frontend only)
-│   └── surfer-plugin/     # translator plugin for Surfer
+│   ├── surfer-plugin/     # translator plugin for Surfer
+│   └── veryl2iris/        # conversion between Veryl and IRIS
 ├── example/
 │   ├── async_fifo/        # Asynchronous FIFO, two clock domains, with SystemVerilog
 │   ├── riscv/             # RV32I processor, single cycle, 40 instructions
@@ -322,6 +323,30 @@ negative.
 Details are in [`doc/surfer_plugin_en.md`](./doc/surfer_plugin_en.md) and
 [`tools/surfer-plugin/README.md`](./tools/surfer-plugin/README.md).
 
+**tools/veryl2iris**: conversion between Veryl and IRIS
+
+Converts source between IRIS and [Veryl](https://veryl-lang.org/).
+
+```bash
+veryl2iris design.veryl    # Veryl -> IRIS
+iris2veryl design.iris     # IRIS  -> Veryl
+```
+
+**Neither language's specification changes, so it is complete only over the
+subset they share.** Anything outside it is refused with a source position,
+never dropped.
+
+| Kind of refusal | Example |
+|---|---|
+| The language has no counterpart | `f32`, `tri`, `bind` (Veryl side); `fsm`, `rand` (IRIS side) |
+| This converter has not caught up | generics, instance port reads, multi-value case arms |
+
+`tools/conformance/run.sh` checks that a round trip still simulates the same.
+Four designs round-trip today: `counter`, `alu`, `regfile` and `decoder`.
+
+Details are in [`doc/veryl_en.md`](./doc/veryl_en.md) and
+[`tools/veryl2iris/README.md`](./tools/veryl2iris/README.md).
+
 ## Sample designs
 
 **example/async_fifo**: an asynchronous FIFO, two clock domains, Gray-coded
@@ -430,9 +455,32 @@ chapters covering the topics below.
 
 Every IRIS tool (`iris-sim`, `irisfmt`, `iris2sv` and the rest) accepts both.
 
+## Documentation
+
+The `doc/` directory holds the reference material. Japanese is the default;
+files ending in `_en` are the English editions.
+
+| Document | Contents |
+|---|---|
+| [Language comparison](./doc/language_comparison_en.md) | IRIS, SystemVerilog and Veryl: syntax, size, speed |
+| [Interworking with Veryl](./doc/veryl_en.md) | What converts between the two languages, and what does not |
+| [Formal equivalence](./doc/formal_verification_en.md) | Proving an IRIS design and its generated SystemVerilog are the same circuit |
+| [Specification gaps](./doc/grammar_gaps_en.md) | Examples in the specification that do not parse |
+| [Block diagram viewer](./doc/schematic_en.md) | Drawing module interconnection in a browser |
+| [Waveforms in Surfer](./doc/surfer_plugin_en.md) | Reading waveforms, with `mem` expanded element by element |
+
+The `report_*.md` files at the repository root are **working records**, not
+reference material. They keep the reasoning, the measurements, and the
+mistakes made along the way.
+
+| | What it is | Who reads it |
+|---|---|---|
+| `doc/*.md` | What the result does and how to use it | Someone using the tools |
+| `report_*.md` | The record of a piece of work | Someone following the work |
+
 ## Current status
 
-- **Version**: 0.6.0, in development
+- **Version**: 0.7.0, in development
 - **Specification dated**: 2026-08-09
 - **SystemVerilog target**: conformance with IEEE 1800-2017
 - **Formal equivalence**: all six designs in `example/` proven equivalent to their generated SystemVerilog, with no bound (`tools/formal/run.sh`)
