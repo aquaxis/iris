@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IRIS Schematic</title>
+    <style>
+      :root {
+        --line: #d8dbe6;
+        --ink: #1b1b28;
+        --muted: #5b6079;
+        --bg: #f7f8fb;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        grid-template-columns: 270px 1fr;
+        grid-template-areas: "toolbar toolbar" "side paper" "status status";
+      }
+      #toolbar {
+        grid-area: toolbar;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        background: var(--bg);
+      }
+      #toolbar .spacer { flex: 1; }
+      #toolbar h1 { font-size: 13px; margin: 0 12px 0 0; font-weight: 650; }
+      button {
+        font: inherit;
+        padding: 5px 11px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      button:hover { border-color: #9aa1bb; }
+      #side {
+        grid-area: side;
+        border-right: 1px solid var(--line);
+        overflow: auto;
+        background: var(--bg);
+      }
+      .module {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        padding: 9px 12px;
+      }
+      .module.selected { background: #e7edfb; }
+      .module .name { display: block; font-family: ui-monospace, monospace; }
+      .module .meta { display: block; color: var(--muted); font-size: 11px; }
+      #errors { padding: 6px 12px; }
+      .errors-heading { color: #a3341f; font-weight: 650; margin: 8px 0 4px; }
+      .error {
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        color: #a3341f;
+        padding: 3px 0;
+        word-break: break-word;
+      }
+      #paper { grid-area: paper; overflow: hidden; }
+      #status {
+        grid-area: status;
+        padding: 6px 12px;
+        border-top: 1px solid var(--line);
+        background: var(--bg);
+        color: var(--muted);
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+      }
+      #status.warn { color: #a3341f; }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar">
+      <h1>IRIS Schematic</h1>
+      <button id="pick">Select .iris files</button>
+      <button id="fit">Fit</button>
+      <button id="zoom-in">+</button>
+      <button id="zoom-out">&minus;</button>
+      <span class="spacer"></span>
+      <button id="save">Save layout</button>
+      <button id="load">Load layout</button>
+      <input id="file-input" type="file" accept=".iris" multiple hidden />
+      <input id="layout-input" type="file" accept=".json" hidden />
+    </div>
+    <div id="side">
+      <div id="modules"></div>
+      <div id="errors"></div>
+    </div>
+    <div id="paper"></div>
+    <div id="status"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

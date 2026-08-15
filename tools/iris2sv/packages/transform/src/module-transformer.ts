@@ -27,6 +27,8 @@ import type {
   HirInitialBlock,
   HirTestSeqBlock,
   HirTestSeqStmt,
+  HirStmt,
+  HirLValue,
 } from '@iris2sv/core';
 
 import type {
@@ -68,6 +70,7 @@ import {
   block,
   identifier,
   blockingAssign,
+  nonBlockingAssign,
   unary,
   delayStmt,
   eventControlStmt,
@@ -125,7 +128,7 @@ export function transformModule(hirModule: HirModule, context: ModuleTransformer
 
   // Transform sequential blocks
   for (const seq of hirModule.seqBlocks) {
-    items.push(transformSeqBlock(seq, context));
+    items.push(transformSeqBlock(seq, hirModule, context));
   }
 
   // Transform instances
@@ -220,9 +223,103 @@ function transformCombBlock(hirComb: HirCombBlock, context: ModuleTransformerCon
 }
 
 /**
+ * Collect the names a block assigns to
+ *
+ * Only the root of an lvalue matters: `q[3] = ...` and `q = ...` both make `q`
+ * a register of this block.
+ */
+function assignedNames(stmts: HirStmt[], out: Set<string>): void {
+  const root = (lv: HirLValue): void => {
+    switch (lv.kind) {
+      case 'IdentifierLValue':
+        out.add(lv.name);
+        break;
+      case 'IndexLValue':
+      case 'SliceLValue':
+      case 'FieldLValue':
+        root(lv.base);
+        break;
+      case 'ConcatLValue':
+        lv.elements.forEach(root);
+        break;
+    }
+  };
+
+  for (const stmt of stmts) {
+    switch (stmt.kind) {
+      case 'AssignStmt':
+      case 'NonblockingAssignStmt':
+        root(stmt.lvalue);
+        break;
+      case 'IfStmt':
+        assignedNames(stmt.thenBranch, out);
+        if (Array.isArray(stmt.elseBranch)) {
+          assignedNames(stmt.elseBranch, out);
+        } else if (stmt.elseBranch) {
+          assignedNames([stmt.elseBranch], out);
+        }
+        break;
+      case 'CaseStmt':
+        for (const item of stmt.items) assignedNames(item.body, out);
+        if (stmt.defaultCase) assignedNames(stmt.defaultCase.body, out);
+        break;
+      case 'ForStmt':
+      case 'BlockStmt':
+        assignedNames(stmt.kind === 'ForStmt' ? stmt.body : stmt.statements, out);
+        break;
+    }
+  }
+}
+
+/**
+ * Build the reset branch a block does not write for itself
+ *
+ * Specification 6.3.1: "リセット値は`var`宣言時の初期値から決定されます". A
+ * design that names a reset in `sync(clk.posedge, rst.async)` and does not go
+ * on to write `if ~rst { ... }` is not asking for no reset. It is asking for
+ * the declared initial value, and 6.3.3 shows exactly that with the comment
+ * "リセット時は宣言時の初期値（0）".
+ *
+ * Emitting the reset into the sensitivity list and nowhere else produced a
+ * register that took its normal path on a reset edge: the counter in
+ * example/counter incremented while rst was rising. Yosys refused the result
+ * outright ("Multiple edge sensitive events found for this signal"), so the
+ * design could not be synthesised or formally checked either.
+ *
+ * A signal with no declared initial value keeps no reset assignment; there is
+ * nothing to reset it to. Memories are likewise left alone.
+ */
+function synthesizeResetStatements(
+  hirSeq: HirSeqBlock,
+  hirModule: HirModule,
+  context: ModuleTransformerContext
+): SvStmt | undefined {
+  const assigned = new Set<string>();
+  assignedNames(hirSeq.statements, assigned);
+
+  const stmts: SvStmt[] = [];
+  for (const sig of hirModule.signals) {
+    if (!assigned.has(sig.name) || sig.initialValue === undefined) continue;
+    stmts.push(
+      nonBlockingAssign(
+        identifier(sig.name),
+        context.stmtTransformer.exprTransformer.transform(sig.initialValue)
+      )
+    );
+  }
+
+  if (stmts.length === 0) return undefined;
+  return stmts.length === 1 && stmts[0] ? stmts[0] : block(stmts);
+}
+
+/**
  * Transform HIR sequential block to SV always_ff
  */
-function transformSeqBlock(hirSeq: HirSeqBlock, context: ModuleTransformerContext): SvAlwaysBlock {
+function transformSeqBlock(
+  hirSeq: HirSeqBlock,
+  hirModule: HirModule,
+  context: ModuleTransformerContext
+): SvAlwaysBlock {
   context.stmtTransformer.setSequential(true);
 
   // Build sensitivity list
@@ -238,8 +335,15 @@ function transformSeqBlock(hirSeq: HirSeqBlock, context: ModuleTransformerContex
 
   // Build body with reset handling
   let body;
-  if (hirSeq.reset && hirSeq.resetStatements.length > 0) {
-    const resetStmts = context.stmtTransformer.transformBlock(hirSeq.resetStatements);
+  let resetStmts: SvStmt | undefined;
+  if (hirSeq.reset) {
+    resetStmts =
+      hirSeq.resetStatements.length > 0
+        ? context.stmtTransformer.transformBlock(hirSeq.resetStatements)
+        : synthesizeResetStatements(hirSeq, hirModule, context);
+  }
+
+  if (hirSeq.reset && resetStmts) {
     const normalStmts = context.stmtTransformer.transformBlock(hirSeq.statements);
 
     // Create reset condition
@@ -249,6 +353,11 @@ function transformSeqBlock(hirSeq: HirSeqBlock, context: ModuleTransformerContex
 
     body = ifStmt(resetCond, resetStmts, normalStmts);
   } else {
+    // Nothing to reset. Leaving the reset edge in the sensitivity list would
+    // describe a register that changes on that edge without saying how.
+    if (hirSeq.reset?.mode === 'async') {
+      sensitivity.pop();
+    }
     body = context.stmtTransformer.transformBlock(hirSeq.statements);
   }
 

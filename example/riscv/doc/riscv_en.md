@@ -357,6 +357,40 @@ broken directly** to confirm the check can fail.
 Verilator. Icarus Verilog cannot handle part selects inside `always_*` blocks,
 and this core is full of them.
 
+## Proving the conversion preserved the design
+
+Forty instructions producing the values the specification requires means the
+conversion was right for those forty. For this core it is proven right for
+**every input and every reachable state**.
+
+```bash
+FORMAL_TIMEOUT=9000 tools/formal/run.sh riscv_core
+```
+
+The proof carries no bound. There is no "for the first N cycles after reset"
+attached to it.
+
+The default 240-second budget does not reach it: the 1024×32-bit data memory
+becomes 65,536 flops across both sides once expanded. Equivalence takes about 80
+minutes, and the round trip through `sv2iris` about 73.
+
+Varying the depth shows where the time goes.
+
+| Data memory depth | Time |
+|---|---|
+| 4 words | 9s |
+| 16 words | 14s |
+| 64 words | 46s |
+| 256 words | 372s |
+| 1024 words (this core) | ~80 min |
+
+**It is a question of scale, not of method.** Measuring that is what made an
+abstraction unnecessary. An abstraction would have introduced an assumption that
+the two memories hold equal contents; this proof carries no such assumption.
+
+The mechanism is in
+[`doc/formal_verification_en.md`](../../../doc/formal_verification_en.md).
+
 ## Simulator limitations met along the way
 
 Four defects surfaced while writing this example. None produced a diagnostic;
@@ -386,12 +420,19 @@ instructions produce the values the specification requires.
 
 Every defect found in this example is now fixed.
 
-Hierarchical `mem` reads work at any depth.
+Hierarchical reads work at any depth, for memories and for ports alike.
 
 ```rust
-comb { x = u.m[1]; }              // one level
-comb { x = core.rf.regs[1]; }     // two levels
+comb { x = u.m[1]; }              // one level, mem
+comb { x = core.rf.regs[1]; }     // two levels, mem
+comb { x = core.rf.rdata1; }      // two levels, port
 ```
+
+The last form was fixed while building the formal equivalence flow. Memories
+worked at any depth and a one-level port read worked; **only a two-level port
+read returned zero**, with a diagnostic that went to stderr without reaching the
+exit status, under a final line reading `Simulation completed successfully.`
+Both are fixed.
 
 The example keeps its debug port (`dbg_addr` / `dbg_data`) anyway. It is no
 longer required, but it puts what the testbench observes into the module's
@@ -405,11 +446,14 @@ Before those four were fixed, the workarounds were:
 - instance outputs copied into a `var` before slicing
 - a debug read port (`dbg_addr` / `dbg_data`) on the register file
 
-None is required now. The example keeps them: `var` plus `comb` reads naturally
-for a single-cycle design, and the debug port puts the testbench's intent into
-the declaration. The example keeps them anyway: `var` plus `comb` reads
-naturally for a single-cycle design, and the debug port makes plain what the
-testbench is looking at.
+None is required now. The example keeps them anyway: `var` plus `comb` reads
+naturally for a single-cycle design, and the debug port puts what the testbench
+observes into the declaration.
+
+**A workaround's stated reason goes stale faster than the workaround.** Six
+comments in this design said a hierarchical read "returns zero with no
+diagnostic". They outlived the defect and were read as evidence it was still
+live. They now say what is true.
 
 ## Limitations
 

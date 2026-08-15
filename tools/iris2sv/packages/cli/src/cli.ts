@@ -84,6 +84,19 @@ async function runCompilation(filePatterns: string[], options: CliOptions): Prom
     color: options.noColor !== true && process.stdout.isTTY,
   });
 
+  // Record every module's ports before compiling any of them.
+  //
+  // A design is usually several files, and `rf.rdata1` in one of them needs the
+  // width of RegFile's port, declared in another. Compiling in the order given
+  // would work only when dependencies happen to be named first.
+  for (const file of files) {
+    try {
+      compiler.registerPortTypes(await fs.promises.readFile(path.resolve(file), 'utf-8'));
+    } catch {
+      // A file that cannot be read here is reported properly when it is compiled
+    }
+  }
+
   // Compile each file
   let hasErrors = false;
   let totalErrors = 0;

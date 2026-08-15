@@ -1,0 +1,15 @@
+module Probe (
+    a: input logic<4>,
+    y: output logic<8>,
+) {
+    struct Pair {
+        lo: logic<4>,
+        hi: logic<4>,
+    }
+    var p: Pair;
+    always_comb {
+        p.lo = a;
+        p.hi = 4'd2;
+        y = {p.hi, p.lo};
+    }
+}

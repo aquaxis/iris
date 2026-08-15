@@ -34,6 +34,8 @@ needs with 58.
   time
 - **Synthesis by context**: `comb` blocks are combinational, `sync` blocks are
   sequential, and the two do not mix
+- **Formal equivalence**: that a design and its generated SystemVerilog agree is
+  proven, not sampled
 - **A syntax for state machines**: `fsm` blocks describe them directly
 - **Verification in the language**: test syntax, assertions and coverage,
   without UVM
@@ -151,7 +153,11 @@ iris/
 │   ├── irisfmt/           # Formatter and linter
 │   ├── iris2sv/           # IRIS to SystemVerilog
 │   ├── sv2iris/           # SystemVerilog to IRIS
-│   └── conformance/       # The three tools checked against each other
+│   ├── conformance/       # The three tools checked against each other
+│   ├── formal/            # Formal equivalence: IRIS against its SystemVerilog
+│   ├── schematic/         # block diagram viewer (frontend only)
+│   ├── surfer-plugin/     # translator plugin for Surfer
+│   └── veryl2iris/        # conversion between Veryl and IRIS
 ├── example/
 │   ├── async_fifo/        # Asynchronous FIFO, two clock domains, with SystemVerilog
 │   ├── riscv/             # RV32I processor, single cycle, 40 instructions
@@ -180,6 +186,15 @@ cargo run --bin iris-compile -- -i input.iris -o input_sim --release
 
 Both accept the same designs and produce the same waveforms. In a release build
 the compiler is about 93 times faster than the interpreter.
+
+**iris-formal**: the reference model for formal equivalence checking
+
+It emits a structural SystemVerilog model of an IRIS design. That model is what
+`iris2sv`'s output is proven against, and `tools/formal` drives it.
+
+```bash
+cargo run --release --bin iris-formal -- -i input.iris -o out/
+```
 
 **iris-runtime**: the runtime library
 
@@ -223,6 +238,121 @@ Runs every design through all three and enforces these invariants:
 ```bash
 tools/conformance/run.sh
 ```
+
+**tools/formal**: formal equivalence checking
+
+It proves that an IRIS design and the SystemVerilog `iris2sv` produces from it
+are the same circuit, for every input and in every reachable state.
+
+```bash
+tools/formal/run.sh
+```
+
+All six designs in `example/` are proven, with no bound.
+
+| Design | Against its IRIS | Round trip |
+|---|---|---|
+| `alu`, `decoder` | proven | proven |
+| `counter`, `regfile` | proven | proven |
+| `async_fifo` | proven | proven |
+| `riscv_core` | proven | proven |
+
+The round trip is `iris2sv` to `sv2iris` and back to `iris2sv`.
+
+**Vectors can only find a difference; they cannot establish there is none.** The
+benches in `example/comparison/equiv/` drive 33,024 inputs, which is under
+10^-15 of the ALU's 2^68 input space.
+
+There are three verdicts and no others: proven, disproven with a counterexample,
+or not attempted with the reason. **A skip is not a pass.**
+
+The mechanism is in [`doc/formal_verification_en.md`](./doc/formal_verification_en.md),
+the usage in [`tools/formal/README.md`](./tools/formal/README.md).
+
+**tools/schematic**: block diagram viewer
+
+Draws how the modules of an IRIS design are wired together, in a browser.
+**Frontend only; no server is required.** The parser `@iris2sv/core` is already
+TypeScript, so the `.iris` files you pick never leave the browser.
+
+```bash
+cd tools/schematic && npm install && npm run dev
+```
+
+![Block diagram of RiscvCore](./doc/images/schematic_riscv_core.png)
+
+There are three kinds of box: instances (blue), boundary ports (amber) and
+registers (grey). Registers are boxes so that a traced edge cannot cross one
+and claim a value arrives in the same cycle when it arrives in the next.
+
+**Half of an IRIS design's wiring is not written down.**
+
+| Subject | Nodes | Stated edges | Traced edges |
+|---|---|---|---|
+| `RiscvCore` | 16 | 4 | **20** |
+| All of `example/` and `fixtures/` | 32 | 12 | **27** |
+
+20 of `RiscvCore`'s 24 edges appear only after walking `comb` and `sync`.
+
+Details are in [`doc/schematic_en.md`](./doc/schematic_en.md) and
+[`tools/schematic/README.md`](./tools/schematic/README.md).
+
+**tools/surfer-plugin**: a translator plugin for Surfer
+
+An extension for reading waveforms in [Surfer](https://surfer-project.org/).
+**Surfer itself is not bundled.**
+
+```bash
+iris-sim -i design.iris -o out.vcd --dump-arrays
+surfer out.vcd
+```
+
+![A memory array expanded in Surfer](./doc/images/surfer_memory_array.png)
+
+With `--dump-arrays`, a `mem` reaches the waveform as a scope with one variable
+per element. `64` to `67` above are words 64 to 67 of `mem dmem`.
+
+| | `$var` count |
+|---|---|
+| Default | 91 |
+| `--dump-arrays` | 1147 (1024 words of `dmem`, 32 of `regs`) |
+
+A signed `int[N]` is written as `$var integer`, so negative values display as
+negative.
+
+Details are in [`doc/surfer_plugin_en.md`](./doc/surfer_plugin_en.md) and
+[`tools/surfer-plugin/README.md`](./tools/surfer-plugin/README.md).
+
+**tools/veryl2iris**: conversion between Veryl and IRIS
+
+Converts source between IRIS and [Veryl](https://veryl-lang.org/).
+
+```bash
+veryl2iris design.veryl    # Veryl -> IRIS
+iris2veryl design.iris     # IRIS  -> Veryl
+```
+
+**Neither language's specification changes, so it is complete only over the
+subset they share.** Anything outside it is refused with a source position,
+never dropped.
+
+| Kind of refusal | Example |
+|---|---|
+| The language has no counterpart | `f32`, `tri`, `bind` (Veryl side); `fsm`, `rand` (IRIS side) |
+| This converter has not caught up | `interface`, `function`, multi-value case arms |
+
+`tools/conformance/run.sh` checks that a round trip still simulates the same.
+All six designs in `example/` round-trip. 24 of the 30 rows marked `Exact`
+in the correspondence table have a round trip of their own; the table records
+why the other 6 do not. Pass
+files that belong together as one project.
+
+```bash
+iris2veryl decoder.iris regfile.iris alu.iris riscv_core.iris
+```
+
+Details are in [`doc/veryl_en.md`](./doc/veryl_en.md) and
+[`tools/veryl2iris/README.md`](./tools/veryl2iris/README.md).
 
 ## Sample designs
 
@@ -332,11 +462,36 @@ chapters covering the topics below.
 
 Every IRIS tool (`iris-sim`, `irisfmt`, `iris2sv` and the rest) accepts both.
 
+## Documentation
+
+The `doc/` directory holds the reference material. Japanese is the default;
+files ending in `_en` are the English editions.
+
+| Document | Contents |
+|---|---|
+| [Language comparison](./doc/language_comparison_en.md) | IRIS, SystemVerilog and Veryl: syntax, size, speed |
+| [Interworking with Veryl](./doc/veryl_en.md) | What converts between the two languages, and what does not |
+| [Formal equivalence](./doc/formal_verification_en.md) | Proving an IRIS design and its generated SystemVerilog are the same circuit |
+| [Specification gaps](./doc/grammar_gaps_en.md) | Examples in the specification that do not parse |
+| [Block diagram viewer](./doc/schematic_en.md) | Drawing module interconnection in a browser |
+| [Waveforms in Surfer](./doc/surfer_plugin_en.md) | Reading waveforms, with `mem` expanded element by element |
+
+The `report_*.md` files at the repository root are **working records**, not
+reference material. They keep the reasoning, the measurements, and the
+mistakes made along the way.
+
+| | What it is | Who reads it |
+|---|---|---|
+| `doc/*.md` | What the result does and how to use it | Someone using the tools |
+| `report_*.md` | The record of a piece of work | Someone following the work |
+
 ## Current status
 
-- **Version**: 0.4.0, in development
+- **Version**: 0.8.0, in development
 - **Specification dated**: 2026-08-09
 - **SystemVerilog target**: conformance with IEEE 1800-2017
+- **Formal equivalence**: all six designs in `example/` proven equivalent to their generated SystemVerilog, with no bound (`tools/formal/run.sh`)
+- **Visualisation**: block diagrams in the browser (`tools/schematic`), and waveforms in Surfer with `mem` expanded element by element (`iris-sim --dump-arrays`)
 
 ## Licence
 

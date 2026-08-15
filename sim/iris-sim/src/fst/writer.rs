@@ -10,6 +10,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::sim::SignalTrace;
+use iris_runtime::trace::{vcd_ident, write_scoped_vars, VarDecl};
 use crate::types::{BitValue, SignalValue, SimTime};
 
 /// Waveform output error
@@ -39,8 +40,8 @@ pub trait WaveWriter: Sized {
 /// VCD waveform writer
 pub struct VcdWriter {
     writer: BufWriter<File>,
-    signals: HashMap<String, (char, usize)>, // name -> (id_char, width)
-    next_id: char,
+    signals: HashMap<String, (String, usize)>, // name -> (id_code, width)
+    next_count: usize,
     timescale: String,
 }
 
@@ -51,7 +52,7 @@ impl VcdWriter {
         Ok(Self {
             writer: BufWriter::new(file),
             signals: HashMap::new(),
-            next_id: '!', // VCD uses printable ASCII chars for IDs
+            next_count: 0,
             timescale: "1ps".to_string(),
         })
     }
@@ -71,37 +72,20 @@ impl VcdWriter {
         Ok(())
     }
 
-    /// Add a signal definition
-    fn add_signal(&mut self, name: &str, width: usize) -> Result<char, WaveformError> {
-        let id = self.next_id;
-        self.signals.insert(name.to_string(), (id, width));
-
-        // Write variable definition
-        if width == 1 {
-            writeln!(self.writer, "$var wire {} {} {} $end", width, id, name)?;
-        } else {
-            writeln!(
-                self.writer,
-                "$var wire {} {} {} [{}:0] $end",
-                width,
-                id,
-                name,
-                width - 1
-            )?;
-        }
-
-        // Advance to next ID character
-        self.next_id = (self.next_id as u8 + 1) as char;
-        if self.next_id > '~' {
-            // Wrap around if we run out of printable chars
-            self.next_id = '!';
-        }
-
+    /// Register a signal and allocate its identifier.
+    ///
+    /// The `$var` line is not written here: declarations are emitted together
+    /// afterwards so that dotted names can be grouped into nested `$scope`
+    /// blocks.
+    fn add_signal(&mut self, name: &str, width: usize) -> Result<String, WaveformError> {
+        let id = vcd_ident(self.next_count);
+        self.signals.insert(name.to_string(), (id.clone(), width));
+        self.next_count += 1;
         Ok(id)
     }
 
     /// Write signal value
-    fn write_value(&mut self, id: char, value: &SignalValue) -> Result<(), WaveformError> {
+    fn write_value(&mut self, id: &str, value: &SignalValue) -> Result<(), WaveformError> {
         let width = value.width();
         if width == 1 {
             let bit = value.get_bit(0).unwrap_or(BitValue::X);
@@ -134,10 +118,13 @@ impl VcdWriter {
 
         // Collect all signal names and add definitions
         let signal_names: Vec<String> = trace.signal_names().cloned().collect();
+        let mut decls: Vec<VarDecl> = Vec::with_capacity(signal_names.len());
         for name in &signal_names {
             let width = trace.get_width(name).unwrap_or(1);
-            self.add_signal(name, width)?;
+            let id = self.add_signal(name, width)?;
+            decls.push((name.clone(), id, width, trace.is_signed(name)));
         }
+        write_scoped_vars(&mut self.writer, &decls)?;
 
         // Close scope and end definitions
         writeln!(self.writer, "$upscope $end")?;
@@ -158,9 +145,10 @@ impl VcdWriter {
         writeln!(self.writer, "$dumpvars")?;
         for name in &signal_names {
             if let Some((id, _)) = self.signals.get(name) {
+                let id = id.clone();
                 if let Some(changes) = trace.get_changes(name) {
                     if let Some((_, value)) = changes.first() {
-                        self.write_value(*id, value)?;
+                        self.write_value(&id, value)?;
                     }
                 }
             }
@@ -199,7 +187,8 @@ impl VcdWriter {
                                 }
 
                                 if let Some((id, _)) = self.signals.get(name) {
-                                    self.write_value(*id, value)?;
+                                    let id = id.clone();
+                                    self.write_value(&id, value)?;
                                 }
                                 current_values.insert(name.clone(), value.clone());
                             }

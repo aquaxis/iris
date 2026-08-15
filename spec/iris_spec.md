@@ -1,4 +1,4 @@
-# IRIS 言語仕様書 v0.4.0
+# IRIS 言語仕様書 v0.8.0
 
 ---
 
@@ -81,7 +81,7 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 
 | 項目 | 値 |
 |------|-----|
-| バージョン | 0.4.0 |
+| バージョン | 0.8.0 |
 | 言語名 | IRIS (Immutable RTL, Intentional Semantics) |
 | 予約語数 | 58語 |
 | 対応するSystemVerilogバージョン | IEEE 1800-2017 |
@@ -96,6 +96,10 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 | 0.2.0 | 2026-08-08 | 予約語数修正（54→55）、演算子優先順位表統一、EBNF文法拡張、欠落キーワード追加、意味論の明確化、章番号修正 |
 | 0.3.0 | 2026-08-08 | sv2iris where句生成追加、active_lowリセット処理改善、ツール間整合性完了 |
 | 0.4.0 | 2026-08-09 | 文法の一本化（第16章と`tools/iris.ebnf`を同一に）、タグ付き列挙型、構造体、共用体、パッケージ、関数、`extends`、ランダム化、カバレッジの挙動を明記、診断O1006／O1007／O2006／O2007／O7009を追加 |
+| 0.5.0 | 2026-08-12 | 形式的等価性検証の追加（`tools/formal`、`iris-formal`）。`example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明。`iris2sv`／`iris-sim`／`sv2iris`の不具合9件を改修。仕様書の本文は変更なし |
+| 0.6.0 | 2026-08-14 | ブロック図ビューア（`tools/schematic`）とSurferの翻訳プラグイン（`tools/surfer-plugin`）を追加。`iris-sim`の波形出力を、入れ子の`$scope`、`--dump-arrays`による`mem`の要素展開、符号付き`int[N]`の`$var integer`に対応。VCDの識別子が94本で一周し黙って衝突する不具合を改修。仕様書の本文は変更なし |
+| 0.7.0 | 2026-08-15 | VerylとIRISを相互に変換する`tools/veryl2iris`を追加。`counter`／`alu`／`regfile`／`decoder`の4設計が往復し、模擬実行で一致する。共通部分の外は位置を添えて拒否し、「言語に対応物が無い」と「この変換器が未実装」を分けて報告する。`sign_extend`をVerylのキャストと等価と誤って分類していたのを訂正。`iris-sim`の`check::expr_width`を公開。**言語仕様は変更していない** |
+| 0.8.0 | 2026-08-15 | `example/`の6設計すべてがVerylとの往復で模擬実行まで一致するようになった。対応表で`Exact`とした30行のうち24行に往復の断片を置き、行と試験の対応を`mapping`の検査が守る。`grammar_check.py`に文法が閉じているかの検査（未定義の参照・到達不能）を追加し、`port_connection`が参照していた未定義の非終端`expression`を`expr`へ訂正。**言語仕様の意味は変更していない**（`expression`は定義が無く何も指していなかった） |
 
 ---
 

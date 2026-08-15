@@ -1,0 +1,12 @@
+module Probe (
+    a: input logic,
+    y: output logic,
+) {
+    always_comb { y = a; }
+}
+module Top (
+    a: input logic,
+    y: output logic,
+) {
+    inst u: Probe (a: a, y: y);
+}

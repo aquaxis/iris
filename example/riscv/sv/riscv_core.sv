@@ -16,6 +16,27 @@ module RiscvCore #(
 );
 
 // Internal signals
+  logic [31:0] rf_dbg_data;
+  logic dec_alu_a_pc;
+  logic [31:0] rf_rdata1;
+  logic dec_alu_b_imm;
+  logic [31:0] dec_imm;
+  logic [31:0] rf_rdata2;
+  logic dec_is_branch;
+  logic [2:0] dec_funct3;
+  logic [31:0] alu_y_;
+  logic dec_is_lui;
+  logic dec_mem_read;
+  logic dec_is_jal;
+  logic dec_is_jalr;
+  logic dec_reg_write;
+  logic dec_is_system;
+  logic dec_illegal;
+  logic dec_mem_write;
+  logic [4:0] dec_rd;
+  logic [4:0] dec_rs1;
+  logic [4:0] dec_rs2;
+  logic [3:0] dec_alu_op;
   logic [31:0] pc = 0;
   logic halt_reg = 0;
   logic illegal_reg = 0;
@@ -46,69 +67,96 @@ module RiscvCore #(
     pc_out = pc;
     halted = halt_reg;
     illegal_op = illegal_reg;
-    dbg_data = rf.dbg_data;
+    dbg_data = rf_dbg_data;
     pc_plus4 = 32'(pc + 32'h4);
-    alu_a = dec.alu_a_pc ? pc : rf.rdata1;
-    alu_b = dec.alu_b_imm ? dec.imm : rf.rdata2;
-    s_rs1 = rf.rdata1;
-    s_rs2 = rf.rdata2;
-    branch_taken = dec.is_branch ? dec.funct3 == 3'd0 ? rf.rdata1 == rf.rdata2 ? 1'd1 : 1'd0 : dec.funct3 == 3'd1 ? rf.rdata1 != rf.rdata2 ? 1'd1 : 1'd0 : dec.funct3 == 3'd4 ? s_rs1 < s_rs2 ? 1'd1 : 1'd0 : dec.funct3 == 3'd5 ? s_rs1 < s_rs2 ? 1'd0 : 1'd1 : dec.funct3 == 3'd6 ? rf.rdata1 < rf.rdata2 ? 1'd1 : 1'd0 : dec.funct3 == 3'd7 ? rf.rdata1 < rf.rdata2 ? 1'd0 : 1'd1 : 1'd0 : 1'd0;
-    alu_y = alu.y;
-    src2 = rf.rdata2;
+    alu_a = dec_alu_a_pc ? pc : rf_rdata1;
+    alu_b = dec_alu_b_imm ? dec_imm : rf_rdata2;
+    s_rs1 = rf_rdata1;
+    s_rs2 = rf_rdata2;
+    branch_taken = dec_is_branch ? dec_funct3 == 3'd0 ? rf_rdata1 == rf_rdata2 ? 1'd1 : 1'd0 : dec_funct3 == 3'd1 ? rf_rdata1 != rf_rdata2 ? 1'd1 : 1'd0 : dec_funct3 == 3'd4 ? s_rs1 < s_rs2 ? 1'd1 : 1'd0 : dec_funct3 == 3'd5 ? s_rs1 < s_rs2 ? 1'd0 : 1'd1 : dec_funct3 == 3'd6 ? rf_rdata1 < rf_rdata2 ? 1'd1 : 1'd0 : dec_funct3 == 3'd7 ? rf_rdata1 < rf_rdata2 ? 1'd0 : 1'd1 : 1'd0 : 1'd0;
+    alu_y = alu_y_;
+    src2 = rf_rdata2;
     mem_word_addr = alu_y >> 2;
     mem_byte_sel = alu_y[1:0];
     mem_rword = dmem[mem_word_addr];
     load_byte = mem_byte_sel == 2'd0 ? mem_rword[7:0] : mem_byte_sel == 2'd1 ? mem_rword[15:8] : mem_byte_sel == 2'd2 ? mem_rword[23:16] : mem_rword[31:24];
     load_half = mem_byte_sel[1] ? mem_rword[31:16] : mem_rword[15:0];
-    load_data = dec.funct3 == 3'd0 ? 32'($signed(load_byte)) : dec.funct3 == 3'd1 ? 32'($signed(load_half)) : dec.funct3 == 3'd2 ? mem_rword : dec.funct3 == 3'd4 ? 32'(load_byte) : dec.funct3 == 3'd5 ? 32'(load_half) : mem_rword;
-    store_word = dec.funct3 == 3'd0 ? mem_byte_sel == 2'd0 ? {mem_rword[31:8], src2[7:0]} : mem_byte_sel == 2'd1 ? {mem_rword[31:16], src2[7:0], mem_rword[7:0]} : mem_byte_sel == 2'd2 ? {mem_rword[31:24], src2[7:0], mem_rword[15:0]} : {src2[7:0], mem_rword[23:0]} : dec.funct3 == 3'd1 ? mem_byte_sel[1] ? {src2[15:0], mem_rword[15:0]} : {mem_rword[31:16], src2[15:0]} : src2;
-    jalr_target = rf.rdata1 + dec.imm & 32'hfffffffe;
-    wb_data = dec.is_lui ? dec.imm : dec.mem_read ? load_data : dec.is_jal ? pc_plus4 : dec.is_jalr ? pc_plus4 : alu_y;
-    wb_en = halt_reg ? 1'd0 : dec.reg_write;
-    is_ecall_or_ebreak = dec.is_system;
-    next_pc = branch_taken ? 32'(pc + dec.imm) : dec.is_jal ? alu_y : dec.is_jalr ? jalr_target : pc_plus4;
+    load_data = dec_funct3 == 3'd0 ? 32'($signed(load_byte)) : dec_funct3 == 3'd1 ? 32'($signed(load_half)) : dec_funct3 == 3'd2 ? mem_rword : dec_funct3 == 3'd4 ? 32'(load_byte) : dec_funct3 == 3'd5 ? 32'(load_half) : mem_rword;
+    store_word = dec_funct3 == 3'd0 ? mem_byte_sel == 2'd0 ? {mem_rword[31:8], src2[7:0]} : mem_byte_sel == 2'd1 ? {mem_rword[31:16], src2[7:0], mem_rword[7:0]} : mem_byte_sel == 2'd2 ? {mem_rword[31:24], src2[7:0], mem_rword[15:0]} : {src2[7:0], mem_rword[23:0]} : dec_funct3 == 3'd1 ? mem_byte_sel[1] ? {src2[15:0], mem_rword[15:0]} : {mem_rword[31:16], src2[15:0]} : src2;
+    jalr_target = rf_rdata1 + dec_imm & 32'hfffffffe;
+    wb_data = dec_is_lui ? dec_imm : dec_mem_read ? load_data : dec_is_jal ? pc_plus4 : dec_is_jalr ? pc_plus4 : alu_y;
+    wb_en = halt_reg ? 1'd0 : dec_reg_write;
+    is_ecall_or_ebreak = dec_is_system;
+    next_pc = branch_taken ? 32'(pc + dec_imm) : dec_is_jal ? alu_y : dec_is_jalr ? jalr_target : pc_plus4;
   end
 
   always_ff @(posedge clk or negedge rst_n) 
-    if (~rst_n) begin
+    if (!rst_n) begin
       pc <= 0;
       halt_reg <= 0;
       illegal_reg <= 0;
     end
-    else if (~halt_reg) 
-      if (is_ecall_or_ebreak) 
-        halt_reg <= 1;
-      else if (dec.illegal) begin
-        illegal_reg <= 1;
-        halt_reg <= 1;
-      end
-      else begin
-        if (dec.mem_write) 
-          dmem[mem_word_addr] <= store_word;
-        pc <= next_pc;
-      end
+    else if (~rst_n) begin
+      pc <= 0;
+      halt_reg <= 0;
+      illegal_reg <= 0;
+    end
+    else 
+      if (~halt_reg) 
+        if (is_ecall_or_ebreak) 
+          halt_reg <= 1;
+        else if (dec_illegal) begin
+          illegal_reg <= 1;
+          halt_reg <= 1;
+        end
+        else begin
+          if (dec_mem_write) 
+            dmem[mem_word_addr] <= store_word;
+          pc <= next_pc;
+        end
 
 
 // Module instances
   Decoder dec (
-    .instr(imem_rdata)
+    .instr(imem_rdata),
+    .alu_a_pc(dec_alu_a_pc),
+    .alu_b_imm(dec_alu_b_imm),
+    .imm(dec_imm),
+    .is_branch(dec_is_branch),
+    .funct3(dec_funct3),
+    .is_lui(dec_is_lui),
+    .mem_read(dec_mem_read),
+    .is_jal(dec_is_jal),
+    .is_jalr(dec_is_jalr),
+    .reg_write(dec_reg_write),
+    .is_system(dec_is_system),
+    .illegal(dec_illegal),
+    .mem_write(dec_mem_write),
+    .rd(dec_rd),
+    .rs1(dec_rs1),
+    .rs2(dec_rs2),
+    .alu_op(dec_alu_op)
   );
 
   RegFile rf (
     .clk(clk),
     .rst_n(rst_n),
     .we(wb_en),
-    .waddr(dec.rd),
+    .waddr(dec_rd),
     .wdata(wb_data),
-    .raddr1(dec.rs1),
-    .raddr2(dec.rs2),
-    .dbg_addr(dbg_addr)
+    .raddr1(dec_rs1),
+    .raddr2(dec_rs2),
+    .dbg_addr(dbg_addr),
+    .dbg_data(rf_dbg_data),
+    .rdata1(rf_rdata1),
+    .rdata2(rf_rdata2)
   );
 
   Alu alu (
-    .op(dec.alu_op),
+    .op(dec_alu_op),
     .a(alu_a),
-    .b(alu_b)
+    .b(alu_b),
+    .y(alu_y_)
   );
 
 endmodule

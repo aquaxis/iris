@@ -1,0 +1,6 @@
+module Probe (
+    a: input logic,
+    y8: output logic<8>,
+) {
+    always_comb { y8 = {a repeat 8}; }
+}

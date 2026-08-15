@@ -1,0 +1,15 @@
+module Probe (
+    sel: input logic<2>,
+    y: output logic<8>,
+) {
+    enum Op: logic<2> {
+        Add,
+        Sub,
+    }
+    always_comb {
+        y = case sel {
+            Op::Add: 8'd1,
+            default: 8'd0,
+        };
+    }
+}

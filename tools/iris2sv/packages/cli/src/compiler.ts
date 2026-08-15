@@ -17,6 +17,7 @@ import {
   createLowering,
   createModuleTransformer,
   transformOutputWires,
+  transformInstanceReads,
   transformTypeDef,
   transformFunction,
   transformInterface,
@@ -72,6 +73,12 @@ export interface CompileResult {
  */
 export class Compiler {
   private readonly options: CompilerOptions;
+
+  /** module name -> port name -> type, accumulated across every file compiled */
+  private readonly portTypes = new Map<
+    string,
+    Map<string, ReturnType<ReturnType<typeof createModuleTransformer>['typeMapper']['mapType']>>
+  >();
 
   constructor(options?: Partial<CompilerOptions>) {
     this.options = { ...defaultCompilerOptions, ...options };
@@ -174,6 +181,41 @@ export class Compiler {
   }
 
   /**
+   * Record the ports of every module in a lowered file
+   */
+  private recordPortTypes(
+    modules: readonly { name: string; ports: readonly { name: string; dataType: unknown }[] }[],
+    transformer: ReturnType<typeof createModuleTransformer>
+  ): void {
+    for (const hirModule of modules) {
+      const ports = new Map<string, ReturnType<typeof transformer.typeMapper.mapType>>();
+      for (const port of hirModule.ports) {
+        ports.set(
+          port.name,
+          transformer.typeMapper.mapType(port.dataType as Parameters<typeof transformer.typeMapper.mapType>[0])
+        );
+      }
+      this.portTypes.set(hirModule.name, ports);
+    }
+  }
+
+  /**
+   * Record a file's module ports without generating anything
+   *
+   * Called for every input before any of them is compiled. Without it, a module
+   * that instantiates one declared in a file named later would find no port
+   * widths, and its `inst.port` reads would stay hierarchical.
+   */
+  registerPortTypes(source: string): void {
+    const parseResult = parse(source);
+    if (parseResult.errors.length > 0) return;
+
+    const lowering = createLowering();
+    const loweringResult = lowering.lower(parseResult.ast);
+    this.recordPortTypes(loweringResult.hir.modules, createModuleTransformer());
+  }
+
+  /**
    * Generate SystemVerilog code from AST
    *
    * Uses the transform package to convert AST → HIR → SV AST → SystemVerilog.
@@ -242,8 +284,34 @@ export class Compiler {
       outputs.push('');
     }
 
+    // Port types of every module seen so far, so that a wire made for
+    // `inst.port` can be given the width the port actually has.
+    //
+    // A design is usually several files and iris2sv compiles them one at a
+    // time, so a module's ports are recorded on the compiler rather than on
+    // this call. registerPortTypes() fills the registry ahead of the first
+    // compile, which is what makes the order the files are named in stop
+    // mattering.
+    this.recordPortTypes(loweringResult.hir.modules, moduleTransformer);
+    const portTypes = this.portTypes;
+
     for (const hirModule of loweringResult.hir.modules) {
       let svModule = this.transformModule(hirModule, moduleTransformer);
+
+      // `rf.rdata1` is a hierarchical reference in SystemVerilog and leaves the
+      // port unconnected. Give it a wire.
+      {
+        const instanceReads = transformInstanceReads(svModule, portTypes);
+        svModule = instanceReads.module;
+        if (this.options.verbose && instanceReads.wires.length > 0) {
+          console.log(`[iris2sv] Wired instance reads: ${instanceReads.wires.join(', ')}`);
+        }
+        for (const error of instanceReads.errors) {
+          if (this.options.verbose) {
+            console.log(`[iris2sv] Instance read: ${error}`);
+          }
+        }
+      }
 
       // Apply output wire transform if enabled
       if (this.options.autoOutputWire && outputPortsWithReads.size > 0) {

@@ -632,3 +632,77 @@ fn a_width_method_keeps_a_slice_bound_constant() {
         diagnostics
     );
 }
+
+// ---------------------------------------------------------------------------
+// O1008: a type name that nothing declares
+//
+// An unresolved name reaches the simulator as an unknown width, and every
+// caller falls back to one bit. A signal declared with a foreign type name
+// silently becomes one bit and carries the wrong value.
+//
+// This matters for interworking: Veryl has ten type names IRIS does not
+// (`f32`, `f64`, `p8`..`p64`, `bbool`, `lbool`). A converter that passed one
+// through unchanged would produce a design that simulates, reports success,
+// and is wrong.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_undeclared_type_on_a_port_is_reported() {
+    let diagnostics = check(
+        "
+        mod M(in a: bit[8], out y: f32,) {
+            comb { y = a; }
+        }
+        ",
+        "M",
+    );
+    assert!(codes(&diagnostics).contains(&"O1008"));
+}
+
+#[test]
+fn an_undeclared_type_on_a_signal_is_reported() {
+    let diagnostics = check(
+        "
+        mod M(in a: bit[8], out y: bit,) {
+            var held: NoSuchTypeAtAll;
+            comb { held = a; y = 0; }
+        }
+        ",
+        "M",
+    );
+    assert!(codes(&diagnostics).contains(&"O1008"));
+}
+
+#[test]
+fn it_is_a_warning_and_not_an_error() {
+    // The design still runs; the point is that it no longer runs silently.
+    let diagnostics = check(
+        "
+        mod M(in a: bit[8], out y: f64,) {
+            comb { y = a; }
+        }
+        ",
+        "M",
+    );
+    assert!(!has_errors(&diagnostics));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.code == "O1008" && d.severity == Severity::Warning));
+}
+
+#[test]
+fn a_declared_enum_or_struct_is_not_reported() {
+    // The control: without this, a check that flagged every named type would
+    // pass the tests above while being useless.
+    let diagnostics = check(
+        "
+        enum State { Idle, Run, Done }
+        struct Packet { valid: bit, data: bit[8] }
+        mod M(in a: bit[8], out s: State, out p: Packet,) {
+            comb { s = State::Idle; p.valid = 1; p.data = a; }
+        }
+        ",
+        "M",
+    );
+    assert!(!codes(&diagnostics).contains(&"O1008"));
+}

@@ -723,7 +723,13 @@ export class Parser {
     }
 
     const op = this.parseComparisonOp();
-    const value = this.parseExpr();
+    this.inWhereConstraint = true;
+    let value;
+    try {
+      value = this.parseExpr();
+    } finally {
+      this.inWhereConstraint = false;
+    }
     return { kind: 'ValueConstraint', name, op, value };
   }
 
@@ -931,10 +937,29 @@ export class Parser {
     return this.parsePostfixExpr();
   }
 
+  /**
+   * True while a `where` constraint's value is being parsed
+   *
+   * `where W >= 1 (` is the grammar's form: `where_clause = "where" constraint
+   * { "," constraint }`, with no comma after the last one. Without this flag
+   * the postfix loop below read the `(` that opens the port list as a call on
+   * the constant, consumed it, and failed on the first port with "Expected
+   * expression". The only form that parsed was `W >= 1,` with a trailing comma,
+   * which the grammar does not allow at all.
+   *
+   * iris-sim accepts both. This made a design that iris-sim reads fail to
+   * convert, and a round trip through sv2iris, which emits the grammar's form,
+   * could not close.
+   */
+  private inWhereConstraint = false;
+
   private parsePostfixExpr(): Expr {
     let expr = this.parsePrimaryExpr();
 
     while (true) {
+      if (this.inWhereConstraint && this.check(TokenKind.LParen)) {
+        break;
+      }
       if (this.match(TokenKind.LParen)) {
         const args: Expr[] = [];
         if (!this.check(TokenKind.RParen)) {

@@ -1,0 +1,6 @@
+module Probe (
+    a: input i8,
+    y: output i8,
+) {
+    always_comb { y = a; }
+}

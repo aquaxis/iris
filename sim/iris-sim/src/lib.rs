@@ -5,6 +5,7 @@
 
 pub mod check;
 pub mod compile;
+pub mod formal;
 pub mod fst;
 pub mod parser;
 pub mod project;

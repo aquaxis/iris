@@ -1,0 +1,9 @@
+module Probe (
+    a: input logic<8>,
+    y: output logic<8>,
+) {
+    const K: logic<8> = 8'd3;
+    always_comb {
+        y = a + K;
+    }
+}

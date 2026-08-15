@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Found by building the formal equivalence flow in `tools/formal`. Each of these
+produced SystemVerilog that Verilator accepted and that was not the design.
+
+### Fixed
+
+- **A `sync` block with a reset now emits the reset branch.** The reset went
+  into the sensitivity list and nowhere else, so `always_ff @(posedge clk or
+  posedge rst)` took its normal path on a reset edge: the counter in
+  `example/counter` incremented while `rst` was rising. Specification 6.3.1
+  already gave the answer, that the reset value is the declaration's initial
+  value, and the branch is now built from those initialisers. A block that
+  resets nothing no longer carries the reset edge at all.
+- **An instance output read as `alu.y` now becomes a wire and a port
+  connection.** It was emitted as a hierarchical reference with the port left
+  unconnected. `example/riscv/sv/riscv_core.sv` had 21 of them; yosys turned
+  each into an undriven implicit wire, warned, and carried on.
+- **`truncate` and `resize` are accepted.** Specification 3.4.2 lists them,
+  `iris-sim` and `iris-compile` both implement them, error message O2003 tells
+  the reader to write `truncate`, and this rejected it. A round trip through
+  `sv2iris` could not close as a result.
+- **A `where` clause without a trailing comma parses.** The grammar is
+  `where_clause = "where" constraint { "," constraint }`, which permits no
+  trailing comma; the only form accepted was the one with a trailing comma. The
+  constraint's value was swallowing the `(` that opens the port list.
+- **A width that is an expression is emitted as that expression.** Both the type
+  path and the size-cast path substituted a comment, producing
+  `input logic [/* expr */-1:0] wr_data` and
+  `wr_ptr <= /* width */'(...)`, and reported the file as converted. A width
+  that cannot be written down now fails the conversion.
+
 ## [0.1.0] - 2026-01-10
 
 ### Added

@@ -27,6 +27,7 @@ SystemVerilogの複雑さを解消し、Rustの設計思想を取り入れた次
 - **コンテキストベース合成**: `comb`ブロックで組み合わせ回路、`sync`ブロックで順序回路を明確に分離
 - **FSM専用構文**: `fsm`ブロックによる状態機械の直感的な記述
 - **言語組み込み検証**: UVM不要の検証機能（テスト構文、アサーション、カバレッジ）
+- **形式的等価性検証**: IRISと変換後SystemVerilogの等価性を、標本ではなく証明で確かめる
 
 ## SystemVerilogとの比較
 
@@ -141,13 +142,17 @@ iris/
 │   ├── irisfmt/           # フォーマッタ / リンタ
 │   ├── iris2sv/           # IRIS → SystemVerilog トランスパイラ
 │   ├── sv2iris/           # SystemVerilog → IRIS トランスパイラ
-│   └── conformance/       # 3つのツールを全設計に通す突き合わせ
+│   ├── conformance/       # 3つのツールを全設計に通す突き合わせ
+│   ├── formal/            # IRISと変換後SystemVerilogの形式的等価性検証
+│   ├── schematic/         # ブロック図ビューア（フロントエンドのみ）
+│   ├── surfer-plugin/     # Surferの翻訳プラグイン
+│   └── veryl2iris/        # VerylとIRISの相互変換
 ├── example/
 │   ├── async_fifo/        # 非同期FIFO（2クロックドメイン、SystemVerilog変換つき）
 │   ├── riscv/             # RV32Iプロセッサ（単サイクル、40命令）
 │   ├── counter/           # 単一クロックカウンタ（速度比較に使用）
 │   └── comparison/        # SystemVerilog、Verylとの比較の再生成
-├── doc/                   # 言語比較などの調査資料
+├── doc/                   # 言語比較、形式検証、ブロック図、波形の資料
 └── LICENSE                # MIT License
 ```
 
@@ -170,6 +175,15 @@ cargo run --bin iris-compile -- -i input.iris -o input_sim --release
 
 どちらも同じ設計を受け付け、同じ波形を出力します。
 コンパイラモードはリリースビルドでインタプリタの約93倍速く動きます。
+
+**iris-formal**：形式的等価性検証のための基準モデル生成
+
+IRISの設計から、構造的なSystemVerilogのモデルを出します。
+`iris2sv`の出力を証明する相手であり、`tools/formal`が使います。
+
+```bash
+cargo run --release --bin iris-formal -- -i input.iris -o out/
+```
 
 **iris-runtime**：ランタイムライブラリ
 
@@ -211,6 +225,120 @@ IRISはクロックもリセットも宣言から駆動するため戻す先が�
 ```bash
 tools/conformance/run.sh
 ```
+
+**tools/formal**：形式的等価性検証
+
+IRISの設計と、`iris2sv`がそれを変換したSystemVerilogが同じ回路であることを、
+すべての入力と到達しうるすべての状態について証明します。
+
+```bash
+tools/formal/run.sh
+```
+
+`example/`の6設計すべてについて、段数無しで証明されています。
+
+| 設計 | IRISとの等価性 | 往復の等価性 |
+|---|---|---|
+| `alu`、`decoder` | proven | proven |
+| `counter`、`regfile` | proven | proven |
+| `async_fifo` | proven | proven |
+| `riscv_core` | proven | proven |
+
+往復とは、`iris2sv`から`sv2iris`を経由して`iris2sv`へ戻す経路のことです。
+
+**ベクタは差を見つけることしかできず、差が無いことは言えません。**
+`example/comparison/equiv/`のテストベンチは33,024本の入力を与えますが、
+ALUの入力空間は2^68通りあり、その10^-15にも満たない標本です。
+
+判定は「証明した」「反例付きで否定した」「試していない、理由はこれ」の3つだけです。
+**`skipped`は合格ではありません。**
+
+仕組みは[`doc/formal_verification.md`](./doc/formal_verification.md)、
+使い方は[`tools/formal/README.md`](./tools/formal/README.md)にあります。
+
+**tools/schematic**：ブロック図ビューア
+
+IRISの設計のモジュール接続をブラウザで描きます。
+**フロントエンドのみで動き、サーバは要りません。**
+構文解析器`@iris2sv/core`がすでにTypeScriptなので、
+選んだ`.iris`はブラウザの外に出ません。
+
+```bash
+cd tools/schematic && npm install && npm run dev
+```
+
+![RiscvCoreのブロック図](./doc/images/schematic_riscv_core.png)
+
+箱は3種で、インスタンス（青）、境界端子（橙）、レジスタ（灰）です。
+レジスタを箱にするのは、`comb`を辿った線がレジスタをまたいで
+「同じサイクルで値が届く」と嘘をつくのを防ぐためです。
+
+**IRISの結線は半分しか明示されていません。**
+
+| 対象 | 節点 | 書いてある線 | 辿って得た線 |
+|---|---|---|---|
+| `RiscvCore` | 16 | 4 | **20** |
+| `example/`と`fixtures/`の全体 | 32 | 12 | **27** |
+
+`RiscvCore`の線は24本のうち20本が、`comb`と`sync`を辿らないと出ません。
+
+詳細は[`doc/schematic.md`](./doc/schematic.md)、
+[`tools/schematic/README.md`](./tools/schematic/README.md)にあります。
+
+**tools/surfer-plugin**：Surferの翻訳プラグイン
+
+[Surfer](https://surfer-project.org/)で波形を読むための拡張です。
+**Surfer本体は同梱していません。**
+
+```bash
+iris-sim -i design.iris -o out.vcd --dump-arrays
+surfer out.vcd
+```
+
+![Surferで展開したメモリ配列](./doc/images/surfer_memory_array.png)
+
+`--dump-arrays`を付けると、`mem`が1要素1変数のスコープとして波形に出ます。
+上の図の`64`から`67`は`mem dmem`の64番地から67番地です。
+
+| | `$var`の数 |
+|---|---|
+| 既定 | 91 |
+| `--dump-arrays` | 1147（`dmem`1024語と`regs`32語） |
+
+符号付きの`int[N]`は`$var integer`として書くので、負の値が負として出ます。
+
+詳細は[`doc/surfer_plugin.md`](./doc/surfer_plugin.md)、
+[`tools/surfer-plugin/README.md`](./tools/surfer-plugin/README.md)にあります。
+
+**tools/veryl2iris**：VerylとIRISの相互変換
+
+[Veryl](https://veryl-lang.org/)との間でソースコードを変換します。
+
+```bash
+veryl2iris design.veryl    # Veryl -> IRIS
+iris2veryl design.iris     # IRIS  -> Veryl
+```
+
+**どちらの言語仕様も変えないので、共通部分でしか完全になりません。**
+その外は落とさず、位置を添えて拒否します。
+
+| 拒否の種類 | 例 |
+|---|---|
+| 言語に対応物が無い | `f32`、`tri`、`bind`（Veryl側）／`fsm`、`rand`（IRIS側） |
+| この変換器が未実装 | `interface`、`function`、複数値のcaseアーム |
+
+往復は模擬実行で一致することを`tools/conformance/run.sh`が検査します。
+`example/`の6設計すべてが往復します。
+対応表で`Exact`と書いた30行のうち、24行に往復の断片があります
+（残り6行は理由を表が持っています）。
+複数のファイルは1つのプロジェクトとして渡してください。
+
+```bash
+iris2veryl decoder.iris regfile.iris alu.iris riscv_core.iris
+```
+
+詳細は[`doc/veryl.md`](./doc/veryl.md)、
+[`tools/veryl2iris/README.md`](./tools/veryl2iris/README.md)にあります。
 
 ## サンプル
 
@@ -319,11 +447,34 @@ pnpm -r --config.manage-package-manager-versions=false build
 
 すべてのIRISツール（iris-sim, irisfmt, iris2sv等）は両方の拡張子を同等に認識します。
 
+## ドキュメント
+
+`doc/`に資料があります。日本語を既定とし、`_en`付きが英語版です。
+
+| 資料 | 内容 |
+|---|---|
+| [言語の比較](./doc/language_comparison.md) | IRIS、SystemVerilog、Verylの構文、記述量、速度 |
+| [Verylとの相互変換](./doc/veryl.md) | 何が変換でき、何ができないか |
+| [形式的等価性検証](./doc/formal_verification.md) | IRISと変換後SystemVerilogが同じ回路であることの証明 |
+| [仕様書と実装の差](./doc/grammar_gaps.md) | 仕様書のコード例のうち構文解析を通らないもの |
+| [ブロック図ビューア](./doc/schematic.md) | モジュール接続をブラウザで描く |
+| [Surferでの波形表示](./doc/surfer_plugin.md) | 波形を読み、`mem`を要素ごとに展開する |
+
+リポジトリ直下の`report_*.md`は資料ではなく**作業の記録**です。
+経緯、測定、判断、そこで出た誤りを残しています。
+
+| | 何か | 読み手 |
+|---|---|---|
+| `doc/*.md` | 成果物の説明。何がどう動くか | 道具を使う者 |
+| `report_*.md` | その作業の記録 | 作業を追う者 |
+
 ## 現在のステータス
 
-- **バージョン**: 0.4.0（開発中）
+- **バージョン**: 0.8.0（開発中）
 - **仕様書日付**: 2026-08-09
 - **対応SystemVerilog**: IEEE 1800-2017準拠を目標
+- **形式的等価性**: `example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明済み（`tools/formal/run.sh`）
+- **可視化**: ブロック図をブラウザで表示（`tools/schematic`）、波形をSurferで表示し`mem`を要素ごとに展開（`iris-sim --dump-arrays`）
 
 ## ライセンス
 

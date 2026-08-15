@@ -404,7 +404,7 @@ array_size = const_expr ;
 generic_args = "[" generic_arg { "," generic_arg } "]" ;
 generic_arg = [ identifier ":" ] ( type_expr | const_expr ) ;
 port_connections = port_connection { "," port_connection } [ "," ] ;
-port_connection = identifier ":" expression ;
+port_connection = identifier ":" expr ;
 ```
 
 この文法は`tools/iris.ebnf`および第16章と同一である。

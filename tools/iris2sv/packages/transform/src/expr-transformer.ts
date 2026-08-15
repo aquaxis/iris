@@ -1,5 +1,6 @@
 import type { HirDataType } from '@iris2sv/core';
-import { mapWidth } from './type-mapper.js';
+import { mapWidth, renderWidthExpr } from './type-mapper.js';
+import type { WidthExpr } from './type-mapper.js';
 import type { SvWidth } from '@iris2sv/sv-backend';
 import { constWidth, exprWidth } from '@iris2sv/sv-backend';
 /**
@@ -121,14 +122,23 @@ export function transformExpr(expr: HirExpr, context: ExprTransformerContext): S
       // Width-carrying methods become SystemVerilog size casts.
       //   x.sign_extend[32]()  ->  32'($signed(x))
       //   x.extend[32]()       ->  32'(x)
+      //   x.truncate[8]()      ->  8'(x)
       // The signed cast is what makes the first one replicate the sign bit.
-      if ((expr.callee === 'sign_extend' || expr.callee === 'extend')
+      // The size cast is what does the other two: SystemVerilog zero-pads when
+      // the cast is wider and drops the high bits when it is narrower, which is
+      // extend and truncate respectively. `resize` is whichever of the two the
+      // widths call for, so it is the same cast again.
+      if (['sign_extend', 'extend', 'truncate', 'resize'].includes(expr.callee)
           && expr.args.length === 2) {
         const value = transformExpr(expr.args[0]!, context);
         const widthExpr = expr.args[1]!;
+        // A width that is not a literal is still a constant expression, and it
+        // has to be written out. Emitting the string `/* width */` produced
+        // `wr_ptr <= /* width */'(...)`, which is not SystemVerilog, and
+        // iris2sv reported the file as converted.
         const width: SvWidth = widthExpr.kind === 'IntegerLiteral'
           ? constWidth(Number(widthExpr.value))
-          : exprWidth('/* width */');
+          : exprWidth(renderWidthExpr(widthExpr as unknown as WidthExpr));
         const inner = expr.callee === 'sign_extend'
           ? call('$signed', value)
           : value;

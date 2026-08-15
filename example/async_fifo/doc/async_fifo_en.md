@@ -382,6 +382,37 @@ wr_ptr_gray <= PtrWidth'(wr_ptr + 1) ^ PtrWidth'(wr_ptr + 1) >> 1;
 Neither compilation nor linting finds this defect. It surfaced only by checking
 that all forty words come back in order.
 
+## Proving the conversion preserved the design
+
+A testbench passing means the conversion was right for the inputs it was given.
+For this design it is proven right for **every** input.
+
+```bash
+tools/formal/run.sh async_fifo
+```
+
+178 cells of 178 proven.
+
+**Two clocks do not prevent it.** The plan was to cut the design at the
+synchroniser and prove each clock domain separately, on the argument that
+cycle-accurate equivalence is not defined across an asynchronous boundary. That
+was not needed. `equiv_make` treats both clocks as free inputs like any other,
+so the statement proven is "for any waveform on either clock, the two netlists
+behave identically", and that is well-defined.
+
+**It is not a claim that the crossing is correct.** Whether the synchroniser is
+deep enough for the metastability it faces is a question about the design, not
+about whether the conversion preserved it. That stays with the testbench.
+
+Proving this design surfaced two defects in `iris2sv`. Both replaced a width
+expression with a comment and then reported the conversion as successful,
+producing output like `input logic [/* expr */-1:0] wr_data`. Neither occurs on
+the original source; they are reached only when a round trip turns a width into
+an expression.
+
+The mechanism is in
+[`doc/formal_verification_en.md`](../../../doc/formal_verification_en.md).
+
 ## Using Another Size
 
 Passing generic arguments at instantiation produces a FIFO of that size.

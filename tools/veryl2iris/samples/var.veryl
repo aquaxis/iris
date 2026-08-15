@@ -1,0 +1,7 @@
+module Probe (
+    a: input logic,
+    y: output logic,
+) {
+    var w: logic;
+    always_comb { w = a; y = w; }
+}
