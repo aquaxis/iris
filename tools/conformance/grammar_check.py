@@ -57,6 +57,53 @@ def blocks(path: pathlib.Path) -> str:
     return "\n".join(re.findall(r"```ebnf\n(.*?)```", path.read_text(), re.S))
 
 
+def references(body: str) -> set[str]:
+    """The rule names a body mentions.
+
+    Terminals and EBNF special sequences are removed first. Both quote styles
+    matter: `string_literal = '"' { string_char } '"'` mixes them, and a
+    stripper that only knew double quotes ate the reference in the middle.
+    """
+    body = re.sub(r"\?[^?]*\?", " ", body)
+    body = re.sub(r"'(?:[^'\\]|\\.)*'", " ", body)
+    body = re.sub(r'"(?:[^"\\]|\\.)*"', " ", body)
+    return set(re.findall(r"\b[a-z_][a-z_0-9]*\b", body))
+
+
+def well_formed(authority: dict[str, str]) -> int:
+    """Is the grammar closed, and is every rule reachable?
+
+    Chapter-by-chapter agreement says the documents match each other. It does
+    not say the grammar means anything: `port_connection = identifier ":"
+    expression ;` named a rule that was defined nowhere, and agreed perfectly
+    with two chapters that named it too.
+    """
+    failures = 0
+    used: set[str] = set()
+    for body in authority.values():
+        used |= references(body)
+
+    for name in sorted(used - set(authority)):
+        print(f"  FAIL  {AUTHORITY}: '{name}' is used but never defined")
+        failures += 1
+
+    start = next(iter(authority))
+    seen: set[str] = set()
+    stack = [start]
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in authority:
+            continue
+        seen.add(name)
+        stack.extend(references(authority[name]))
+
+    for name in sorted(set(authority) - seen):
+        print(f"  FAIL  {AUTHORITY}: '{name}' cannot be reached from '{start}'")
+        failures += 1
+
+    return failures
+
+
 def main() -> int:
     authority = rules(AUTHORITY.read_text())
 
@@ -72,6 +119,8 @@ def main() -> int:
         # authority itself, before any chapter is consulted.
         print(f"  FAIL  {AUTHORITY}: defined twice: {', '.join(sorted(duplicates))}")
         failures += len(duplicates)
+
+    failures += well_formed(authority)
 
     for path in sorted(SPEC.glob("*.md")):
         text = blocks(path)

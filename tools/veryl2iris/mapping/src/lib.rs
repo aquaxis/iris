@@ -152,6 +152,15 @@ pub const MAPPINGS: &[Mapping] = &[
         "IRIS has one boolean type, so the distinction between the two is lost",
     ),
     m(
+        "no counterpart",
+        "where clause on a generic parameter",
+        Verdict::Lossy,
+        Side::Iris,
+        "Veryl bounds a generic parameter with a proto, which constrains its \
+         shape and not its value, so `where DataWidth >= 1` cannot be carried; \
+         the parameters convert and the bound is reported as lost",
+    ),
+    m(
         "array declaration",
         "mem with ram/rom/read_mode/init_file",
         Verdict::Lossy,
@@ -183,6 +192,8 @@ pub const MAPPINGS: &[Mapping] = &[
       "IRIS has no counterpart"),
     m("modport .. / same / converse", "no counterpart", Verdict::Unsupported, Side::Veryl,
       "an IRIS view has neither a default direction nor reversal"),
+    m("module for proto", "no counterpart", Verdict::Unsupported, Side::Veryl,
+      "IRIS has no declaration that a module implements a named prototype"),
     m("range pattern", "no counterpart", Verdict::Unsupported, Side::Veryl,
       "an IRIS match pattern has no range form"),
     m("step in a part select", "no counterpart", Verdict::Unsupported, Side::Veryl,
@@ -225,6 +236,76 @@ const fn m(
 /// The common subset: what round-trips with its meaning intact.
 pub fn exact() -> impl Iterator<Item = &'static Mapping> {
     MAPPINGS.iter().filter(|m| m.verdict == Verdict::Exact)
+}
+
+/// A round trip that exercises one `Exact` row, or a statement of why there
+/// is not one yet.
+///
+/// **A table row is a claim, and a claim without a test is a hope.** Saying a
+/// construct crosses exactly means nothing until something crosses it, so
+/// every `Exact` row is either pointed at a sample or has its absence written
+/// down here in words. `mapping`'s own tests will not let a row be neither.
+pub struct Coverage {
+    /// The `veryl` field of the row this speaks about.
+    pub row: &'static str,
+    /// `tools/veryl2iris/samples/<slug>.veryl`, when there is one.
+    pub sample: Option<&'static str>,
+    /// Why there is no sample. Empty when there is one.
+    pub note: &'static str,
+}
+
+const fn covered(row: &'static str, sample: &'static str) -> Coverage {
+    Coverage { row, sample: Some(sample), note: "" }
+}
+
+const fn uncovered(row: &'static str, note: &'static str) -> Coverage {
+    Coverage { row, sample: None, note }
+}
+
+/// One entry for every `Exact` row, in the table's own order.
+pub const COVERAGE: &[Coverage] = &[
+    covered("module", "module"),
+    covered("input / output / inout port", "port"),
+    covered("inst", "inst"),
+    covered("always_comb", "always_comb"),
+    covered("always_ff", "always_ff"),
+    covered("assign", "assign"),
+    uncovered("function", "veryl2iris does not read a function yet"),
+    uncovered("import", "veryl2iris does not read import yet"),
+    covered("let", "let"),
+    covered("var", "var"),
+    covered("const", "const"),
+    // Not a gap in this converter. `tools/iris.ebnf` carries
+    // `type_alias = "type" identifier [ generic_params ] "=" type_expr ";"`
+    // and `item` admits it, but `iris-sim` has no rule for it at either the
+    // top level or inside a module, so there is nothing to round trip through.
+    uncovered("type", "iris-sim does not implement IRIS' own type alias"),
+    covered("enum", "enum"),
+    covered("struct / union", "struct_union"),
+    covered("logic", "logic"),
+    covered("logic<N>", "logic_n"),
+    covered("u8 .. u64", "u8_to_u64"),
+    covered("i8 .. i64", "i8_to_i64"),
+    covered("signed logic<N>", "signed_logic_n"),
+    uncovered("string", "iris-sim has no string-valued const to round trip through"),
+    covered("clock", "clock"),
+    covered("reset", "reset"),
+    covered("case expression", "case_expression"),
+    covered("if c ? x : y", "conditional_expression"),
+    covered("<:", "less_than"),
+    covered("{a repeat n}", "repeat"),
+    covered("{a[w-1] repeat n, a}", "sign_extend"),
+    covered(">>> << >>", "shifts"),
+    uncovered("interface", "veryl2iris does not read an interface yet"),
+    uncovered(
+        "modport with a direction per signal",
+        "a modport needs an interface, which veryl2iris does not read yet",
+    ),
+];
+
+/// Rows that a sample exercises.
+pub fn covered_rows() -> impl Iterator<Item = &'static Coverage> {
+    COVERAGE.iter().filter(|c| c.sample.is_some())
 }
 
 /// Entries that convert but lose something.

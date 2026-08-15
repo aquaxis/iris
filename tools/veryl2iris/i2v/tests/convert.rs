@@ -49,7 +49,10 @@ fn a_signed_type_keeps_its_sign() {
     // The whole point of int[N] is that it is signed. Writing it as a plain
     // vector would change what comparisons and shifts mean.
     let veryl = ok("mod M(in a: int[32], out y: int[32],) { comb { y = a; } }");
-    assert!(veryl.contains("signed logic<32>"), "{}", veryl);
+    // Veryl has a fixed type at this width, and it is the one that survives a
+    // round trip: `signed logic<32>` would come back as `int[32]` and then be
+    // written `i32`, so `i32` is written in the first place.
+    assert!(veryl.contains("i32"), "{}", veryl);
 }
 
 #[test]
@@ -167,18 +170,180 @@ fn a_sign_extension_that_narrows_is_refused() {
 }
 
 #[test]
+fn a_file_level_enum_is_written_into_the_module() {
+    // IRIS declares it once for the file; Veryl has no top-level form.
+    let out = ok(
+        "enum Op: bit[2] { Add, Sub }
+         mod M(in sel: bit[2], out y: bit[8],) {
+             comb { y = match sel { Op::Add => 8'd1, _ => 8'd0, }; }
+         }",
+    );
+    assert!(out.contains("enum Op: logic<2> {"), "{}", out);
+    assert!(out.contains("Op::Add:"), "{}", out);
+}
+
+#[test]
+fn a_file_with_a_named_type_and_several_modules_is_refused() {
+    // Writing the type into each module would make several types that only
+    // look alike, and each would elaborate.
+    let text = refused(
+        "enum Op: bit[2] { Add, Sub }
+         mod A(in s: bit[2], out y: bit,) { comb { y = 1'b0; } }
+         mod B(in s: bit[2], out y: bit,) { comb { y = 1'b0; } }",
+    );
+    assert!(text.contains("more than one module"), "{}", text);
+}
+
+#[test]
+fn a_struct_field_read_is_not_taken_for_a_method() {
+    let out = ok(
+        "struct Pair { lo: bit[4], hi: bit[4] }
+         mod M(in a: bit[4], out y: bit[8],) {
+             var p: Pair;
+             comb { p.lo = a; p.hi = 4'd2; y = {p.hi, p.lo}; }
+         }",
+    );
+    assert!(out.contains("p.hi"), "{}", out);
+}
+
+#[test]
+fn a_definition_on_a_declaration_is_not_dropped() {
+    // `const K: bit[8] = 8'd3;` became `var K: logic<8>;` and the 3 was gone.
+    // The result elaborated, simulated, and computed something else.
+    let out = ok(
+        "mod M(in a: bit[8], out y: bit[8],) {
+            const K: bit[8] = 8'd3;
+            comb { y = a + K; }
+        }",
+    );
+    assert!(out.contains("let K: logic<8> = 8'd3;"), "{}", out);
+}
+
+#[test]
+fn a_let_keeps_what_drives_it() {
+    let out = ok(
+        "mod M(in a: bit[8], out y: bit[8],) {
+            let w: bit[8] = a;
+            comb { y = w; }
+        }",
+    );
+    assert!(out.contains("let w: logic<8> = a;"), "{}", out);
+}
+
+#[test]
+fn a_starting_value_on_a_var_becomes_an_initial_block() {
+    // Veryl has no initialiser on a declaration, and a design need not reset
+    // its registers in the always_ff. Dropping this changed what the design
+    // computed from the first cycle.
+    let out = ok(
+        "mod M(in clk: clock, out y: bit[8],) {
+            var acc: bit[8] = 8'd7;
+            comb { y = acc; }
+        }",
+    );
+    assert!(out.contains("initial {"), "{}", out);
+    assert!(out.contains("acc = 8'd7;"), "{}", out);
+}
+
+#[test]
+fn a_generic_parameter_becomes_a_veryl_parameter() {
+    let out = ok(
+        "mod M[Width: uint = 8,](in a: bit[Width], out y: bit[Width],) { comb { y = a; } }",
+    );
+    assert!(out.contains("#("), "{}", out);
+    assert!(out.contains("param Width: u32 = 8,"), "{}", out);
+}
+
+#[test]
+fn a_width_written_over_a_parameter_is_carried() {
+    // Dropping the width here would leave a module that still parses and
+    // still simulates, one bit wide. That is the failure this tool exists
+    // to avoid, so it has a test on both sides.
+    let out = ok(
+        "mod M[Width: uint = 8,](in a: bit[Width], out y: bit[Width],) { comb { y = a; } }",
+    );
+    assert!(out.contains("a: input logic<Width>"), "{}", out);
+}
+
+#[test]
+fn a_memory_depth_written_over_a_parameter_is_not_resolved() {
+    // The parser settles `Depth` to its default, and emitting that number
+    // would turn a generic memory into a fixed one that still looks generic.
+    let out = ok(
+        "mod M[Depth: uint = 16,](in a: bit[4], out y: bit[8],) {
+            mem store: bit[8][Depth];
+            comb { y = store[a]; }
+        }",
+    );
+    assert!(out.contains("[Depth]"), "{}", out);
+    assert!(!out.contains("[16]"), "the parameter was resolved away:\n{}", out);
+}
+
+#[test]
+fn a_system_function_keeps_its_dollar() {
+    let out = ok(
+        "mod M[Depth: uint = 16, W: uint = $clog2(Depth),](in a: bit, out y: bit,) { comb { y = a; } }",
+    );
+    assert!(out.contains("$clog2(Depth)"), "{}", out);
+}
+
+#[test]
+fn a_where_clause_is_reported_as_lost() {
+    // Veryl bounds a parameter by its shape, not its value. A module that
+    // quietly lost its own bounds would accept an argument its author ruled
+    // out, and fail somewhere else entirely.
+    let converted = convert(
+        "t.iris",
+        "mod M[Width: uint = 8,] where Width >= 1, (in a: bit[Width], out y: bit[Width],) { comb { y = a; } }",
+    )
+    .expect("source should parse");
+    assert!(!converted.report.failed(), "{}", converted.report);
+    let text = converted.report.to_string();
+    assert!(text.contains("where clause"), "{}", text);
+}
+
+#[test]
 fn a_replication_becomes_a_repeat() {
     let out = ok("mod M(in a: bit, out y: bit[4],) { comb { y = {4{a}}; } }");
     assert!(out.contains("{a repeat 4}"), "{}", out);
 }
 
 #[test]
-fn reading_an_instance_port_is_not_reported_as_a_width_conversion() {
-    // `dec.rd` and `x.truncate[8]()` are the same syntax in IRIS and quite
-    // different problems. A reader has to be able to tell which one they hit.
-    let text = refused(
+fn reading_an_instance_port_becomes_a_wired_variable() {
+    // IRIS reads `u.q` straight out of the instance. Veryl has no such
+    // expression: the output is wired to a variable at the instantiation and
+    // the variable is read.
+    let out = ok(
         "mod Sub(in a: bit, out q: bit,) { comb { q = a; } }
          mod M(in a: bit, out y: bit,) { inst u = Sub { a: a, }; comb { y = u.q; } }",
+    );
+    assert!(out.contains("var u_q: logic;"), "{}", out);
+    assert!(out.contains("q: u_q"), "{}", out);
+    assert!(out.contains("y = u_q;"), "{}", out);
+}
+
+#[test]
+fn a_wire_name_that_is_taken_is_not_reused() {
+    // Reusing a declared name would connect the instance to whatever that
+    // name already meant, which simulates and is wrong.
+    let out = ok(
+        "mod Sub(in a: bit, out q: bit,) { comb { q = a; } }
+         mod M(in a: bit, out y: bit,) {
+             var u_q: bit = 0;
+             inst u = Sub { a: a, };
+             comb { y = u.q & u_q; }
+         }",
+    );
+    assert!(out.contains("var u_q_: logic;"), "{}", out);
+    assert!(out.contains("q: u_q_"), "{}", out);
+}
+
+#[test]
+fn reading_a_port_of_a_module_that_was_not_supplied_is_refused() {
+    // Without the other module there is no way to know what `q` is, and
+    // guessing a width would be worse than saying so.
+    let text = refused(
+        "mod M(in a: bit, out y: bit,) { inst u = Elsewhere { a: a, }; comb { y = u.q; } }",
     );
     assert!(text.contains("reading an instance's port"), "{}", text);
 }

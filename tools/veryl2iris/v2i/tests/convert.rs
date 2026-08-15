@@ -166,6 +166,213 @@ fn a_reshaping_construct_inside_a_larger_expression_is_refused() {
 }
 
 #[test]
+fn a_parameter_block_becomes_generic_parameters() {
+    // This block used to be read by nothing at all: a parameterised module
+    // came out with its parameters gone, and the converter called it a
+    // success.
+    let iris = ok(
+        "module M #(
+            param Width: u32 = 8,
+        ) (
+            a: input logic<Width>,
+            y: output logic<Width>,
+        ) {
+            always_comb { y = a; }
+        }",
+    );
+    assert!(iris.contains("[Width: uint[32] = 8,]"), "{}", iris);
+}
+
+#[test]
+fn a_width_written_over_a_parameter_is_not_dropped() {
+    // `logic<Width>` used to become plain `bit`, because "no width written"
+    // and "a width I could not read as a number" were the same answer. The
+    // result parsed, simulated, and was one bit wide.
+    let iris = ok(
+        "module M #(
+            param Width: u32 = 8,
+        ) (
+            a: input logic<Width>,
+            y: output logic<Width>,
+        ) {
+            always_comb { y = a; }
+        }",
+    );
+    assert!(iris.contains("in a: bit[Width]"), "{}", iris);
+    assert!(!iris.contains("in a: bit,"), "the width was dropped:\n{}", iris);
+}
+
+#[test]
+fn an_enum_is_lifted_out_of_the_module() {
+    // Veryl declares an enumeration inside a module; IRIS declares it at the
+    // top of the file. Same thing said in a different place.
+    let iris = ok(
+        "module M (
+            sel: input logic<2>,
+            y: output logic<8>,
+        ) {
+            enum Op: logic<2> {
+                Add,
+                Sub,
+            }
+            always_comb { y = case sel { Op::Add: 8'd1, default: 8'd0, }; }
+        }",
+    );
+    assert!(iris.contains("enum Op: bit[2] { Add, Sub }"), "{}", iris);
+    assert!(iris.find("enum Op").unwrap() < iris.find("mod M").unwrap(), "{}", iris);
+}
+
+#[test]
+fn a_struct_is_lifted_out_of_the_module() {
+    let iris = ok(
+        "module M (
+            a: input logic<4>,
+            y: output logic<8>,
+        ) {
+            struct Pair {
+                lo: logic<4>,
+                hi: logic<4>,
+            }
+            var p: Pair;
+            always_comb { p.lo = a; p.hi = 4'd2; y = {p.hi, p.lo}; }
+        }",
+    );
+    assert!(iris.contains("struct Pair { lo: bit[4], hi: bit[4] }"), "{}", iris);
+}
+
+#[test]
+fn a_var_with_no_starting_value_gets_none_invented() {
+    // Writing `= 0` here was harmless while the other direction dropped
+    // initialisers. Now that it carries them, an invented zero comes back as
+    // an `initial` block the source never had.
+    let iris = ok(
+        "module M (
+            a: input logic<8>,
+            y: output logic<8>,
+        ) {
+            var w: logic<8>;
+            always_comb { w = a; y = w; }
+        }",
+    );
+    assert!(iris.contains("var w: bit[8];"), "{}", iris);
+    assert!(!iris.contains("var w: bit[8] = 0;"), "a zero was invented:\n{}", iris);
+}
+
+#[test]
+fn let_const_and_assign_declarations_convert() {
+    let iris = ok(
+        "module M (
+            a: input logic<8>,
+            y: output logic<8>,
+            z: output logic<8>,
+        ) {
+            const K: logic<8> = 8'd3;
+            let w: logic<8> = a;
+            assign z = a;
+            always_comb { y = w + K; }
+        }",
+    );
+    assert!(iris.contains("const K: bit[8] = 8'd3;"), "{}", iris);
+    assert!(iris.contains("let w: bit[8] = a;"), "{}", iris);
+    // IRIS has no standalone continuous assignment; it lives in a comb block.
+    assert!(iris.contains("comb {"), "{}", iris);
+    assert!(iris.contains("z = a;"), "{}", iris);
+}
+
+#[test]
+fn an_initial_block_folds_onto_the_declarations() {
+    // IRIS writes a starting value on the declaration and has no initial
+    // block outside a test. Folding is the exact inverse of what iris2veryl
+    // does, so the round trip closes.
+    let iris = ok(
+        "module M (
+            c: input clock,
+            y: output logic<8>,
+        ) {
+            var acc: logic<8>;
+            initial {
+                acc = 8'd7;
+            }
+            always_comb { y = acc; }
+        }",
+    );
+    assert!(iris.contains("var acc: bit[8] = 8'd7;"), "{}", iris);
+    assert!(!iris.contains("initial"), "the block was carried too:\n{}", iris);
+}
+
+#[test]
+fn an_initial_block_that_is_not_just_starting_values_is_refused() {
+    // Folding only makes sense for plain assignments. Anything else stays an
+    // initial block, which IRIS allows only inside a test module.
+    let text = refused(
+        "module M (
+            c: input clock,
+            y: output logic<8>,
+        ) {
+            var acc: logic<8>;
+            initial {
+                if 1 {
+                    acc = 8'd7;
+                }
+            }
+            always_comb { y = acc; }
+        }",
+    );
+    assert!(text.contains("initial"), "{}", text);
+}
+
+#[test]
+fn a_chain_of_conditionals_nests_rather_than_flattens() {
+    // IRIS' if expression takes a braced expression after `else` and has no
+    // `else if` form, so a flat chain does not parse. Found on riscv_core,
+    // whose write-back picks one of five values.
+    let iris = ok(
+        "module Chain (
+            a: input logic,
+            b: input logic,
+            y: output logic<8>,
+        ) {
+            always_comb {
+                y = if a ? 8'd1 : if b ? 8'd2 : 8'd3;
+            }
+        }",
+    );
+    assert!(iris.contains("else { if b"), "{}", iris);
+    assert!(!iris.contains("else if"), "flat chain does not parse:\n{}", iris);
+}
+
+#[test]
+fn a_cast_is_refused_rather_than_carried() {
+    // `a as 32` used to come out unchanged and be reported as a success; the
+    // IRIS parser then rejected it. IRIS casts to a type, not to a width.
+    let text = refused(
+        "module Cast (
+            a: input logic<8>,
+            y: output logic<32>,
+        ) {
+            always_comb { y = a as 32; }
+        }",
+    );
+    assert!(text.contains("a cast written with `as`"), "{}", text);
+}
+
+#[test]
+fn a_module_implementing_a_proto_is_refused() {
+    // `module M for P` states that M implements a prototype. Saying nothing
+    // would drop the claim.
+    let text = refused(
+        "proto module P (
+            a: input logic,
+        );
+        module M for P (
+            a: input logic,
+        ) {
+        }",
+    );
+    assert!(text.contains("no counterpart in the target language"), "{}", text);
+}
+
+#[test]
 fn a_repeat_becomes_a_replication() {
     // Found by feeding this to the converter: it emitted the Veryl text
     // unchanged and reported success, and the IRIS parser then rejected it.

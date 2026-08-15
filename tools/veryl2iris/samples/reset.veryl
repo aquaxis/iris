@@ -1,0 +1,14 @@
+module Probe (
+    c: input clock,
+    r: input reset,
+    a: input logic,
+    y: output logic,
+) {
+    always_ff (c, r) {
+        if ~r {
+            y = 0;
+        } else {
+            y = a;
+        }
+    }
+}

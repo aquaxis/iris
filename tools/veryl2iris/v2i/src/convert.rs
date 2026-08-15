@@ -167,7 +167,21 @@ fn module_to_iris(file: &str, module: &vg::ModuleDeclaration) -> Result<(String,
         )));
     }
 
-    let mut out = format!("mod {}(\n", name);
+    // `module M for P` states that M implements a prototype. IRIS has no
+    // such declaration, and saying nothing would drop the claim.
+    if module.module_declaration_opt0.is_some() {
+        return Err(one(unsupported(
+            file,
+            position_of(&module.identifier.identifier_token),
+            "module for proto",
+        )));
+    }
+
+    let mut out = format!("mod {}", name);
+    if let Some(params) = &module.module_declaration_opt1 {
+        out.push_str(&parameters_to_iris(file, &params.with_parameter, &mut report)?);
+    }
+    out.push_str("(\n");
     if let Some(ports) = &module.module_declaration_opt2 {
         for line in ports_to_iris(file, &ports.port_declaration, &mut report)? {
             out.push_str(&format!("    {},\n", line));
@@ -175,12 +189,23 @@ fn module_to_iris(file: &str, module: &vg::ModuleDeclaration) -> Result<(String,
     }
     out.push_str(") {\n");
 
+    let initial = initial_values(file, module, &mut report)?;
+    let mut hoisted = String::new();
     let mut body = String::new();
     for item in &module.module_declaration_list {
-        body.push_str(&group_to_iris(file, &item.module_group, &mut report)?);
+        body.push_str(&group_to_iris(
+            file,
+            &item.module_group,
+            &initial,
+            &mut hoisted,
+            &mut report,
+        )?);
     }
     out.push_str(&body);
     out.push_str("}\n");
+
+    // The enumerations and structures the module declared sit above it.
+    out = format!("{}{}", hoisted, out);
 
     if report.failed() {
         return Err(report);
@@ -318,6 +343,64 @@ fn array_parts(
     Ok(Some((element, depth)))
 }
 
+/// `module M #(param W: u32 = 8,)` in Veryl, `mod M[W: uint[32] = 8,]` in IRIS.
+///
+/// **This block used to be read by nothing at all.** A parameterised module
+/// came out with its parameters gone and its widths collapsed to one bit, and
+/// the converter called that a success.
+fn parameters_to_iris(
+    file: &str,
+    params: &vg::WithParameter,
+    report: &mut Report,
+) -> Result<String, Report> {
+    let Some(list) = &params.with_parameter_opt else {
+        return Ok(String::new());
+    };
+
+    let mut items = Vec::new();
+    let mut groups = vec![&list.with_parameter_list.with_parameter_group];
+    for rest in &list.with_parameter_list.with_parameter_list_list {
+        groups.push(&rest.with_parameter_group);
+    }
+
+    for group in groups {
+        let item = match &*group.with_parameter_group_group {
+            vg::WithParameterGroupGroup::WithParameterItem(x) => &x.with_parameter_item,
+            // `#({ param a: u32, param b: u32 })` groups parameters under a
+            // shared attribute. IRIS has no grouping, and flattening would
+            // drop whatever the attribute said.
+            vg::WithParameterGroupGroup::LBraceWithParameterListRBrace(_) => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    Position::default(),
+                    "a group of parameters under one attribute",
+                    "IRIS lists parameters flat; the attribute would have nowhere to go",
+                )))
+            }
+        };
+
+        let name = text_of(&item.identifier.identifier_token.token);
+        let bound = match &*item.with_parameter_item_group0 {
+            vg::WithParameterItemGroup0::ArrayType(x) => {
+                array_type_to_iris(file, &x.array_type, Position::default(), report)?
+            }
+            // `param T: type = u32` passes a type rather than a value. IRIS
+            // spells that bound `type`.
+            vg::WithParameterItemGroup0::Type(_) => "type".to_string(),
+        };
+
+        match &item.with_parameter_item_opt {
+            Some(default) => {
+                let value = expression(file, &default.expression, Position::default())?;
+                items.push(format!("{}: {} = {}", name, bound, value));
+            }
+            None => items.push(format!("{}: {}", name, bound)),
+        }
+    }
+
+    Ok(format!("[{},]", items.join(", ")))
+}
+
 fn scalar_type_to_iris(
     file: &str,
     ty: &vg::ScalarType,
@@ -349,10 +432,14 @@ fn scalar_type_to_iris(
 
     Ok(match base.as_str() {
         "logic" | "bit" => match width {
-            Some(w) if signed => format!("int[{}]", w),
-            Some(w) => format!("bit[{}]", w),
-            None if signed => "int[1]".to_string(),
-            None => "bit".to_string(),
+            TypeWidth::Literal(w) if signed => format!("int[{}]", w),
+            TypeWidth::Literal(w) => format!("bit[{}]", w),
+            // IRIS takes a constant expression as a width too, so a width
+            // written over the module's parameters carries across as it is.
+            TypeWidth::Expression(e) if signed => format!("int[{}]", e),
+            TypeWidth::Expression(e) => format!("bit[{}]", e),
+            TypeWidth::None if signed => "int[1]".to_string(),
+            TypeWidth::None => "bit".to_string(),
         },
         "clock" => "clock".to_string(),
         "clock_posedge" => "clock".to_string(),
@@ -399,21 +486,48 @@ fn lossy(file: &str, position: Position, veryl: &str, _iris: &str) -> Diagnostic
     Diagnostic::lossy(file, position, entry, veryl)
 }
 
-/// The width inside `<...>`, when there is one.
-fn width_of(spelled: &str) -> Option<usize> {
-    let start = spelled.find('<')?;
-    let end = spelled.find('>')?;
-    spelled.get(start + 1..end)?.parse().ok()
+/// What sits inside `<...>` on a type, if anything.
+///
+/// **The two "no width" answers had been the same answer**, and that was a
+/// defect: `logic` has no width and becomes `bit`, while `logic<Width>` has a
+/// width this function could not read as a number. Returning `None` for both
+/// turned an eight-bit port into a one-bit one, in a module that still parsed
+/// and still simulated. That is the failure this converter exists to avoid,
+/// so the two cases are now distinct.
+enum TypeWidth {
+    /// No `<...>` at all.
+    None,
+    /// `<8>`.
+    Literal(usize),
+    /// `<Width>`, `<Width * 2>` — a constant expression over the parameters.
+    Expression(String),
+}
+
+fn width_of(spelled: &str) -> TypeWidth {
+    let (Some(start), Some(end)) = (spelled.find('<'), spelled.rfind('>')) else {
+        return TypeWidth::None;
+    };
+    let Some(inner) = spelled.get(start + 1..end) else {
+        return TypeWidth::None;
+    };
+    match inner.trim().parse() {
+        Ok(width) => TypeWidth::Literal(width),
+        Err(_) => TypeWidth::Expression(inner.trim().to_string()),
+    }
 }
 
 fn group_to_iris(
     file: &str,
     group: &vg::ModuleGroup,
+    initial: &std::collections::HashMap<String, String>,
+    hoisted: &mut String,
     report: &mut Report,
 ) -> Result<String, Report> {
     use vg::ModuleGroupGroup as G;
     match &*group.module_group_group {
-        G::ModuleItem(x) => item_to_iris(file, &x.module_item.generate_item, report),
+        G::ModuleItem(x) => {
+            item_to_iris(file, &x.module_item.generate_item, initial, hoisted, report)
+        }
         G::LBraceModuleGroupGroupListRBrace(_) => Err(one(unsupported(
             file,
             Position::default(),
@@ -425,11 +539,33 @@ fn group_to_iris(
 fn item_to_iris(
     file: &str,
     item: &vg::GenerateItem,
+    initial: &std::collections::HashMap<String, String>,
+    hoisted: &mut String,
     report: &mut Report,
 ) -> Result<String, Report> {
     use vg::GenerateItem as I;
     Ok(match item {
-        I::VarDeclaration(x) => var_to_iris(file, &x.var_declaration, report)?,
+        // IRIS declares these at the top of the file, not inside a module.
+        I::EnumDeclaration(x) => {
+            hoisted.push_str(&enum_to_iris(file, &x.enum_declaration, report)?);
+            String::new()
+        }
+        I::StructUnionDeclaration(x) => {
+            hoisted.push_str(&struct_union_to_iris(
+                file,
+                &x.struct_union_declaration,
+                report,
+            )?);
+            String::new()
+        }
+        I::VarDeclaration(x) => var_to_iris(file, &x.var_declaration, initial, report)?,
+        I::LetDeclaration(x) => let_to_iris(file, &x.let_declaration, report)?,
+        I::ConstDeclaration(x) => const_to_iris(file, &x.const_declaration, report)?,
+        I::AssignDeclaration(x) => assign_to_iris(file, &x.assign_declaration, report)?,
+        // Its statements were folded onto the declarations above. When they
+        // could not be, `initial` is empty and this falls through to the
+        // refusal below.
+        I::InitialDeclaration(_) if !initial.is_empty() => String::new(),
         I::AlwaysCombDeclaration(x) => {
             let body = block_to_iris(file, &x.always_comb_declaration.statement_block, 2, report)?;
             format!("    comb {{\n{}    }}\n", body)
@@ -561,9 +697,264 @@ fn inst_to_iris(
     ))
 }
 
+/// `enum Op: logic<2> { Add, Sub }` in Veryl, and the same in IRIS.
+///
+/// **The two languages put it in different places.** Veryl declares an
+/// enumeration inside a module, an interface or a package; IRIS declares it at
+/// the top of the file. So it is lifted out of the module here, and the caller
+/// writes it above.
+fn enum_to_iris(
+    file: &str,
+    decl: &vg::EnumDeclaration,
+    report: &mut Report,
+) -> Result<String, Report> {
+    let name = text_of(&decl.identifier.identifier_token.token);
+    let position = position_of(&decl.identifier.identifier_token);
+
+    let underlying = match &decl.enum_declaration_opt {
+        Some(opt) => format!(
+            ": {}",
+            scalar_type_to_iris(file, &opt.scalar_type, position, report)?
+        ),
+        None => String::new(),
+    };
+
+    let mut groups = vec![&decl.enum_list.enum_group];
+    for rest in &decl.enum_list.enum_list_list {
+        groups.push(&rest.enum_group);
+    }
+
+    let mut variants = Vec::new();
+    for group in groups {
+        let item = match &*group.enum_group_group {
+            vg::EnumGroupGroup::EnumItem(x) => &x.enum_item,
+            // Variants grouped under a shared attribute. IRIS lists them flat,
+            // and flattening would drop whatever the attribute said.
+            vg::EnumGroupGroup::LBraceEnumListRBrace(_) => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    position,
+                    "a group of enum variants under one attribute",
+                    "IRIS lists variants flat; the attribute would have nowhere to go",
+                )))
+            }
+        };
+        let variant = text_of(&item.identifier.identifier_token.token);
+        match &item.enum_item_opt {
+            Some(value) => variants.push(format!(
+                "{} = {}",
+                variant,
+                expression(file, &value.expression, position)?
+            )),
+            None => variants.push(variant),
+        }
+    }
+
+    Ok(format!(
+        "enum {}{} {{ {} }}\n\n",
+        name,
+        underlying,
+        variants.join(", ")
+    ))
+}
+
+/// `struct Pair { lo: logic<4> }` in Veryl, and the same in IRIS.
+///
+/// Lifted out of the module for the same reason as an enumeration.
+fn struct_union_to_iris(
+    file: &str,
+    decl: &vg::StructUnionDeclaration,
+    report: &mut Report,
+) -> Result<String, Report> {
+    let name = text_of(&decl.identifier.identifier_token.token);
+    let position = position_of(&decl.identifier.identifier_token);
+
+    if decl.struct_union_declaration_opt.is_some() {
+        return Err(one(Diagnostic::unimplemented(
+            file,
+            position,
+            "a generic struct or union",
+            "IRIS has generic parameters on a struct; the converter does not write them yet",
+        )));
+    }
+
+    let keyword = match &*decl.struct_union {
+        vg::StructUnion::Struct(_) => "struct",
+        vg::StructUnion::Union(_) => "union",
+    };
+
+    let mut groups = vec![&decl.struct_union_list.struct_union_group];
+    for rest in &decl.struct_union_list.struct_union_list_list {
+        groups.push(&rest.struct_union_group);
+    }
+
+    let mut fields = Vec::new();
+    for group in groups {
+        let item = match &*group.struct_union_group_group {
+            vg::StructUnionGroupGroup::StructUnionItem(x) => &x.struct_union_item,
+            vg::StructUnionGroupGroup::LBraceStructUnionListRBrace(_) => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    position,
+                    "a group of fields under one attribute",
+                    "IRIS lists fields flat; the attribute would have nowhere to go",
+                )))
+            }
+        };
+        let field = text_of(&item.identifier.identifier_token.token);
+        let ty = scalar_type_to_iris(file, &item.scalar_type, position, report)?;
+        fields.push(format!("{}: {}", field, ty));
+    }
+
+    Ok(format!("{} {} {{ {} }}\n\n", keyword, name, fields.join(", ")))
+}
+
+/// The starting values an `initial` block gives this module's variables.
+///
+/// IRIS writes a starting value on the declaration and has no `initial` block
+/// outside a `test`; Veryl has no initialiser on a declaration and uses
+/// `initial`. Folding the block back into the declarations is the exact
+/// inverse of what `iris2veryl` does, so the round trip closes.
+///
+/// Only a block of plain `name = value;` assignments folds. Anything else is
+/// left alone, and the `initial` item is then refused where it stands rather
+/// than half-carried.
+fn initial_values(
+    file: &str,
+    module: &vg::ModuleDeclaration,
+    report: &mut Report,
+) -> Result<std::collections::HashMap<String, String>, Report> {
+    let mut values = std::collections::HashMap::new();
+    for item in &module.module_declaration_list {
+        let group = &item.module_group;
+        let vg::ModuleGroupGroup::ModuleItem(x) = &*group.module_group_group else {
+            continue;
+        };
+        let vg::GenerateItem::InitialDeclaration(init) = &*x.module_item.generate_item else {
+            continue;
+        };
+        for stmt in &init.initial_declaration.statement_block.statement_block_list {
+            let vg::StatementBlockGroupGroup::StatementBlockItem(item) =
+                &*stmt.statement_block_group.statement_block_group_group
+            else {
+                return Ok(std::collections::HashMap::new());
+            };
+            let vg::StatementBlockItem::Statement(s) = &*item.statement_block_item else {
+                return Ok(std::collections::HashMap::new());
+            };
+            let vg::Statement::IdentifierStatement(id) = &*s.statement else {
+                return Ok(std::collections::HashMap::new());
+            };
+            let vg::IdentifierStatementGroup::Assignment(a) =
+                &*id.identifier_statement.identifier_statement_group
+            else {
+                return Ok(std::collections::HashMap::new());
+            };
+            // A compound assignment is not a starting value.
+            let operator = tokens_of(|c| c.assignment(&a.assignment))
+                .first()
+                .map(text_of)
+                .unwrap_or_default();
+            if operator != "=" {
+                return Ok(std::collections::HashMap::new());
+            }
+            let target = spell(&tokens_of(|c| {
+                c.expression_identifier(&id.identifier_statement.expression_identifier)
+            }));
+            let value = expression(file, &a.assignment.expression, Position::default())?;
+            values.insert(target, value);
+        }
+    }
+    let _ = report;
+    Ok(values)
+}
+
+/// `let x: T = e;` in Veryl, and the same in IRIS.
+fn let_to_iris(
+    file: &str,
+    decl: &vg::LetDeclaration,
+    report: &mut Report,
+) -> Result<String, Report> {
+    let name = text_of(&decl.identifier.identifier_token.token);
+    let position = position_of(&decl.identifier.identifier_token);
+    let value = expression(file, &decl.expression, position)?;
+    match &decl.let_declaration_opt {
+        Some(opt) => {
+            let ty = array_type_to_iris(file, &opt.array_type, position, report)?;
+            Ok(format!("    let {}: {} = {};\n", name, ty, value))
+        }
+        // IRIS takes the width from the initialiser when no type is written.
+        None => Ok(format!("    let {} = {};\n", name, value)),
+    }
+}
+
+/// `const K: T = v;` in Veryl, and the same in IRIS.
+fn const_to_iris(
+    file: &str,
+    decl: &vg::ConstDeclaration,
+    report: &mut Report,
+) -> Result<String, Report> {
+    let name = text_of(&decl.identifier.identifier_token.token);
+    let position = position_of(&decl.identifier.identifier_token);
+    let value = expression(file, &decl.expression, position)?;
+    let Some(opt) = &decl.const_declaration_opt else {
+        return Err(one(Diagnostic::unimplemented(
+            file,
+            position,
+            "a const with no type",
+            "IRIS needs a declared type here",
+        )));
+    };
+    let ty = match &*opt.const_declaration_opt_group {
+        vg::ConstDeclarationOptGroup::ArrayType(x) => {
+            array_type_to_iris(file, &x.array_type, position, report)?
+        }
+        // `const T: type = logic;` passes a type as a value.
+        vg::ConstDeclarationOptGroup::Type(_) => {
+            return Err(one(Diagnostic::unimplemented(
+                file,
+                position,
+                "a const holding a type",
+                "IRIS spells that a type alias; the converter does not write it yet",
+            )))
+        }
+    };
+    Ok(format!("    const {}: {} = {};\n", name, ty, value))
+}
+
+/// `assign y = e;` in Veryl, `comb { y = e; }` in IRIS.
+///
+/// IRIS has no standalone continuous assignment: an assignment lives inside a
+/// `comb` block. A module may hold several of those, so one is written per
+/// `assign` rather than gathering them.
+fn assign_to_iris(
+    file: &str,
+    decl: &vg::AssignDeclaration,
+    _report: &mut Report,
+) -> Result<String, Report> {
+    let target = match &*decl.assign_destination {
+        vg::AssignDestination::HierarchicalIdentifier(x) => {
+            spell(&tokens_of(|c| c.hierarchical_identifier(&x.hierarchical_identifier)))
+        }
+        // `assign {a, b} = x;` splits one value across several targets. IRIS
+        // has no assignment to a concatenation.
+        vg::AssignDestination::LBraceAssignConcatenationListRBrace(_) => {
+            return Err(one(Diagnostic::unimplemented(
+                file,
+                Position::default(),
+                "an assignment to a concatenation",
+                "IRIS assigns to one name at a time; the split would have to be written out",
+            )))
+        }
+    };
+    let value = expression(file, &decl.expression, Position::default())?;
+    Ok(format!("    comb {{\n        {} = {};\n    }}\n", target, value))
+}
+
 fn var_to_iris(
     file: &str,
     var: &vg::VarDeclaration,
+    initial: &std::collections::HashMap<String, String>,
     report: &mut Report,
 ) -> Result<String, Report> {
     let name = text_of(&var.identifier.identifier_token.token);
@@ -583,9 +974,16 @@ fn var_to_iris(
     }
 
     let ty = array_type_to_iris(file, &opt.array_type, position, report)?;
-    // IRIS wants an initial value; Veryl puts the reset value in always_ff.
-    // Zero is the value IRIS itself uses when a reset branch is absent.
-    Ok(format!("    var {}: {} = 0;\n", name, ty))
+    // A starting value written in an `initial` block belongs on the
+    // declaration in IRIS. Writing `= 0` when there was none used to be
+    // harmless, because the other direction dropped initialisers; now that it
+    // carries them, an invented zero comes back as an `initial` block the
+    // source never had. IRIS allows a var with no initialiser, so none is
+    // written when Veryl gave none.
+    match initial.get(&name) {
+        Some(start) => Ok(format!("    var {}: {} = {};\n", name, ty, start)),
+        None => Ok(format!("    var {}: {};\n", name, ty)),
+    }
 }
 
 fn always_ff_to_iris(
@@ -783,8 +1181,22 @@ fn statement_to_iris(
 /// `repeat` was added after `{i_v[11] repeat 20, i_v}` came out of this
 /// converter unchanged, was reported as a success, and was then rejected by
 /// the IRIS parser. IRIS writes the same thing as `{{20{i_v[11]}}, i_v}`.
+/// `as` joined the list after `y = a as 32;` came out unchanged, was reported
+/// as a success, and was rejected by the IRIS parser.
+///
+/// **IRIS has no cast to convert to.** `spec/03_type_system.md` describes
+/// `x as bit[16]` and `tools/iris.ebnf` carries `cast_expr = expr "as"
+/// type_expr`, but `iris-sim` rejects it:
+///
+/// ```text
+/// comb { y = a as bit[32]; }
+/// Parse error: Syntax error at line 5, column 18: expected postfix or bin_op
+/// ```
+///
+/// The method forms (`extend`, `truncate`, `saturate`, `signed`, `unsigned`)
+/// all parse. Only the cast is written down and not built.
 const SHAPE_DIFFERS: &[&str] = &[
-    "case", "switch", "if", "inside", "outside", "msb", "lsb", "repeat",
+    "case", "switch", "if", "inside", "outside", "msb", "lsb", "repeat", "as",
 ];
 
 /// Whether a token sequence holds a construct that cannot simply be re-spelled.
@@ -824,6 +1236,16 @@ fn expression(file: &str, expr: &vg::Expression, position: Position) -> Result<S
     }
 
     let construct = reshapes(&tokens).unwrap_or_else(|| "this construct".to_string());
+    if construct == "as" {
+        return Err(one(Diagnostic::unimplemented(
+            file,
+            position,
+            "a cast written with `as`",
+            "IRIS' own cast is described in the specification and in the grammar \
+             but `iris-sim` does not accept it, so there is nothing to convert \
+             to; the method forms such as extend and truncate do parse",
+        )));
+    }
     Err(one(Diagnostic::unimplemented(
         file,
         position,
@@ -851,10 +1273,18 @@ fn if_expression(
     expr: &vg::IfExpression,
     position: Position,
 ) -> Result<String, Report> {
+    // IRIS' if expression takes a braced expression after `else`, and no
+    // `else if` form: `if a { x } else if b { y } else { z }` does not parse.
+    // A chain of Veryl conditionals therefore nests rather than flattens.
     let mut out = String::new();
-    for branch in &expr.if_expression_list {
+    let mut closing = String::new();
+    for (i, branch) in expr.if_expression_list.iter().enumerate() {
         let condition = expression(file, &branch.expression, position)?;
         let value = expression(file, &branch.expression0, position)?;
+        if i > 0 {
+            out.push_str("{ ");
+            closing.push_str(" }");
+        }
         out.push_str(&format!("if {} {{ {} }} else ", condition, value));
     }
     // The tail is the final else, and it sits one level down the chain.
@@ -867,7 +1297,7 @@ fn if_expression(
             "only the branches of a conditional are rebuilt so far",
         )));
     }
-    out.push_str(&format!("{{ {} }}", tail));
+    out.push_str(&format!("{{ {} }}{}", tail, closing));
     Ok(out)
 }
 
@@ -905,6 +1335,18 @@ fn concatenation(
     for rest in &list.concatenation_list_list {
         items.push(concatenation_item(file, &rest.concatenation_item, position)?);
     }
+
+    // `{a repeat 8}` is already a whole expression in IRIS, written `{8{a}}`.
+    // Wrapping it in a concatenation as well would add a brace, and the brace
+    // came back on every pass: `{8{a}}`, `{{8{a}}}`, `{{{8{a}}}}`. The value
+    // never changed, but the round trip had no fixed point and the text grew
+    // without bound.
+    let single_repeat = list.concatenation_list_list.is_empty()
+        && list.concatenation_item.concatenation_item_opt.is_some();
+    if single_repeat {
+        return Ok(items.remove(0));
+    }
+
     Ok(format!("{{{}}}", items.join(", ")))
 }
 

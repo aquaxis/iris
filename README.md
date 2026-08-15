@@ -325,10 +325,17 @@ iris2veryl design.iris     # IRIS  -> Veryl
 | 拒否の種類 | 例 |
 |---|---|
 | 言語に対応物が無い | `f32`、`tri`、`bind`（Veryl側）／`fsm`、`rand`（IRIS側） |
-| この変換器が未実装 | 総称、インスタンスのポート読み、複数値のcaseアーム |
+| この変換器が未実装 | `interface`、`function`、複数値のcaseアーム |
 
 往復は模擬実行で一致することを`tools/conformance/run.sh`が検査します。
-いま往復するのは`counter`、`alu`、`regfile`、`decoder`の4本です。
+`example/`の6設計すべてが往復します。
+対応表で`Exact`と書いた30行のうち、24行に往復の断片があります
+（残り6行は理由を表が持っています）。
+複数のファイルは1つのプロジェクトとして渡してください。
+
+```bash
+iris2veryl decoder.iris regfile.iris alu.iris riscv_core.iris
+```
 
 詳細は[`doc/veryl.md`](./doc/veryl.md)、
 [`tools/veryl2iris/README.md`](./tools/veryl2iris/README.md)にあります。
@@ -463,7 +470,7 @@ pnpm -r --config.manage-package-manager-versions=false build
 
 ## 現在のステータス
 
-- **バージョン**: 0.7.0（開発中）
+- **バージョン**: 0.8.0（開発中）
 - **仕様書日付**: 2026-08-09
 - **対応SystemVerilog**: IEEE 1800-2017準拠を目標
 - **形式的等価性**: `example/`の6設計すべてについて、IRISと変換後SystemVerilogの等価性を段数無しで証明済み（`tools/formal/run.sh`）

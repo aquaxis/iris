@@ -1,0 +1,6 @@
+module Probe (
+    a: input logic<8>,
+    y: output logic<8>,
+) {
+    always_comb { y = a; }
+}

@@ -1,0 +1,6 @@
+module Probe (
+    a: input logic,
+    y: output logic,
+) {
+    always_comb { y = case a { 1'b0: 1'b1, default: 1'b0 }; }
+}

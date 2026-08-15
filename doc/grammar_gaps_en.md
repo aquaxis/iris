@@ -13,6 +13,33 @@ The IRIS language is written down in three places.
 The chapters and `tools/iris.ebnf` no longer disagree.
 `tools/conformance/grammar_check.py` keeps them from drifting again.
 
+## Is the grammar itself closed?
+
+**Agreeing with the chapters says nothing about whether the grammar means
+anything.**
+
+```
+port_connection = identifier ":" expression ;
+```
+
+There is no rule called `expression`. Every other rule uses `expr`. All three
+places (`tools/iris.ebnf`, `spec/04`, `spec/16`) spelled it the same way, so
+comparing them found nothing.
+
+**A mistake shared by all three copies cannot be caught by comparing them.**
+
+Two checks were added to `grammar_check.py`.
+
+| Check | What it looks at |
+|---|---|
+| Undefined reference | a rule name used with no definition |
+| Unreachable | a rule that `source_file` cannot reach |
+
+210 rules, nothing reported. `expression` is now `expr`. **The language did not
+change**: `expression` denoted nothing.
+
+## The specification's code examples
+
 **What is left is the syntax the specification's examples use.**
 
 Fifty-five complete examples were extracted from `spec/` and run through the

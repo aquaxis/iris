@@ -9,17 +9,23 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // The files are converted as one project, not one at a time. A module
+    // that instantiates another needs that other module's ports, and reading
+    // the files separately cannot supply them.
+    let mut files = Vec::new();
     let mut failed = false;
     for path in &args {
-        let source = match std::fs::read_to_string(path) {
-            Ok(s) => s,
+        match std::fs::read_to_string(path) {
+            Ok(source) => files.push((path.clone(), source)),
             Err(e) => {
                 eprintln!("{}: {}", path, e);
                 failed = true;
-                continue;
             }
-        };
-        match iris2veryl::convert::convert(path, &source) {
+        }
+    }
+
+    if !failed {
+        match iris2veryl::convert::convert_project(&files) {
             Ok(converted) => {
                 if !converted.report.is_empty() {
                     eprintln!("{}", converted.report);

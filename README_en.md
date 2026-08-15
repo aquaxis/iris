@@ -339,10 +339,17 @@ never dropped.
 | Kind of refusal | Example |
 |---|---|
 | The language has no counterpart | `f32`, `tri`, `bind` (Veryl side); `fsm`, `rand` (IRIS side) |
-| This converter has not caught up | generics, instance port reads, multi-value case arms |
+| This converter has not caught up | `interface`, `function`, multi-value case arms |
 
 `tools/conformance/run.sh` checks that a round trip still simulates the same.
-Four designs round-trip today: `counter`, `alu`, `regfile` and `decoder`.
+All six designs in `example/` round-trip. 24 of the 30 rows marked `Exact`
+in the correspondence table have a round trip of their own; the table records
+why the other 6 do not. Pass
+files that belong together as one project.
+
+```bash
+iris2veryl decoder.iris regfile.iris alu.iris riscv_core.iris
+```
 
 Details are in [`doc/veryl_en.md`](./doc/veryl_en.md) and
 [`tools/veryl2iris/README.md`](./tools/veryl2iris/README.md).
@@ -480,7 +487,7 @@ mistakes made along the way.
 
 ## Current status
 
-- **Version**: 0.7.0, in development
+- **Version**: 0.8.0, in development
 - **Specification dated**: 2026-08-09
 - **SystemVerilog target**: conformance with IEEE 1800-2017
 - **Formal equivalence**: all six designs in `example/` proven equivalent to their generated SystemVerilog, with no bound (`tools/formal/run.sh`)

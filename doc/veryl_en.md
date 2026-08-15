@@ -81,6 +81,53 @@ never been checked stood in place of a measurement, and it was wrong.
 
 All four immediate forms -- I, S, B and J -- are checked.
 
+**The async FIFO round-trips too, carrying its generic parameters.**
+
+```
+IRIS    mod AsyncFifo[DataWidth: uint = 8, Depth: uint = 16,
+                      AddrWidth: uint = $clog2(Depth), ...]
+Veryl   module AsyncFifo #(param DataWidth: logic<32> = 8, ...)
+```
+
+Widths and the memory depth travel as the parameter expressions they are.
+`$clog2` exists in both languages.
+
+**The `where` clause is the one part that cannot travel.** Veryl bounds a
+parameter with a `proto`, which constrains its shape and not its value, so
+`where DataWidth >= 1` has no counterpart.
+
+**It is reported, not dropped.** A module that quietly loses its own bounds
+accepts an argument its author ruled out and then fails somewhere else
+entirely.
+
+**The processor round-trips too, which makes it all six designs.**
+
+Four modules across four files, and `riscv_core` reads an instance's outputs
+straight out of the instance.
+
+```
+IRIS    alu_b = if dec.alu_b_imm { dec.imm } else { rf.rdata2 };
+```
+
+**Veryl has no such expression.** An output is wired to a variable at the
+instantiation and the variable is read.
+
+```
+Veryl   var dec_imm: logic<32>;
+        inst dec: Decoder (instr: imem_rdata, imm: dec_imm, ...);
+        alu_b = if dec_alu_b_imm ? dec_imm : rf_rdata2;
+```
+
+**That is why several files are now read as one project.** What `dec.rd` is
+comes from `decoder.iris`, and `riscv_core.iris` alone cannot say.
+
+The variable is named `<instance>_<port>`, lengthened if the module already
+declares that name. **Reusing a declared name would connect the instance to
+whatever that name already meant**, which simulates and is wrong.
+
+Across the four RV32I test programs, the original and the round trip produce
+byte-identical output.
+
 **There are controls.**
 
 | Check | Mutation | Result |
@@ -89,6 +136,11 @@ All four immediate forms -- I, S, B and J -- are checked.
 | ALU round trip | SLT becomes unsigned | `fails=0` → `1` |
 | regfile round trip | the written value becomes `wdata+1` | `fails=0` → `1` |
 | decoder round trip | the repeated sign bit becomes zero | all four immediate forms change |
+| async fifo round trip | `DataWidth` is narrowed to 4 | the verification fails |
+| processor round trip | `rdata1`'s wire is crossed onto `rdata2` | the output changes |
+
+**The async FIFO control shows directly that the parameter survived the round
+trip**: narrowing it breaks the design, which means the value is doing work.
 
 **The decoder control is exactly the failure the cast would have caused.**
 Turning `{20{instr[31]}}` into `{20{1'b0}}` makes it a zero extension, and
@@ -106,7 +158,7 @@ to x0 changed nothing: the design also forces x0 to zero on the read side, so
 the mutation is invisible. **A control aimed where nothing can observe it is
 not a control.**
 
-All are in `tools/conformance/run.sh`, which went from 130 checks to 141, no
+All are in `tools/conformance/run.sh`, which went from 130 checks to 151, no
 failures.
 
 **The checks were themselves checked.** Deliberately breaking the converter so
@@ -120,29 +172,67 @@ it drops a `case` default makes `alu round trip` fail.
 | `alu` | Round-trips |
 | `regfile` | Round-trips |
 | `decoder` | Round-trips |
-| `riscv_core` | Refused (unimplemented). Reads an instance's port |
-| `async_fifo` | Refused (unimplemented). Generic width |
+| `async_fifo` | Round-trips |
+| `riscv_core` | Round-trips |
 
-**`riscv_core`'s reason changed.** With `sign_extend` settled, this is what it
-hit next.
+**All six designs round-trip.**
+
+### Every row of the table, one at a time
+
+**Six designs passing is not the same as covering the syntax.** So each of the
+30 rows marked `Exact` got a small fragment of its own, and each fragment was
+round-tripped.
+
+| | Count |
+|---|---|
+| `Exact` rows | 30 |
+| with a round trip | **24** |
+| no fragment to write | 6 |
+
+**Six rows say the construct carries across, and it does not.**
+
+| Row | Why |
+|---|---|
+| `function`, `import`, `interface`, `modport` | unimplemented on the Veryl-reading side |
+| `string` | `iris-sim` has no string-valued constant to round trip through |
+| `type` | **`iris-sim` does not implement IRIS' own type alias** |
+
+`type` is a different kind of gap. `tools/iris.ebnf` carries `type_alias` and
+admits it in both `item` and `mod_item`, and `iris-sim` has no rule for it in
+either place. **The same shape as `as`.**
 
 ```
-IRIS    alu_a = if dec.alu_a_pc { pc } else { rf.rdata1 };
+$ iris-sim -i alias.iris
+type Byte = bit[8];
+Parse error: Syntax error at line 1, column 1: expected file
 ```
 
-IRIS reads an instance's output port directly in an expression. Veryl has no
-such expression: an output is wired to a variable at the instantiation and
-that variable is read. **The rewrite is possible but needs the ports of the
-instantiated module**, and this converter reads one file at a time.
+`tools/conformance/run.sh` now watches that this is still the case. When it is
+implemented the check fails and says the row can have a fragment.
 
-**That is not a gap between the languages either.**
+**`tools/veryl2iris/mapping`'s own tests hold that count.** Add a row without
+a fragment or a stated reason and they fail; delete a fragment and they fail.
+**A machine, not a memory, keeps the rows and the tests in step.**
+
+### The comparison starts at the second pass
+
+The first pass normalises.
+
+```
+pass 1  y = b < c        ->  y = (b < c)
+pass 2  y = (b < c)      ->  y = (b < c)
+```
+
+A check that failed on parenthesisation would be checking formatting, not
+meaning. **What has to hold is that it reaches a point where it stops
+moving.** Passes two and three are compared.
 
 Refusals come in two kinds, and they are reported differently.
 
 | Kind | Example | What the reader does |
 |---|---|---|
 | The language has no counterpart | `fsm`, `f32`, `tri` | Rewrite the design, or give up on it |
-| This converter has not caught up | generics, instance port reads, multi-value case arms | Wait for the tool |
+| This converter has not caught up | `as` casts, multi-value case arms | Wait for the tool |
 
 **The two are never conflated.** One is a fact about the design, the other a
 fact about the tool, and they call for different actions.
@@ -201,14 +291,181 @@ Veryl   {a repeat n, b}
 IRIS    {{n{a}}, b}
 ```
 
+**A third time, with `as`.**
+
+```
+$ veryl2iris cast.veryl
+    y = a as 32;    <- not IRIS
+$ echo $?
+0
+```
+
+### `as` had nothing to be converted into
+
+The reason for refusing it was measured. **IRIS' own `as` is not
+implemented.**
+
+The specification and the grammar both carry it.
+
+```
+spec/03_type_system.md:514   | `as T` | type cast | `x as bit[16]` |
+tools/iris.ebnf:154          cast_expr = expr "as" type_expr ;
+```
+
+`iris-sim` does not accept it.
+
+```
+$ iris-sim -i as.iris
+comb { y = a as bit[32]; }
+Parse error: Syntax error at line 5, column 18: expected postfix or bin_op
+```
+
+**Every method form does parse.**
+
+| | Result |
+|---|---|
+| `.extend[32]()`, `.truncate[4]()` | parses |
+| `.saturate[4]()`, `.signed()`, `.unsigned()` | parses |
+| `x as bit[32]` | **syntax error** |
+
+So `as` is written down and not built. **With nothing to convert into,
+refusing is the right answer.**
+
+This is a gap between the specification and the implementation, not between
+IRIS and Veryl. `tools/conformance/run.sh` now checks both halves at once:
+that the converter refuses it, and that `iris-sim` rejects the IRIS cast it
+would have to produce. If `iris-sim` ever accepts it, the check fails and says
+the refusal can be lifted.
+
+### `else if` cannot be chained in an expression
+
+`riscv_core`'s write-back picks one of five values.
+
+```
+Veryl   if a ? x : if b ? y : if c ? z : w
+```
+
+Copied out flat, that does not parse as IRIS.
+
+```
+IRIS    if_expr = "if" expr "{" expr "}" "else" "{" expr "}"
+```
+
+After `else` comes `{ expr }` and nothing else; there is no `else if` form.
+**Statements have one; expressions do not.** So it nests.
+
+```
+IRIS    if a { x } else { if b { y } else { if c { z } else { w } } }
+```
+
+No design with a single condition showed this. **`riscv_core` was the first.**
+
+### A definition written on a declaration was being dropped
+
+**The second of its kind, after the width.**
+
+It surfaced while working through the table row by row, on `let` and `const`.
+
+```
+IRIS                          what was emitted
+const K: bit[8] = 8'd3;   ->  var K: logic<8>;      the 3 is gone
+let w: bit[8] = a;        ->  var w: logic<8>;      w = a is gone
+var acc: bit[8] = 8'd7;   ->  var acc: logic<8>;    it starts at zero
+```
+
+**Each is valid Veryl, elaborates, simulates, and computes something else.**
+
+The reasoning had been written down:
+
+> IRIS writes an initial value on the declaration; Veryl has no such form,
+> and the reset branch of an always_ff is where the value belongs
+
+**True of a register whose design writes its own reset. False of everything
+else.** For `const` and `let` the initialiser is the definition, not a reset
+value. And a `var`'s initialiser is doing work in any design that does not
+write a reset branch:
+
+```
+$ iris-sim -i initv.iris        # the sync block has no reset branch
+before=7    <- the declaration's value is in effect
+after=9
+```
+
+Now `let` and `const` carry their definitions, a `var`'s starting value
+becomes a Veryl `initial` block, and coming back the `initial` block folds
+onto the declarations. **That folding is the exact inverse.**
+
+**`let` and `const` cannot be told apart.** `iris-sim`'s parser records both
+as immutable-with-an-initialiser and keeps no note of which word was written.
+`let` is right for both and `const` would be wrong for `let w = a`, so `let`
+is what gets written.
+
+### "No width" and "a width I could not read" were the same answer
+
+**This is the worst defect found in this tool so far.**
+
+It surfaced as soon as generic parameters were handled.
+
+```
+$ veryl2iris w.veryl
+mod W(
+    in a: bit,        <- logic<Width> has become one bit
+    out y: bit,
+)
+$ echo $?
+0                      <- reported as a success
+```
+
+**The output is valid IRIS and simulates.** No parser catches it. Only a value
+does.
+
+```
+what eight bits give: 200 + 1 = 201
+what came out:        200 + 1 = 1
+```
+
+The cause was the function that read a type's width.
+
+```rust
+fn width_of(spelled: &str) -> Option<usize> {
+    ...
+    spelled.get(start + 1..end)?.parse().ok()   // "Width" gives None
+}
+```
+
+The caller read `None` as "no width was written" and produced `bit`. **`logic`
+and `logic<Width>` were arriving at the same answer.**
+
+It now has three cases.
+
+| | Meaning | IRIS |
+|---|---|---|
+| `None` | there is no `<...>` | `bit` |
+| `Literal(8)` | `<8>` | `bit[8]` |
+| `Expression("Width")` | `<Width>` | `bit[Width]` |
+
+IRIS takes a constant expression as a width too, so carrying the expression
+through was all it needed.
+
+**This is the same kind of failure as `veryl translate` dropping assignments**:
+output that parses, simulates, and is wrong. This tool exists to avoid that,
+and was doing it.
+
+**Something else was being dropped in the same place.** Nothing read the
+`#(param ...)` block, so the parameters vanished with it. The grammar puts it
+at `module_declaration_opt1`, and only `opt` (generics) and `opt2` (ports) were
+ever looked at. `opt0`, which declares that a module implements a proto, was
+not looked at either; it is now refused.
+
+**Nowhere in the code does it say which nodes are not being read.**
+
 **Still refused.**
 
 | | Reason |
 |---|---|
 | An arm listing several values (`2'd0, 2'd1: x`) | An IRIS match arm takes one pattern; splitting the arm is not written |
-| Generics (`bit[DataWidth]`) | Veryl has generics too. Not written |
-| Reading an instance's port (`dec.rd`) | Veryl wires it to a variable first; the other module's ports are needed. Not written |
-| Width conversions other than `sign_extend` | Veryl can write them. Not written |
+| A cast written with `as` | **IRIS' own `as` is not implemented** (below) |
+| `truncate`, `saturate`, `signed`, `unsigned` | Veryl can write them. Not written |
 | Multi-dimensional arrays | An IRIS `mem` is one-dimensional; folding changes what the index means |
 | A `case` inside a larger expression (`8'd1 + case ...`) | Only a whole expression is rebuilt |
 | `switch`, `inside`, `outside`, `msb`, `lsb` | Not written |
