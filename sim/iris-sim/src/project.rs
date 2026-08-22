@@ -48,6 +48,8 @@ pub struct Project {
     pub structs: HashMap<String, StructDecl>,
     /// User-defined functions, by name
     pub functions: HashMap<String, FnDecl>,
+    /// Type aliases, by name: the type each stands for
+    pub type_aliases: HashMap<String, Type>,
     /// What each source file declared and imported, for name resolution
     file_scopes: Vec<FileScope>,
     /// Top module name
@@ -63,6 +65,7 @@ impl Project {
             enums: HashMap::new(),
             structs: HashMap::new(),
             functions: HashMap::new(),
+            type_aliases: HashMap::new(),
             file_scopes: Vec::new(),
             top_module: None,
         }
@@ -125,6 +128,11 @@ impl Project {
     /// to the declared defaults. A module instantiated with different arguments becomes
     /// several concrete modules, and the instances are rewritten to point at them.
     pub fn elaborate(&mut self) {
+        // Type aliases are resolved first of all: a name that stands for a
+        // type becomes that type, so nothing after this point has to know an
+        // alias ever existed. It runs before names are qualified, so the alias
+        // is still written as the source wrote it.
+        self.resolve_type_aliases();
         // Enumerations are resolved first: a variant becomes its value and an
         // enum-typed declaration gets a width, so the rest of elaboration and
         // the whole simulator see ordinary numbers.
@@ -292,6 +300,11 @@ impl Project {
             scope.declared.push((interface.name.clone(), qualified.clone()));
             interface.name = qualified.clone();
             self.interfaces.insert(qualified, interface);
+        }
+        // A type alias is resolved by the name it is written with, before any
+        // qualification, so it is keyed on its simple name.
+        for (name, ty) in result.type_aliases {
+            self.type_aliases.insert(name, ty);
         }
 
         self.file_scopes.push(scope);
@@ -600,6 +613,44 @@ impl Project {
     ///
     /// `Colour::Red` becomes a literal and `var c: Colour` gets the width the
     /// enumeration needs, so nothing downstream has to know about enums.
+    /// Replace every `Type::Named` that names a type alias with the type it
+    /// stands for, so nothing downstream has to know an alias existed.
+    fn resolve_type_aliases(&mut self) {
+        if self.type_aliases.is_empty() {
+            return;
+        }
+        let flat = self.flatten_type_aliases();
+        for module in self.modules.values_mut() {
+            apply_module_aliases(module, &flat);
+        }
+        for interface in self.interfaces.values_mut() {
+            for signal in &mut interface.signals {
+                substitute_type_alias(&mut signal.ty, &flat);
+            }
+        }
+    }
+
+    /// The alias map with chains followed: `type B = A; type A = bit[8]` gives
+    /// `B -> bit[8]`. A cycle stops at the number of aliases so it terminates.
+    fn flatten_type_aliases(&self) -> HashMap<String, Type> {
+        let mut flat = HashMap::new();
+        for (name, first) in &self.type_aliases {
+            let mut ty = first.clone();
+            let mut steps = 0;
+            while let Type::Named(next) = &ty {
+                match self.type_aliases.get(next) {
+                    Some(t) if steps < self.type_aliases.len() => {
+                        ty = t.clone();
+                        steps += 1;
+                    }
+                    _ => break,
+                }
+            }
+            flat.insert(name.clone(), ty);
+        }
+        flat
+    }
+
     fn resolve_enums(&mut self) {
         if self.enums.is_empty() {
             return;
@@ -1289,6 +1340,36 @@ fn rewrite_module_enums(
         for (_, expr) in &mut inst.generic_args {
             rewrite_expr(expr, variants);
         }
+    }
+}
+
+/// Substitute type aliases in a module's declared types.
+fn apply_module_aliases(module: &mut Module, aliases: &HashMap<String, Type>) {
+    for port in &mut module.ports {
+        substitute_type_alias(&mut port.ty, aliases);
+    }
+    for signal in &mut module.signals {
+        substitute_type_alias(&mut signal.ty, aliases);
+    }
+    for mem in &mut module.memories {
+        substitute_type_alias(&mut mem.element_type, aliases);
+    }
+    for generic in &mut module.generics {
+        substitute_type_alias(&mut generic.ty, aliases);
+    }
+}
+
+/// Replace a `Type::Named` that names an alias with the type it stands for,
+/// reaching inside an array element as well.
+fn substitute_type_alias(ty: &mut Type, aliases: &HashMap<String, Type>) {
+    match ty {
+        Type::Named(name) => {
+            if let Some(target) = aliases.get(name) {
+                *ty = target.clone();
+            }
+        }
+        Type::Array { element, .. } => substitute_type_alias(element, aliases),
+        _ => {}
     }
 }
 

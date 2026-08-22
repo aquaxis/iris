@@ -42,6 +42,8 @@ pub struct ParseResult {
     pub imports: Vec<(String, Vec<String>)>,
     /// Names this file offers on to the packages that import it
     pub exports: Vec<String>,
+    /// Type aliases: a name and the type it stands for. `type Byte = bit[8];`
+    pub type_aliases: Vec<(String, Type)>,
 }
 
 /// IRIS Parser
@@ -105,6 +107,9 @@ impl Parser {
                         Rule::fn_decl => {
                             result.functions.push(self.parse_fn(inner_pair)?);
                         }
+                        Rule::type_alias => {
+                            result.type_aliases.push(self.parse_type_alias(inner_pair)?);
+                        }
                         Rule::package_decl => {
                             result.package = inner_pair
                                 .into_inner()
@@ -145,12 +150,29 @@ impl Parser {
                     Rule::fn_decl => {
                         result.functions.push(self.parse_fn(pair)?);
                     }
+                    Rule::type_alias => {
+                        result.type_aliases.push(self.parse_type_alias(pair)?);
+                    }
                     _ => {}
                 }
             }
         }
 
         Ok(result)
+    }
+
+    /// Parse a type alias: `type Byte = bit[8];`
+    fn parse_type_alias(
+        &self,
+        pair: pest::iterators::Pair<Rule>,
+    ) -> Result<(String, Type), ParseError> {
+        let mut inner = pair.into_inner();
+        let name = Self::next_str(&mut inner, "type alias name")?;
+        let type_pair = inner.next().ok_or_else(|| {
+            ParseError::UnexpectedToken("Expected a type in a type alias".to_string())
+        })?;
+        let ty = self.parse_type(type_pair)?;
+        Ok((name, ty))
     }
 
     /// Parse an import: the package path and the names taken from it

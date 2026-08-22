@@ -139,7 +139,7 @@ iris/
 │   ├── iris-sim/          # シミュレータ（インタプリタ + コンパイラ）
 │   └── iris-runtime/      # 値、演算、波形（両実行方式が共有）
 ├── tools/
-│   ├── irisfmt/           # フォーマッタ / リンタ
+│   ├── irisfmt/           # フォーマッタ、リンタ、Language Server、VSCode拡張
 │   ├── iris2sv/           # IRIS → SystemVerilog トランスパイラ
 │   ├── sv2iris/           # SystemVerilog → IRIS トランスパイラ
 │   ├── conformance/       # 3つのツールを全設計に通す突き合わせ
@@ -193,9 +193,20 @@ IRISの値とその演算、波形の記録とVCD出力を提供するライブ�
 
 ### ユーティリティ（TypeScript製）
 
-**irisfmt**：フォーマッタとリンタ
+**irisfmt**：フォーマッタ、リンタ、Language Server、VSCode拡張
 
 IRISソースコードの自動整形とコーディング規約チェックを行います。
+加えてLanguage Server（`packages/ls`）とVSCode拡張（`packages/vscode-iris`）を持ちます。
+
+VSCode拡張は2つの層でエディタを支えます。
+
+| 層 | 何をするか | 動く条件 |
+|---|---|---|
+| Syntax Highlight | 予約語、型、数値、演算子を色付けする | 文法ファイルだけで効く |
+| Language Server | 診断、フォーマット、補完、ホバー、定義へ移動、参照検索、リネーム | サーバのビルドと起動が要る |
+
+Syntax HighlightはLanguage Serverが動かない環境でも効きます。
+使い方と覆えている構文の範囲は[`doc/editor.md`](./doc/editor.md)を参照してください。
 
 **iris2sv**：IRISからSystemVerilogへのトランスパイラ
 
@@ -329,8 +340,8 @@ iris2veryl design.iris     # IRIS  -> Veryl
 
 往復は模擬実行で一致することを`tools/conformance/run.sh`が検査します。
 `example/`の6設計すべてが往復します。
-対応表で`Exact`と書いた30行のうち、24行に往復の断片があります
-（残り6行は理由を表が持っています）。
+対応表で`Exact`と書いた30行のうち、29行に往復の断片があります
+（残り1行は理由を表が持っています）。
 複数のファイルは1つのプロジェクトとして渡してください。
 
 ```bash
@@ -459,6 +470,7 @@ pnpm -r --config.manage-package-manager-versions=false build
 | [仕様書と実装の差](./doc/grammar_gaps.md) | 仕様書のコード例のうち構文解析を通らないもの |
 | [ブロック図ビューア](./doc/schematic.md) | モジュール接続をブラウザで描く |
 | [Surferでの波形表示](./doc/surfer_plugin.md) | 波形を読み、`mem`を要素ごとに展開する |
+| [エディタ支援](./doc/editor.md) | VSCodeのSyntax HighlightとLanguage Server |
 
 リポジトリ直下の`report_*.md`は資料ではなく**作業の記録**です。
 経緯、測定、判断、そこで出た誤りを残しています。

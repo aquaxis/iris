@@ -44,6 +44,14 @@
     "numbers": {
       "patterns": [
         {
+          "name": "constant.numeric.sized.iris",
+          "match": "\\b[0-9][0-9_]*'[bodhBODH][0-9a-fA-F_]+|'[bodhBODH][0-9a-fA-F_]+"
+        },
+        {
+          "name": "constant.numeric.duration.iris",
+          "match": "\\b[0-9][0-9_]*(\\.[0-9]+)?(ps|ns|us|ms|s)\\b"
+        },
+        {
           "name": "constant.numeric.hex.iris",
           "match": "\\b0x[0-9a-fA-F_]+\\b"
         },
@@ -65,27 +73,35 @@
       "patterns": [
         {
           "name": "keyword.control.iris",
-          "match": "\\b(if|else|match|for|while|return|when|goto)\\b"
+          "match": "\\b(if|else|match|for|while|return|when|goto|break|continue|until|await|default)\\b"
         },
         {
           "name": "keyword.declaration.iris",
-          "match": "\\b(mod|fn|let|var|const|type|struct|enum|interface|package|import)\\b"
+          "match": "\\b(mod|fn|let|var|const|type|struct|union|enum|interface|package|import|use|export|extern|extends)\\b"
         },
         {
           "name": "keyword.hardware.iris",
-          "match": "\\b(comb|sync|fsm|state|transitions|mem|inst)\\b"
+          "match": "\\b(comb|sync|seq|fsm|state|transitions|mem|inst|ram|rom|initial|event)\\b"
+        },
+        {
+          "name": "keyword.verification.iris",
+          "match": "\\b(assert|assume|expect|cover|rand|constraint|test|wait|sample|timeout|should_fail|cycles|assert_cycles|assert_time)\\b"
+        },
+        {
+          "name": "keyword.severity.iris",
+          "match": "\\b(error|warning|fatal)\\b"
         },
         {
           "name": "keyword.direction.iris",
-          "match": "\\b(in|out|inout)\\b"
+          "match": "\\b(in|out|inout|initiator|target|monitor)\\b"
         },
         {
           "name": "keyword.modifier.iris",
-          "match": "\\b(pub|mut|async)\\b"
+          "match": "\\b(pub|mut|async|parametric|ignore)\\b"
         },
         {
           "name": "keyword.other.iris",
-          "match": "\\b(as|where|view|output|test|assert|wait|sample|timeout|should_fail)\\b"
+          "match": "\\b(as|where|view|output|rust|encoding|onehot|gray|binary|read_mode|write_mode|init_file|active_low|period|ports)\\b"
         }
       ]
     },

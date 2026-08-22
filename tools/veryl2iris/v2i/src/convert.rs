@@ -105,6 +105,30 @@ fn convert_description(
                         Err(sub) => report.extend(sub),
                     }
                 }
+                P::FunctionDeclaration(f) => {
+                    match function_to_iris(file, &f.function_declaration) {
+                        Ok((text, sub)) => {
+                            report.extend(sub);
+                            if !out.is_empty() {
+                                out.push('\n');
+                            }
+                            out.push_str(&text);
+                        }
+                        Err(sub) => report.extend(sub),
+                    }
+                }
+                P::InterfaceDeclaration(i) => {
+                    match interface_to_iris(file, &i.interface_declaration) {
+                        Ok((text, sub)) => {
+                            report.extend(sub);
+                            if !out.is_empty() {
+                                out.push('\n');
+                            }
+                            out.push_str(&text);
+                        }
+                        Err(sub) => report.extend(sub),
+                    }
+                }
                 P::AliasDeclaration(_) => {
                     report.push(unsupported(file, Position::default(), "alias"))
                 }
@@ -135,13 +159,435 @@ fn convert_description(
             "include",
             "the converter could inline the file; it does not yet",
         )),
-        D::ImportDeclaration(_) => report.push(Diagnostic::unimplemented(
+        D::ImportDeclaration(x) => {
+            let text = import_to_iris(&x.import_declaration);
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&text);
+        }
+    }
+}
+
+/// A top-level Veryl `import` as an IRIS one.
+///
+/// The two languages spell import the same way, down to `::*` and `::{a, b}`.
+/// The scoped path carries across as its own tokens; only the optional tail
+/// (`*` or a brace list) is rebuilt so the spacing is the converter's, not the
+/// walker's.
+fn import_to_iris(import: &vg::ImportDeclaration) -> String {
+    // A package path is identifiers joined by `::`, which bind tightly, so the
+    // tokens are concatenated rather than spelled: `spell` would space `::`.
+    let path: String = tokens_of(|c| c.scoped_identifier(&import.scoped_identifier))
+        .iter()
+        .map(text_of)
+        .collect();
+    let mut out = format!("import {}", path);
+    if let Some(opt) = &import.import_declaration_opt {
+        out.push_str("::");
+        use vg::ImportDeclarationOptGroup as G;
+        match &*opt.import_declaration_opt_group {
+            G::Star(_) => out.push('*'),
+            G::MultipleImportList(list) => {
+                let list = &list.multiple_import_list;
+                let mut items = vec![text_of(
+                    &list.multiple_import_item.identifier.identifier_token.token,
+                )];
+                for extra in &list.multiple_import_list_list {
+                    items.push(text_of(
+                        &extra.multiple_import_item.identifier.identifier_token.token,
+                    ));
+                }
+                out.push_str(&format!("{{{}}}", items.join(", ")));
+            }
+        }
+    }
+    out.push_str(";\n");
+    out
+}
+
+/// A top-level Veryl `function` as an IRIS `fn`.
+///
+/// IRIS' function is a pure expression: let bindings, then a single return.
+/// A Veryl function whose body is anything more than that is refused rather
+/// than half-written, since the two would then mean different things.
+fn function_to_iris(
+    file: &str,
+    func: &vg::FunctionDeclaration,
+) -> Result<(String, Report), Report> {
+    let mut report = Report::default();
+    let name = text_of(&func.identifier.identifier_token.token);
+    let position = position_of(&func.identifier.identifier_token);
+
+    if func.function_declaration_opt.is_some() {
+        return Err(one(Diagnostic::unimplemented(
+            file,
+            position,
+            "a generic function",
+            "IRIS has generics; the converter does not write them yet",
+        )));
+    }
+
+    let mut out = format!("fn {}(", name);
+    if let Some(ports) = &func.function_declaration_opt0 {
+        let params = fn_params_to_iris(file, &ports.port_declaration, &mut report)?;
+        out.push_str(&params.join(", "));
+    }
+    out.push(')');
+
+    if let Some(ret) = &func.function_declaration_opt1 {
+        let ty = scalar_type_to_iris(file, &ret.scalar_type, position, &mut report)?;
+        out.push_str(&format!(" -> {}", ty));
+    }
+
+    out.push_str(" {\n");
+    out.push_str(&fn_body_to_iris(file, &func.statement_block, &mut report)?);
+    out.push_str("}\n");
+
+    if report.failed() {
+        return Err(report);
+    }
+    Ok((out, report))
+}
+
+/// The parameters of a Veryl function as IRIS spells them.
+///
+/// IRIS function parameters carry no direction: they are values passed in.
+/// A Veryl `output` or `ref` parameter has no such reading, so it is refused.
+fn fn_params_to_iris(
+    file: &str,
+    ports: &vg::PortDeclaration,
+    report: &mut Report,
+) -> Result<Vec<String>, Report> {
+    let mut lines = Vec::new();
+    let Some(list) = &ports.port_declaration_opt else {
+        return Ok(lines);
+    };
+    let list = &list.port_declaration_list;
+
+    let mut groups = vec![&*list.port_declaration_group];
+    for extra in &list.port_declaration_list_list {
+        groups.push(&extra.port_declaration_group);
+    }
+
+    for group in groups {
+        use vg::PortDeclarationGroupGroup as G;
+        let item = match &*group.port_declaration_group_group {
+            G::PortDeclarationItem(x) => &*x.port_declaration_item,
+            G::LBracePortDeclarationListRBrace(_) => {
+                report.push(Diagnostic::unimplemented(
+                    file,
+                    Position::default(),
+                    "a grouped parameter declaration",
+                    "the converter reads a flat parameter list only",
+                ));
+                continue;
+            }
+        };
+
+        let name = text_of(&item.identifier.identifier_token.token);
+        let position = position_of(&item.identifier.identifier_token);
+
+        use vg::PortDeclarationItemGroup as G2;
+        let concrete = match &*item.port_declaration_item_group {
+            G2::PortTypeConcrete(x) => &*x.port_type_concrete,
+            G2::PortTypeAbstract(_) => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    position,
+                    "an interface parameter",
+                    "IRIS function parameters are plain values",
+                )))
+            }
+        };
+
+        use vg::Direction as D;
+        match &*concrete.direction {
+            D::Input(_) => {}
+            _ => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    position,
+                    "a function parameter that is not input",
+                    "IRIS passes function parameters in by value only",
+                )))
+            }
+        }
+
+        let ty = array_type_to_iris(file, &concrete.array_type, position, report)?;
+        lines.push(format!("{}: {}", name, ty));
+    }
+    Ok(lines)
+}
+
+/// The body of an IRIS function: let bindings, then one return.
+fn fn_body_to_iris(
+    file: &str,
+    block: &vg::StatementBlock,
+    report: &mut Report,
+) -> Result<String, Report> {
+    let mut out = String::new();
+    let mut returned = false;
+    for group in &block.statement_block_list {
+        use vg::StatementBlockGroupGroup as G;
+        let item = match &*group.statement_block_group.statement_block_group_group {
+            G::StatementBlockItem(x) => &*x.statement_block_item,
+            G::BlockLBraceStatementBlockGroupGroupListRBrace(_) => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    Position::default(),
+                    "a named block in a function",
+                    "IRIS' function is bindings then a return",
+                )))
+            }
+        };
+
+        if returned {
+            return Err(one(Diagnostic::unimplemented(
+                file,
+                Position::default(),
+                "a statement after the return in a function",
+                "IRIS' function ends at its single return",
+            )));
+        }
+
+        use vg::StatementBlockItem as I;
+        match item {
+            I::LetStatement(x) => {
+                let s = &x.let_statement;
+                let binding = text_of(&s.identifier.identifier_token.token);
+                let value = expression(file, &s.expression, Position::default())?;
+                if let Some(opt) = &s.let_statement_opt {
+                    let position = position_of(&s.identifier.identifier_token);
+                    let ty = array_type_to_iris(file, &opt.array_type, position, report)?;
+                    out.push_str(&format!("    let {}: {} = {};\n", binding, ty, value));
+                } else {
+                    out.push_str(&format!("    let {} = {};\n", binding, value));
+                }
+            }
+            I::Statement(x) => match &*x.statement {
+                vg::Statement::ReturnStatement(r) => {
+                    let value =
+                        expression(file, &r.return_statement.expression, Position::default())?;
+                    out.push_str(&format!("    return {};\n", value));
+                    returned = true;
+                }
+                _ => {
+                    return Err(one(Diagnostic::unimplemented(
+                        file,
+                        Position::default(),
+                        "a statement other than let or return in a function",
+                        "IRIS' function is a pure expression",
+                    )))
+                }
+            },
+            _ => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    Position::default(),
+                    "a declaration other than let in a function",
+                    "IRIS' function is bindings then a return",
+                )))
+            }
+        }
+    }
+
+    if !returned {
+        return Err(one(Diagnostic::unimplemented(
             file,
             Position::default(),
-            "import",
-            "IRIS has import; the converter does not write it yet",
-        )),
+            "a function with no return",
+            "IRIS' function ends in a return",
+        )));
     }
+    Ok(out)
+}
+
+/// A Veryl `interface` as an IRIS one.
+///
+/// A Veryl interface carries its signals as `var` declarations and its
+/// directions as `modport`s. IRIS carries the signals the same way and a
+/// modport as a `view`. The signals are written first, then the views.
+fn interface_to_iris(
+    file: &str,
+    iface: &vg::InterfaceDeclaration,
+) -> Result<(String, Report), Report> {
+    let mut report = Report::default();
+    let name = text_of(&iface.identifier.identifier_token.token);
+    let position = position_of(&iface.identifier.identifier_token);
+
+    if iface.interface_declaration_opt.is_some() {
+        return Err(one(Diagnostic::unimplemented(
+            file,
+            position,
+            "a generic interface",
+            "IRIS has generics; the converter does not write them yet",
+        )));
+    }
+    if iface.interface_declaration_opt0.is_some() {
+        return Err(one(unsupported(file, position, "module for proto")));
+    }
+    if iface.interface_declaration_opt1.is_some() {
+        return Err(one(Diagnostic::unimplemented(
+            file,
+            position,
+            "an interface parameter",
+            "IRIS has generics; the converter does not write interface parameters yet",
+        )));
+    }
+
+    let mut signals = String::new();
+    let mut views = String::new();
+    for item in &iface.interface_declaration_list {
+        use vg::InterfaceGroupGroup as G;
+        let it = match &*item.interface_group.interface_group_group {
+            G::InterfaceItem(x) => &*x.interface_item,
+            G::LBraceInterfaceGroupGroupListRBrace(_) => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    position,
+                    "a grouped interface item",
+                    "the converter reads a flat interface body only",
+                )))
+            }
+        };
+
+        use vg::InterfaceItem as I;
+        match it {
+            I::GenerateItem(g) => {
+                use vg::GenerateItem as GI;
+                match &*g.generate_item {
+                    GI::VarDeclaration(v) => {
+                        let (n, ty) = interface_signal_to_iris(file, &v.var_declaration, &mut report)?;
+                        signals.push_str(&format!("    {}: {},\n", n, ty));
+                    }
+                    _ => {
+                        return Err(one(Diagnostic::unimplemented(
+                            file,
+                            position,
+                            "an interface item other than a var signal or a modport",
+                            "IRIS' interface holds signals and views",
+                        )))
+                    }
+                }
+            }
+            I::ModportDeclaration(m) => {
+                views.push_str(&modport_to_view(file, &m.modport_declaration, &mut report)?);
+            }
+            I::MixinDeclaration(_) => {
+                return Err(one(Diagnostic::unimplemented(
+                    file,
+                    position,
+                    "a mixin in an interface",
+                    "IRIS has no mixin",
+                )))
+            }
+        }
+    }
+
+    let mut out = format!("interface {} {{\n", name);
+    out.push_str(&signals);
+    out.push_str(&views);
+    out.push_str("}\n");
+
+    if report.failed() {
+        return Err(report);
+    }
+    Ok((out, report))
+}
+
+/// One `var` signal of a Veryl interface as an IRIS signal name and type.
+fn interface_signal_to_iris(
+    file: &str,
+    var: &vg::VarDeclaration,
+    report: &mut Report,
+) -> Result<(String, String), Report> {
+    let name = text_of(&var.identifier.identifier_token.token);
+    let position = position_of(&var.identifier.identifier_token);
+    let Some(opt) = &var.var_declaration_opt else {
+        return Err(one(Diagnostic::unimplemented(
+            file,
+            position,
+            "an interface signal with no type",
+            "IRIS needs a declared type here",
+        )));
+    };
+    let ty = array_type_to_iris(file, &opt.array_type, position, report)?;
+    Ok((name, ty))
+}
+
+/// A Veryl `modport` as an IRIS `view`.
+///
+/// A modport lists a direction per signal; a view groups the signals by
+/// direction. The grouping is fixed at in, out, inout so the round trip lands
+/// on the same text each time.
+fn modport_to_view(
+    file: &str,
+    modport: &vg::ModportDeclaration,
+    _report: &mut Report,
+) -> Result<String, Report> {
+    let name = text_of(&modport.identifier.identifier_token.token);
+    let position = position_of(&modport.identifier.identifier_token);
+
+    // `..input`, `..same` and `..converse` fill in the rest of the signals;
+    // IRIS names each one, so there is nothing to fill in from.
+    if modport.modport_declaration_opt0.is_some() {
+        return Err(one(unsupported(file, position, "modport ..")));
+    }
+
+    let mut ins = Vec::new();
+    let mut outs = Vec::new();
+    let mut inouts = Vec::new();
+
+    if let Some(opt) = &modport.modport_declaration_opt {
+        let list = &opt.modport_list;
+        let mut groups = vec![&*list.modport_group];
+        for extra in &list.modport_list_list {
+            groups.push(&extra.modport_group);
+        }
+        for group in groups {
+            use vg::ModportGroupGroup as G;
+            let item = match &*group.modport_group_group {
+                G::ModportItem(x) => &*x.modport_item,
+                G::LBraceModportListRBrace(_) => {
+                    return Err(one(Diagnostic::unimplemented(
+                        file,
+                        position,
+                        "a nested modport group",
+                        "the converter reads a flat modport list only",
+                    )))
+                }
+            };
+            let signal = text_of(&item.identifier.identifier_token.token);
+            use vg::Direction as D;
+            match &*item.direction {
+                D::Input(_) => ins.push(signal),
+                D::Output(_) => outs.push(signal),
+                D::Inout(_) => inouts.push(signal),
+                _ => {
+                    return Err(one(Diagnostic::unimplemented(
+                        file,
+                        position,
+                        "a modport direction that is not in, out or inout",
+                        "IRIS' view has these three directions",
+                    )))
+                }
+            }
+        }
+    }
+
+    let mut out = format!("    view {} {{\n", name);
+    if !ins.is_empty() {
+        out.push_str(&format!("        in: {}\n", ins.join(", ")));
+    }
+    if !outs.is_empty() {
+        out.push_str(&format!("        out: {}\n", outs.join(", ")));
+    }
+    if !inouts.is_empty() {
+        out.push_str(&format!("        inout: {}\n", inouts.join(", ")));
+    }
+    out.push_str("    }\n");
+    Ok(out)
 }
 
 /// Refuse a construct IRIS cannot express. The entry must be in the table: a
@@ -536,6 +982,21 @@ fn group_to_iris(
     }
 }
 
+/// A Veryl `type` definition as an IRIS one.
+///
+/// Veryl writes `type` inside a module; IRIS writes it at file level, so it is
+/// hoisted the same way an `enum` or a `struct` is.
+fn type_def_to_iris(
+    file: &str,
+    td: &vg::TypeDefDeclaration,
+    report: &mut Report,
+) -> Result<String, Report> {
+    let name = text_of(&td.identifier.identifier_token.token);
+    let position = position_of(&td.identifier.identifier_token);
+    let ty = array_type_to_iris(file, &td.array_type, position, report)?;
+    Ok(format!("type {} = {};\n", name, ty))
+}
+
 fn item_to_iris(
     file: &str,
     item: &vg::GenerateItem,
@@ -556,6 +1017,10 @@ fn item_to_iris(
                 &x.struct_union_declaration,
                 report,
             )?);
+            String::new()
+        }
+        I::TypeDefDeclaration(x) => {
+            hoisted.push_str(&type_def_to_iris(file, &x.type_def_declaration, report)?);
             String::new()
         }
         I::VarDeclaration(x) => var_to_iris(file, &x.var_declaration, initial, report)?,

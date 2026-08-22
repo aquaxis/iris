@@ -1,0 +1,12 @@
+interface Bus {
+    var valid: logic;
+    var data: logic<8>;
+    modport master {
+        valid: output,
+        data: output,
+    }
+    modport slave {
+        valid: input,
+        data: input,
+    }
+}

@@ -186,29 +186,43 @@ round-tripped.
 | | Count |
 |---|---|
 | `Exact` rows | 30 |
-| with a round trip | **24** |
-| no fragment to write | 6 |
+| with a round trip | **29** |
+| no fragment to write | 1 |
 
-**Six rows say the construct carries across, and it does not.**
+**The one remaining row is unimplemented in `iris-sim`, not in this converter.**
 
 | Row | Why |
 |---|---|
-| `function`, `import`, `interface`, `modport` | unimplemented on the Veryl-reading side |
 | `string` | `iris-sim` has no string-valued constant to round trip through |
-| `type` | **`iris-sim` does not implement IRIS' own type alias** |
 
-`type` is a different kind of gap. `tools/iris.ebnf` carries `type_alias` and
-admits it in both `item` and `mod_item`, and `iris-sim` has no rule for it in
-either place. **The same shape as `as`.**
+`import` round trips.
+`import Pkg::Item;` and `import Pkg::{A, B};` carry across both ways.
+Only `::*` does not, since `iris-sim` does not keep it apart from a bare
+import, so the fragment uses just those two forms.
+
+`function` round trips too.
+A pure function (bindings then a single `return`) carries across both ways.
+IRIS parameters carry no direction, so they are written as `input` in Veryl.
+`iris-sim` does not keep a `let`'s type inside a function, so only the type
+annotation is lost on the round trip.
+
+`interface` and `modport` round trip as well.
+A Veryl `var` signal becomes an IRIS signal and a `modport` becomes an IRIS
+`view`. A modport lists a direction per signal and a view groups them, so the
+signals regroup by direction on the round trip. A modport `..` default has no
+IRIS counterpart and is refused.
+
+`type` round trips now too. `iris-sim` implements the type alias: it parses one
+and resolves it to the type it names.
 
 ```
-$ iris-sim -i alias.iris
-type Byte = bit[8];
-Parse error: Syntax error at line 1, column 1: expected file
+$ iris-sim -i alias.iris -c 2
+Simulation completed successfully.
 ```
 
-`tools/conformance/run.sh` now watches that this is still the case. When it is
-implemented the check fails and says the row can have a fragment.
+IRIS writes `type` at file level and Veryl inside the module. It is hoisted the
+same way `enum` and `struct` are: lifted out going Veryl to IRIS, written into
+the module going IRIS to Veryl.
 
 **`tools/veryl2iris/mapping`'s own tests hold that count.** Add a row without
 a fragment or a stated reason and they fail; delete a fragment and they fail.

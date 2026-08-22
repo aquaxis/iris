@@ -186,29 +186,41 @@ RV32Iの4本の試験プログラムで、元と往復後の出力が1バイト�
 | | 数 |
 |---|---|
 | `Exact`の行 | 30 |
-| 往復する断片がある | **24** |
-| 断片が書けない | 6 |
+| 往復する断片がある | **29** |
+| 断片が書けない | 1 |
 
-**6行は、表が「そのまま写る」と言っているのに写らない。**
+**残る1行は`iris-sim`側の未実装であって、この変換器の穴ではない。**
 
 | 行 | 理由 |
 |---|---|
-| `function`、`import`、`interface`、`modport` | Veryl側の読み取りが未実装 |
 | `string` | `iris-sim`に文字列の定数を往復させる手段が無い |
-| `type` | **`iris-sim`がIRIS自身の型別名を実装していない** |
 
-`type`だけ種類が違う。
-`tools/iris.ebnf`は`type_alias`を持ち、`item`にも`mod_item`にも入れているのに、
-`iris-sim`にはどちらの場所にも規則が無い。**`as`と同じ形である。**
+`import`は往復する。
+`import Pkg::Item;`と`import Pkg::{A, B};`が両方向で写る。
+`::*`だけは`iris-sim`が素の取り込みと区別しないので、断片はこの2形だけを使う。
+
+`function`も往復する。
+純粋な関数（束縛と単一の`return`）が両方向で写る。
+IRISの引数は向きを持たないので、Verylでは`input`として書く。
+`iris-sim`は`let`の型を関数の中で保たないので、往復すると型注記だけが消える。
+
+`interface`と`modport`も往復する。
+Verylの`var`信号はIRISの信号に、`modport`はIRISの`view`に写る。
+`modport`は信号ごとに向きを書き、`view`は向きでまとめるので、
+往復すると信号が向きごとにまとまり直す。
+`modport`の`..`（既定の埋め合わせ）はIRISに対応が無いので拒否する。
+
+`type`も往復するようになった。
+`iris-sim`が型別名を実装し、解析して名指す型に解決する。
 
 ```
-$ iris-sim -i alias.iris
-type Byte = bit[8];
-Parse error: Syntax error at line 1, column 1: expected file
+$ iris-sim -i alias.iris -c 2
+Simulation completed successfully.
 ```
 
-conformanceに、この状態が続いていることを見る検査を置いた。
-実装されれば落ちて、断片を書けると教える。
+IRISは`type`をファイルの先頭に置き、Verylはモジュールの中に置く。
+`enum`や`struct`と同じ持ち上げで、Veryl→IRISでは外へ持ち上げ、
+IRIS→Verylではモジュールの中へ書き入れる。
 
 **この数は`tools/veryl2iris/mapping`の試験が守る。**
 行を足して断片も理由も書かなければ、試験が落ちる。
