@@ -107,6 +107,10 @@ SystemVerilogのテストベンチで駆動したもの:
 
 参考として、IRISのインタプリタは100万反復で2.18 s、約46万サイクル毎秒である。
 
+**Verylはネイティブシミュレーターも持つ。**
+ここで`veryl build`経由のVerilatorを使ったのは、IRISと同じ土俵で比べるためである。
+Verylの実行がVerilatorに限られるという意味ではない。
+
 ### 数字が何の性質なのか
 
 IRISとVerylはVerilator上で同じ速さになる。

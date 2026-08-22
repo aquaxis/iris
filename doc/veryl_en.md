@@ -710,12 +710,28 @@ and rejects broken input with a position:
 IRIS' own parser is also Rust, in `sim/iris-sim`. **Both directions close in
 Rust.**
 
+## How Veryl runs
+
+**Veryl has a native simulator.**
+It is the `veryl-simulator` crate.
+Cranelift starts it quickly, GCC builds an optimised binary in the background,
+and the run switches to that binary once it is ready.
+Testbenches are written in Veryl and run with `veryl test`.
+
+**So verifying Veryl is not limited to lowering it to SystemVerilog.**
+This document used to describe Veryl's execution as if `veryl build` and
+Verilator were the only path. That is wrong: there is a native simulator.
+
+Veryl's published figures (the veryl-lang.org blog) report this native
+simulator as faster than Verilator, substantially on the first run and more
+modestly once cached. **These are Veryl's numbers, not measured on this machine.**
+
 ## What has not been checked
 
 | | Detail |
 |---|---|
-| `veryl` itself | **Will not install here.** wasmtime asks for rustc 1.94; this machine has 1.91.1 |
-| Formal equivalence | Blocked: comparing through SystemVerilog needs `veryl build` |
+| `veryl` itself | **Could not be installed here.** wasmtime asks for rustc 1.94; this machine has 1.91.1. Neither the native simulator nor `veryl build` was run on this machine |
+| Formal equivalence | With `veryl` unrunnable here, the path that checks against Veryl's own execution was not taken. **This is a limit of this environment, not of Veryl** |
 | The version of `veryl.ebnf` | Taken from Veryl 0.20.3; the difference from upstream is unverified |
 | `proto` against `extern mod` | Known to differ, but the extent was not measured |
 | Veryl's standard library | Not examined |
