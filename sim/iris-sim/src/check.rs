@@ -363,6 +363,7 @@ fn is_known_type(project: &Project, name: &str) -> bool {
         project.enums.contains_key(n)
             || project.structs.contains_key(n)
             || project.interfaces.contains_key(n)
+            || project.type_aliases.contains_key(n)
     };
     if known(name) || known(base) {
         return true;

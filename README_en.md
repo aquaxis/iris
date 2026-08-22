@@ -150,7 +150,7 @@ iris/
 │   ├── iris-sim/          # Simulator: interpreter and compiler
 │   └── iris-runtime/      # Values, operations, waveforms, shared by both
 ├── tools/
-│   ├── irisfmt/           # Formatter and linter
+│   ├── irisfmt/           # Formatter, linter, language server, VSCode extension
 │   ├── iris2sv/           # IRIS to SystemVerilog
 │   ├── sv2iris/           # SystemVerilog to IRIS
 │   ├── conformance/       # The three tools checked against each other
@@ -204,9 +204,22 @@ so a design gives the same result whichever way it is run.
 
 ### Utilities, written in TypeScript
 
-**irisfmt**: formatter and linter
+**irisfmt**: formatter, linter, language server and VSCode extension
 
 Formats IRIS source and checks it against coding conventions.
+It also ships a language server (`packages/ls`) and a VSCode extension
+(`packages/vscode-iris`).
+
+The extension supports the editor in two layers.
+
+| Layer | What it does | When it works |
+|---|---|---|
+| Syntax highlight | Colors keywords, types, numbers and operators | The grammar file alone is enough |
+| Language server | Diagnostics, formatting, completion, hover, go to definition, find references, rename | The server must be built and running |
+
+Syntax highlighting works even where the language server does not.
+See [`doc/editor_en.md`](./doc/editor_en.md) for usage and the range of
+syntax it covers.
 
 **iris2sv**: IRIS to SystemVerilog
 
@@ -342,9 +355,9 @@ never dropped.
 | This converter has not caught up | `interface`, `function`, multi-value case arms |
 
 `tools/conformance/run.sh` checks that a round trip still simulates the same.
-All six designs in `example/` round-trip. 24 of the 30 rows marked `Exact`
+All six designs in `example/` round-trip. 29 of the 30 rows marked `Exact`
 in the correspondence table have a round trip of their own; the table records
-why the other 6 do not. Pass
+why the other 1 does not. Pass
 files that belong together as one project.
 
 ```bash
@@ -475,6 +488,7 @@ files ending in `_en` are the English editions.
 | [Specification gaps](./doc/grammar_gaps_en.md) | Examples in the specification that do not parse |
 | [Block diagram viewer](./doc/schematic_en.md) | Drawing module interconnection in a browser |
 | [Waveforms in Surfer](./doc/surfer_plugin_en.md) | Reading waveforms, with `mem` expanded element by element |
+| [Editor support](./doc/editor_en.md) | Syntax highlighting and the language server in VSCode |
 
 The `report_*.md` files at the repository root are **working records**, not
 reference material. They keep the reasoning, the measurements, and the

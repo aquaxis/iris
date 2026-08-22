@@ -27,6 +27,9 @@ fn run(source: &str, top: &str, cycles: u64) -> HierarchicalSimulator {
     for decl in result.structs {
         project.structs.insert(decl.name.clone(), decl);
     }
+    for (name, ty) in result.type_aliases {
+        project.type_aliases.insert(name, ty);
+    }
     project.set_top(top).expect("top module should exist");
     project.elaborate();
 
@@ -56,6 +59,9 @@ fn run_test_module(source: &str, top: &str, cycles: u64) -> HierarchicalSimulato
     }
     for decl in result.structs {
         project.structs.insert(decl.name.clone(), decl);
+    }
+    for (name, ty) in result.type_aliases {
+        project.type_aliases.insert(name, ty);
     }
     project.set_top(top).expect("top module should exist");
     project.elaborate();
@@ -116,6 +122,42 @@ fn let_local_takes_its_declared_width() {
     let sim = run(&source, "NarrowLet", 1);
     // 201 truncated to four bits
     assert_eq!(value_of(&sim, "narrow"), 201 & 0xf);
+}
+
+#[test]
+fn a_type_alias_takes_the_width_of_the_type_it_names() {
+    let source = format!(
+        "type Byte = bit[8];
+         mod AliasWidth({head} out y: bit[8]) {{
+            var acc: Byte = 200;
+            sync(clk.posedge, rst_n.async) {{ acc = acc + 55; }}
+            comb {{ y = acc; }}
+        }}",
+        head = COUNTER_HEAD
+    );
+
+    let sim = run(&source, "AliasWidth", 1);
+    // 200 + 55 = 255 fits in Byte, which is bit[8]. A one-bit fallback would
+    // truncate to 1, so this value proves the alias took its declared width.
+    assert_eq!(value_of(&sim, "acc"), 255);
+    assert_eq!(value_of(&sim, "y"), 255);
+}
+
+#[test]
+fn a_chained_type_alias_resolves_to_the_concrete_type() {
+    let source = format!(
+        "type Word = bit[8];
+         type Data = Word;
+         mod Chain({head} out y: bit[8]) {{
+            var acc: Data = 200;
+            sync(clk.posedge, rst_n.async) {{ acc = acc + 55; }}
+            comb {{ y = acc; }}
+        }}",
+        head = COUNTER_HEAD
+    );
+
+    let sim = run(&source, "Chain", 1);
+    assert_eq!(value_of(&sim, "acc"), 255);
 }
 
 #[test]
@@ -237,6 +279,9 @@ fn generic_width_comes_from_the_declared_default() {
     }
     for decl in result.structs {
         project.structs.insert(decl.name.clone(), decl);
+    }
+    for (name, ty) in result.type_aliases {
+        project.type_aliases.insert(name, ty);
     }
     project.set_top("GW").unwrap();
     project.elaborate();

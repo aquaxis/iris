@@ -270,16 +270,18 @@ pub const COVERAGE: &[Coverage] = &[
     covered("always_comb", "always_comb"),
     covered("always_ff", "always_ff"),
     covered("assign", "assign"),
-    uncovered("function", "veryl2iris does not read a function yet"),
-    uncovered("import", "veryl2iris does not read import yet"),
+    covered("function", "function"),
+    // `::*` is lossy through iris-sim, which does not keep it apart from a
+    // bare import, so the sample uses the item and brace-list forms that
+    // round trip exactly.
+    covered("import", "import"),
     covered("let", "let"),
     covered("var", "var"),
     covered("const", "const"),
-    // Not a gap in this converter. `tools/iris.ebnf` carries
-    // `type_alias = "type" identifier [ generic_params ] "=" type_expr ";"`
-    // and `item` admits it, but `iris-sim` has no rule for it at either the
-    // top level or inside a module, so there is nothing to round trip through.
-    uncovered("type", "iris-sim does not implement IRIS' own type alias"),
+    // `iris-sim` implements the type alias, and veryl2iris hoists it between
+    // Veryl's module and IRIS' file level, the same way `enum` and `struct`
+    // are hoisted. So the row round trips.
+    covered("type", "type"),
     covered("enum", "enum"),
     covered("struct / union", "struct_union"),
     covered("logic", "logic"),
@@ -296,11 +298,8 @@ pub const COVERAGE: &[Coverage] = &[
     covered("{a repeat n}", "repeat"),
     covered("{a[w-1] repeat n, a}", "sign_extend"),
     covered(">>> << >>", "shifts"),
-    uncovered("interface", "veryl2iris does not read an interface yet"),
-    uncovered(
-        "modport with a direction per signal",
-        "a modport needs an interface, which veryl2iris does not read yet",
-    ),
+    covered("interface", "interface"),
+    covered("modport with a direction per signal", "modport"),
 ];
 
 /// Rows that a sample exercises.

@@ -769,10 +769,12 @@ DEFSTBEOF
         report fail veryl "a definition on a declaration survives the round trip" "a conversion step failed"
     fi
 
-    # `type` is the second construct the grammar carries and the reference does
-    # not implement. `tools/iris.ebnf` admits `type_alias` both at the top level
-    # and inside a module, and `iris-sim` has no rule for it in either place.
-    # That is why the correspondence table's `type` row has no round trip.
+    # `iris-sim` now parses a type alias and resolves it to the type it names,
+    # so the earlier blocker is gone. `tools/iris.ebnf` admits `type_alias` both
+    # at the top level and inside a module, and `iris-sim` implements it. The
+    # correspondence table's `type` row still has no round trip for a different
+    # reason: IRIS writes `type` at file level and Veryl only inside a module,
+    # interface or package, so it needs the hoisting `enum` and `struct` get.
     cat > "$WORK/alias.iris" <<'ALIASEOF'
 type Byte = bit[8];
 
@@ -784,13 +786,13 @@ mod AliasTest(
 }
 ALIASEOF
     # Captured first, not piped: `set -o pipefail` makes a pipeline fail when
-    # iris-sim exits non-zero, which it does precisely when it rejects the file.
+    # iris-sim exits non-zero.
     alias_out=$("$SIM" -i "$WORK/alias.iris" -c 2 2>&1)
     if printf '%s' "$alias_out" | grep -q "Syntax error"; then
-        report pass veryl "the type alias row has no round trip, and the reason still holds"
+        report fail veryl "iris-sim parses and resolves a type alias" \
+            "iris-sim rejects a type alias; the implementation regressed"
     else
-        report fail veryl "the type alias row has no round trip, and the reason still holds" \
-            "iris-sim now accepts a type alias; the row can have a sample"
+        report pass veryl "iris-sim parses and resolves a type alias"
     fi
 
     # `as` is refused, and this records why rather than leaving it as a note in

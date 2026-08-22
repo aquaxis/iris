@@ -423,3 +423,64 @@ fn nothing_is_written_when_anything_is_refused() {
     assert!(converted.report.failed());
     assert!(converted.source.is_empty(), "{}", converted.source);
 }
+
+#[test]
+fn an_import_is_written() {
+    // The item form and the brace-list form each read back as themselves.
+    let veryl = ok("import Pkg::Item; import Other::{A, B};");
+    assert!(veryl.contains("import Pkg::Item;"), "{}", veryl);
+    assert!(veryl.contains("import Other::{A, B};"), "{}", veryl);
+}
+
+#[test]
+fn a_pure_fn_becomes_a_function() {
+    // A directionless IRIS parameter is an `input` in Veryl.
+    let veryl = ok(
+        "fn add(a: bit[8], b: bit[8]) -> bit[8] {
+            let sum = a + b;
+            return sum;
+        }",
+    );
+    assert!(veryl.contains("function add (a: input logic<8>, b: input logic<8>)"), "{}", veryl);
+    assert!(veryl.contains("-> logic<8>"), "{}", veryl);
+    assert!(veryl.contains("let sum = (a + b);"), "{}", veryl);
+    assert!(veryl.contains("return sum;"), "{}", veryl);
+}
+
+#[test]
+fn a_type_alias_is_written_into_the_module() {
+    // IRIS writes `type` at file level; Veryl writes it inside the module.
+    let veryl = ok(
+        "type Byte = bit[8];
+         mod Probe(in a: bit[8], out y: bit[8],) {
+            var tmp: Byte;
+            comb { tmp = a; y = tmp; }
+        }",
+    );
+    assert!(veryl.contains("type Byte = logic<8>;"), "{}", veryl);
+    assert!(veryl.contains("var tmp: Byte;"), "{}", veryl);
+    // It sits inside the module, after the module opens.
+    let mod_at = veryl.find("module Probe").expect("module");
+    let type_at = veryl.find("type Byte").expect("alias");
+    assert!(type_at > mod_at, "the alias should be inside the module:\n{}", veryl);
+}
+
+#[test]
+fn an_interface_becomes_signals_and_modports() {
+    // A view's grouped directions spread back to one per signal.
+    let veryl = ok(
+        "interface Bus {
+            valid: bit,
+            data: bit[8],
+            view master {
+                out: valid, data
+            }
+        }",
+    );
+    assert!(veryl.contains("interface Bus {"), "{}", veryl);
+    assert!(veryl.contains("var valid: logic;"), "{}", veryl);
+    assert!(veryl.contains("var data: logic<8>;"), "{}", veryl);
+    assert!(veryl.contains("modport master {"), "{}", veryl);
+    assert!(veryl.contains("valid: output,"), "{}", veryl);
+    assert!(veryl.contains("data: output,"), "{}", veryl);
+}

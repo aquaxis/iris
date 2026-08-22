@@ -2,7 +2,9 @@
 // This file defines the grammar for the IRIS hardware description language
 
 // Entry point - supports mod, test, and interface declarations
-file = { SOI ~ package_decl? ~ (import_decl | export_decl)* ~ (attribute* ~ (extern_mod_decl | module_decl | test_mod_decl | interface_decl | enum_decl | struct_decl | union_decl | fn_decl | file_const_decl))* ~ EOI }
+file = { SOI ~ package_decl? ~ (import_decl | export_decl)* ~ (attribute* ~ (extern_mod_decl | module_decl | test_mod_decl | interface_decl | enum_decl | struct_decl | union_decl | fn_decl | type_alias | file_const_decl))* ~ EOI }
+// Type alias (spec 12): `type Byte = bit[8];`. A name for an existing type.
+type_alias = { "type" ~ identifier ~ "=" ~ type_expr ~ ";" }
 // Attributes (spec 13). They annotate the item that follows: synthesis hints,
 // timing constraints, `#[test]`. They carry no simulation meaning, so they are
 // parsed and passed over rather than acted on.

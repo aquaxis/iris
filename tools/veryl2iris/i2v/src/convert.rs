@@ -5,8 +5,9 @@
 //! this module only knows how to write the result out.
 
 use iris_sim::parser::{
-    BinOp, ClockEdge, CombBlock, EnumDecl, Expression, Literal, LogicBlock, Module, Port,
-    PortDirection, Signal, Statement, StructDecl, SyncBlock, Type, UnaryOp,
+    BinOp, ClockEdge, CombBlock, EnumDecl, Expression, FnDecl, Interface, Literal, LogicBlock,
+    Module, Port, PortDirection, Signal, Statement, StructDecl, SyncBlock, Type, UnaryOp,
+    ViewDirection,
 };
 
 use iris_sim::project::Project;
@@ -59,16 +60,18 @@ impl Ctx<'_> {
 pub struct FileTypes {
     enums: Vec<EnumDecl>,
     structs: Vec<StructDecl>,
+    type_aliases: Vec<(String, Type)>,
 }
 
 impl FileTypes {
     fn is_empty(&self) -> bool {
-        self.enums.is_empty() && self.structs.is_empty()
+        self.enums.is_empty() && self.structs.is_empty() && self.type_aliases.is_empty()
     }
 
     fn declares(&self, name: &str) -> bool {
         self.enums.iter().any(|e| e.name == name)
             || self.structs.iter().any(|s| s.name == name)
+            || self.type_aliases.iter().any(|(n, _)| n == name)
     }
 }
 
@@ -105,6 +108,7 @@ pub fn convert_project(files: &[(String, String)]) -> Result<Converted, String> 
         let types = FileTypes {
             enums: parsed.enums.clone(),
             structs: parsed.structs.clone(),
+            type_aliases: parsed.type_aliases.clone(),
         };
         convert_one(file, parsed, &modules, &types, &mut out, &mut report);
     }
@@ -115,6 +119,157 @@ pub fn convert_project(files: &[(String, String)]) -> Result<Converted, String> 
     Ok(Converted { source: out, report })
 }
 
+/// An IRIS import as a Veryl one.
+///
+/// `(path, [])` is `import path;` and `(path, [a, b])` is `import path::{a, b};`.
+/// The forms match Veryl's own, so the result reads back as the same import.
+fn import_to_veryl(path: &str, names: &[String]) -> String {
+    if names.is_empty() {
+        format!("import {};\n", path)
+    } else {
+        format!("import {}::{{{}}};\n", path, names.join(", "))
+    }
+}
+
+/// A module with nothing in it, to stand in as context for a function.
+///
+/// A function is not inside a module, but the writers ask their context for
+/// widths. A pure function's expressions never reach for one, so an empty
+/// module is enough; anything that did would come back with no width and be
+/// refused, not guessed.
+fn empty_module(name: &str) -> Module {
+    Module {
+        name: name.to_string(),
+        is_public: false,
+        is_extern: false,
+        generics: Vec::new(),
+        where_constraints: Vec::new(),
+        ports: Vec::new(),
+        signals: Vec::new(),
+        logic_blocks: Vec::new(),
+        instances: Vec::new(),
+        span: None,
+        is_test: false,
+        seq_blocks: Vec::new(),
+        initial_blocks: Vec::new(),
+        fsm_blocks: Vec::new(),
+        memories: Vec::new(),
+        constraints: Vec::new(),
+    }
+}
+
+/// An IRIS function as a Veryl one.
+///
+/// IRIS parameters carry no direction; Veryl wants one, and a value passed in
+/// is an `input`. The bindings and the returned expression are written with
+/// the same writers the module body uses.
+fn function_to_veryl(
+    file: &str,
+    func: &FnDecl,
+    modules: &HashMap<String, Module>,
+    types: &FileTypes,
+) -> Result<String, Report> {
+    let placeholder = empty_module(&func.name);
+    let ctx = Ctx {
+        file,
+        module: &placeholder,
+        modules,
+        wires: HashMap::new(),
+        types,
+        project: Project::new(),
+    };
+    let mut report = Report::default();
+
+    let mut params = Vec::new();
+    for (name, ty) in &func.params {
+        let rendered = type_to_veryl(&ctx, ty, &mut report)?;
+        params.push(format!("{}: input {}", name, rendered));
+    }
+
+    let mut out = format!("function {} ({})", func.name, params.join(", "));
+    if let Some(ret) = &func.return_type {
+        let rendered = type_to_veryl(&ctx, ret, &mut report)?;
+        out.push_str(&format!(" -> {}", rendered));
+    }
+    out.push_str(" {\n");
+
+    for (name, value) in &func.bindings {
+        let rendered = expr_to_veryl(&ctx, value, &mut report)?;
+        out.push_str(&format!("    let {} = {};\n", name, rendered));
+    }
+    let body = expr_to_veryl(&ctx, &func.body, &mut report)?;
+    out.push_str(&format!("    return {};\n", body));
+    out.push_str("}\n");
+
+    if report.failed() {
+        return Err(report);
+    }
+    Ok(out)
+}
+
+/// An IRIS interface as a Veryl one.
+///
+/// IRIS signals become Veryl `var`s and each view becomes a `modport`, the
+/// grouped directions spread back out to one per signal.
+fn interface_to_veryl(
+    file: &str,
+    iface: &Interface,
+    modules: &HashMap<String, Module>,
+    types: &FileTypes,
+) -> Result<String, Report> {
+    let placeholder = empty_module(&iface.name);
+    let ctx = Ctx {
+        file,
+        module: &placeholder,
+        modules,
+        wires: HashMap::new(),
+        types,
+        project: Project::new(),
+    };
+    let mut report = Report::default();
+
+    if !iface.generics.is_empty() {
+        report.push(Diagnostic::unimplemented(
+            file,
+            Position::default(),
+            "a generic interface",
+            "the converter does not write interface generics yet",
+        ));
+    }
+    if iface.extends.is_some() {
+        report.push(Diagnostic::unimplemented(
+            file,
+            Position::default(),
+            "an interface that extends another",
+            "Veryl has no interface extension",
+        ));
+    }
+
+    let mut out = format!("interface {} {{\n", iface.name);
+    for signal in &iface.signals {
+        let ty = type_to_veryl(&ctx, &signal.ty, &mut report)?;
+        out.push_str(&format!("    var {}: {};\n", signal.name, ty));
+    }
+    for view in &iface.views {
+        out.push_str(&format!("    modport {} {{\n", view.name));
+        for item in &view.signals {
+            let direction = match item.direction {
+                ViewDirection::In => "input",
+                ViewDirection::Out => "output",
+                ViewDirection::InOut => "inout",
+            };
+            out.push_str(&format!("        {}: {},\n", item.name, direction));
+        }
+        out.push_str("    }\n");
+    }
+    out.push_str("}\n");
+
+    if report.failed() {
+        return Err(report);
+    }
+    Ok(out)
+}
+
 fn convert_one(
     file: &str,
     parsed: &iris_sim::parser::ParseResult,
@@ -123,6 +278,48 @@ fn convert_one(
     out: &mut String,
     report: &mut Report,
 ) {
+    // Imports sit at the top of the file in both languages. IRIS keeps the
+    // package path and the names taken from it; Veryl writes the same, save
+    // that `::*` is not represented distinctly here, so a name-less import is
+    // written as a bare path rather than a star.
+    if !parsed.imports.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        for (path, names) in &parsed.imports {
+            out.push_str(&import_to_veryl(path, names));
+        }
+    }
+
+    // A function is a file-level item in both languages, and it does not need
+    // a module around it. It is written before the modules so it is in scope
+    // for them, as IRIS reads it.
+    for func in &parsed.functions {
+        match function_to_veryl(file, func, modules, types) {
+            Ok(text) => {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&text);
+            }
+            Err(sub) => report.extend(sub),
+        }
+    }
+
+    // An interface is a file-level item in both languages. Its signals become
+    // Veryl `var`s and its views become `modport`s.
+    for iface in &parsed.interfaces {
+        match interface_to_veryl(file, iface, modules, types) {
+            Ok(text) => {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&text);
+            }
+            Err(sub) => report.extend(sub),
+        }
+    }
+
     // IRIS declares an enumeration once for the whole file; Veryl declares it
     // inside one module. Writing it into two modules would make two types
     // that only look alike, so a file that declares one and holds several
@@ -485,6 +682,12 @@ fn named_types_to_veryl(ctx: &Ctx, report: &mut Report) -> Result<String, Report
             decl.name,
             fields.join("\n")
         ));
+    }
+
+    // IRIS writes a type alias at file level; Veryl writes it inside the
+    // module, so it is placed here with the enumerations and structures.
+    for (name, ty) in &ctx.types.type_aliases {
+        out.push_str(&format!("    type {} = {};\n", name, type_to_veryl(ctx, ty, report)?));
     }
 
     if !out.is_empty() {

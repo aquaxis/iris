@@ -1,0 +1,11 @@
+module Probe (
+    a: input logic<8>,
+    y: output logic<8>,
+) {
+    type Byte = logic<8>;
+    var tmp: Byte;
+    always_comb {
+        tmp = a;
+        y = tmp;
+    }
+}

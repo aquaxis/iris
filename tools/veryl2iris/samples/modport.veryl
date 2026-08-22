@@ -1,0 +1,15 @@
+interface Handshake {
+    var req: logic;
+    var ack: logic;
+    var payload: logic<16>;
+    modport producer {
+        req: output,
+        ack: input,
+        payload: output,
+    }
+    modport consumer {
+        req: input,
+        ack: output,
+        payload: input,
+    }
+}

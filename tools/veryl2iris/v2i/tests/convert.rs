@@ -462,3 +462,94 @@ fn nothing_is_written_when_anything_is_refused() {
     assert!(converted.report.failed());
     assert!(converted.source.is_empty(), "{}", converted.source);
 }
+
+#[test]
+fn an_import_is_written() {
+    // Both languages spell import the same way. A single item carries across,
+    // and a brace list keeps its members.
+    let iris = ok("import Pkg::Item; import Other::{A, B};");
+    assert!(iris.contains("import Pkg::Item;"), "{}", iris);
+    assert!(iris.contains("import Other::{A, B};"), "{}", iris);
+}
+
+#[test]
+fn a_function_becomes_a_pure_fn() {
+    let iris = ok(
+        "function add (a: input logic<8>, b: input logic<8>,) -> logic<8> {
+            let sum: logic<8> = a + b;
+            return sum;
+        }",
+    );
+    assert!(iris.contains("fn add(a: bit[8], b: bit[8]) -> bit[8]"), "{}", iris);
+    assert!(iris.contains("let sum: bit[8] = a + b;"), "{}", iris);
+    assert!(iris.contains("return sum;"), "{}", iris);
+}
+
+#[test]
+fn a_function_parameter_that_is_not_input_is_refused() {
+    // IRIS passes function parameters in by value; an output has no reading.
+    let report = refused(
+        "function bad (a: input logic<8>, o: output logic<8>,) -> logic<8> {
+            return a;
+        }",
+    );
+    assert!(report.contains("not input") || report.contains("input"), "{}", report);
+}
+
+#[test]
+fn an_interface_with_a_modport_becomes_a_view() {
+    let iris = ok(
+        "interface Bus {
+            var valid: logic;
+            var data: logic<8>;
+            modport master { valid: output, data: output, }
+        }",
+    );
+    assert!(iris.contains("interface Bus {"), "{}", iris);
+    assert!(iris.contains("valid: bit,"), "{}", iris);
+    assert!(iris.contains("data: bit[8],"), "{}", iris);
+    assert!(iris.contains("view master {"), "{}", iris);
+    assert!(iris.contains("out: valid, data"), "{}", iris);
+}
+
+#[test]
+fn a_modport_groups_mixed_directions() {
+    // A modport lists a direction per signal; a view groups them.
+    let iris = ok(
+        "interface H {
+            var a: logic;
+            var b: logic;
+            modport m { a: input, b: output, }
+        }",
+    );
+    assert!(iris.contains("in: a"), "{}", iris);
+    assert!(iris.contains("out: b"), "{}", iris);
+}
+
+#[test]
+fn a_type_alias_is_hoisted_out_of_the_module() {
+    // Veryl writes `type` inside a module; IRIS writes it at file level.
+    let iris = ok(
+        "module Probe (a: input logic<8>, y: output logic<8>,) {
+            type Byte = logic<8>;
+            always_comb { y = a; }
+        }",
+    );
+    // The alias lands above the module, not inside it.
+    let type_at = iris.find("type Byte = bit[8];").expect("alias should be written");
+    let mod_at = iris.find("mod Probe").expect("module should be written");
+    assert!(type_at < mod_at, "the alias should sit above the module:\n{}", iris);
+}
+
+#[test]
+fn a_modport_default_is_refused() {
+    // `..input` fills the rest in; IRIS names every signal, so there is
+    // nothing to fill from.
+    let report = refused(
+        "interface Bus {
+            var valid: logic;
+            modport master { valid: output, ..input }
+        }",
+    );
+    assert!(report.contains("modport") || report.contains("unsupported"), "{}", report);
+}
