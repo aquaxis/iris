@@ -114,6 +114,10 @@ Driven by a SystemVerilog testbench:
 For reference, the IRIS interpreter runs 1M cycles in 2.18 s, about 460,000
 cycles per second.
 
+**Veryl also has a native simulator.** Verilator (from `veryl build`) is used
+here so both languages are measured on the same ground; it does not mean Veryl
+can only run on Verilator.
+
 ### What each figure is a property of
 
 IRIS and Veryl run at the same speed under Verilator, with the difference inside
