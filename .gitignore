@@ -52,3 +52,6 @@ package-lock.json
 
 # Python のバイトコード
 __pycache__/
+
+# 報告書はgit管理しない（作業記録であり、手元に置く）
+report_*.md
