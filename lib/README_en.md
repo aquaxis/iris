@@ -161,6 +161,18 @@ expressible today (a `var` array needs a constant size), so the depth is two.
 data input); `clear` starts a new stream. A parallel CRC (a byte per cycle)
 needs an XOR fold and is not expressible in today's `comb`.
 
+### periph
+
+| Part | Function | Parameters |
+|---|---|---|
+| `UartTx` | UART transmitter (start 0, LSB-first 8 bits, stop 1) | `ClksPerBit` (baud divisor, default 4, >= 2) |
+| `UartRx` | UART receiver (falling-edge detect, sample at bit centers) | `ClksPerBit` (default 4, >= 2) |
+
+`UartTx`/`UartRx` are FSM + shift register + bit-time counter (the first Tier-3
+"buildable in IRIS" parts). A TX→RX loopback confirms a sent byte is received
+unchanged. The baud rate is `clk / ClksPerBit`; raise `ClksPerBit` to match a
+real baud rate.
+
 ## Implementation notes
 
 **IRIS does not allow `var` in `comb`** — `var` is for `sync`/`fsm` only. And a
@@ -199,8 +211,8 @@ work.
 warning, not an error). `Lzc` warns on the all-zero default (`count = Width`;
 `Width` is a 32-bit parameter in SV but the value fits the output width).
 `ArbiterFixed`/`ArbiterRr` warn because the untyped `1` in `~x + 1` widens to 32
-bits in SV (the `&` masks it back, so behavior is correct). `ClkDivider` warns on
-`count == Div - 1` because the parameter `Div` is 32-bit (the compare is
+bits in SV (the `&` masks it back, so behavior is correct). `ClkDivider`/`UartTx`/`UartRx` warn on
+`count == Div - 1` and similar because the parameter is 32-bit (the compare is
 correct). These stem from IRIS untyped literals and parameters becoming 32-bit
 in SV.
 

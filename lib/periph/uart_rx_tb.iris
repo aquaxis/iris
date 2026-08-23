@@ -1,0 +1,44 @@
+/// UartRxのテストベンチ
+///
+/// rx線に0xB4のフレーム（スタート0・LSB先頭の8ビット・ストップ1、各4クロック）を
+/// 手で流し込み、受信バイトが0xB4になることを確かめる（ClksPerBit=4）。
+/// 0xB4のLSB先頭: 0,0,1,0,1,1,0,1。
+test UartRxTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var rx_r: bit = 1;
+    var step: bit[8] = 0;
+    var rcv: bit[8] = 0;
+    var got: bit = 0;
+
+    inst dut = UartRx { clk: clk, rst: rst, rx: rx_r };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        rx_r = 1;
+        if step >= 8'd6 & step <= 8'd9 { rx_r = 0; }    // start
+        if step >= 8'd10 & step <= 8'd13 { rx_r = 0; }  // bit0=0
+        if step >= 8'd14 & step <= 8'd17 { rx_r = 0; }  // bit1=0
+        if step >= 8'd18 & step <= 8'd21 { rx_r = 1; }  // bit2=1
+        if step >= 8'd22 & step <= 8'd25 { rx_r = 0; }  // bit3=0
+        if step >= 8'd26 & step <= 8'd29 { rx_r = 1; }  // bit4=1
+        if step >= 8'd30 & step <= 8'd33 { rx_r = 1; }  // bit5=1
+        if step >= 8'd34 & step <= 8'd37 { rx_r = 0; }  // bit6=0
+        if step >= 8'd38 & step <= 8'd41 { rx_r = 1; }  // bit7=1
+    }
+
+    sync(clk.posedge) {
+        if dut.valid {
+            rcv = dut.data;
+            got = 1;
+        }
+    }
+
+    seq {
+        await clk.cycles(55);
+        assert got == 1, "a byte was received";
+        assert rcv == 8'hB4, "received byte is 0xB4";
+        $display("UartRxTB: all checks passed");
+        $finish;
+    }
+}

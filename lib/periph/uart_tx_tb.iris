@@ -1,0 +1,34 @@
+/// UartTxのテストベンチ
+///
+/// data=0xB4を送り、tx線がスタート0・LSB先頭のデータ・ストップ1になること、
+/// busyが送信中1・完了後0になることを既知のサイクルで確かめる（ClksPerBit=4）。
+/// 0xB4=1011_0100、LSB先頭: 0,0,1,0,1,1,0,1。
+test UartTxTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var start: bit = 0;
+    var data: bit[8] = 8'hB4;
+    var step: bit[8] = 0;
+
+    inst dut = UartTx { clk: clk, rst: rst, start: start, data: data };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        start = 0;
+        if step == 8'd6 { start = 1; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd12 { assert dut.tx == 0, "start/bit0/bit1 region is low"; assert dut.busy == 1, "busy while sending"; }
+        if step == 8'd22 { assert dut.tx == 1, "bit2 is high"; }
+        if step == 8'd26 { assert dut.tx == 0, "bit3 is low"; }
+        if step == 8'd42 { assert dut.tx == 1, "bit7 is high"; }
+        if step == 8'd55 { assert dut.busy == 0, "idle after the frame"; assert dut.tx == 1, "line idles high"; }
+    }
+
+    seq {
+        await clk.cycles(60);
+        $display("UartTxTB: all checks passed");
+        $finish;
+    }
+}

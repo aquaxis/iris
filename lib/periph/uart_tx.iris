@@ -1,0 +1,93 @@
+/// UART送信器
+///
+/// `start`が1のとき`data`（8ビット）を、スタートビット0・データ8ビット（LSB先頭）・
+/// ストップビット1の形で`tx`線に直列送出する。1ビットは`ClksPerBit`クロック続く。
+/// FSM（IDLE→START→DATA→STOP）＋シフトレジスタ＋ビット時間カウンタで構成する。
+///
+/// ジェネリックパラメータ:
+/// - ClksPerBit: 1ビットのクロック数（ボーレート＝clk/ClksPerBit、既定4、2以上）
+/// - CntWidth:   ビット時間カウンタ幅（導出）
+///
+/// ポート:
+/// - start: 1で送信開始（busyでないとき）
+/// - data:  送るバイト
+/// - tx:    直列出力（アイドルは1）
+/// - busy:  送信中は1
+/// - done:  1バイト送り終えた次に1サイクルだけ1
+///
+/// リセットは非同期assert・同期deassert、能動High。txはアイドルの1で始まる。
+mod UartTx[
+    ClksPerBit: uint = 4,
+    CntWidth: uint = $clog2(ClksPerBit),
+]
+where
+    ClksPerBit >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  data: bit[8],
+    out tx: bit,
+    out busy: bit,
+    out done: bit,
+) {
+    var st: bit[2] = 0;
+    var clk_cnt: bit[CntWidth] = 0;
+    var bit_idx: bit[3] = 0;
+    var shift: bit[8] = 0;
+    var tx_r: bit = 1;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if st == 2'd0 {
+            tx_r = 1;
+            if start {
+                shift = data;
+                clk_cnt = 0;
+                st = 2'd1;
+            }
+        } else {
+            if st == 2'd1 {
+                tx_r = 0;
+                if clk_cnt == ClksPerBit - 1 {
+                    clk_cnt = 0;
+                    bit_idx = 0;
+                    st = 2'd2;
+                } else {
+                    clk_cnt = clk_cnt + 1;
+                }
+            } else {
+                if st == 2'd2 {
+                    tx_r = shift[0];
+                    if clk_cnt == ClksPerBit - 1 {
+                        clk_cnt = 0;
+                        shift = shift >> 1;
+                        if bit_idx == 3'd7 {
+                            st = 2'd3;
+                        } else {
+                            bit_idx = bit_idx + 1;
+                        }
+                    } else {
+                        clk_cnt = clk_cnt + 1;
+                    }
+                } else {
+                    tx_r = 1;
+                    if clk_cnt == ClksPerBit - 1 {
+                        clk_cnt = 0;
+                        st = 2'd0;
+                        done_r = 1;
+                    } else {
+                        clk_cnt = clk_cnt + 1;
+                    }
+                }
+            }
+        }
+    }
+
+    comb {
+        tx = tx_r;
+        busy = st != 2'd0;
+        done = done_r;
+    }
+}
