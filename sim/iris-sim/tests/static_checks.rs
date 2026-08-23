@@ -648,15 +648,65 @@ fn a_width_method_keeps_a_slice_bound_constant() {
 
 #[test]
 fn an_undeclared_type_on_a_port_is_reported() {
+    // `Widget` is not declared anywhere. (`f32` is no longer a stand-in for
+    // an unknown type: it is now a real floating-point type, reported as
+    // O1009 instead.)
     let diagnostics = check(
         "
-        mod M(in a: bit[8], out y: f32,) {
+        mod M(in a: bit[8], out y: Widget,) {
             comb { y = a; }
         }
         ",
         "M",
     );
     assert!(codes(&diagnostics).contains(&"O1008"));
+}
+
+#[test]
+fn a_floating_point_port_is_now_evaluated_not_refused() {
+    // f32/f64 ports and signals are evaluated by the interpreter, so they are
+    // no longer refused. (Arithmetic between them is exercised in the
+    // simulation tests.)
+    let diagnostics = check(
+        "
+        mod M(in a: f32, in b: f32, out y: f32,) {
+            comb { y = a + b; }
+        }
+        ",
+        "M",
+    );
+    assert!(!codes(&diagnostics).contains(&"O1009"));
+}
+
+#[test]
+fn a_floating_point_memory_is_now_accepted() {
+    // A float memory element is tagged with its format on a read, so it is
+    // evaluated rather than refused (it was once O1009).
+    let diagnostics = check(
+        "
+        mod M(out y: bit[8],) {
+            mem table: f32[4];
+            comb { y = 0; }
+        }
+        ",
+        "M",
+    );
+    assert!(!codes(&diagnostics).contains(&"O1009"));
+}
+
+#[test]
+fn a_real_literal_with_a_float_operand_is_accepted() {
+    // A real literal takes its format from the floating-point operand it is
+    // used with, so `a + 1.5` is evaluated, not refused.
+    let diagnostics = check(
+        "
+        mod M(in a: f32, out y: f32,) {
+            comb { y = a + 1.5; }
+        }
+        ",
+        "M",
+    );
+    assert!(!codes(&diagnostics).contains(&"O1009"));
 }
 
 #[test]
@@ -676,9 +726,11 @@ fn an_undeclared_type_on_a_signal_is_reported() {
 #[test]
 fn it_is_a_warning_and_not_an_error() {
     // The design still runs; the point is that it no longer runs silently.
+    // (`Widget` is an undeclared user type; `f64` is now a real float type
+    // reported as an O1009 error, not this O1008 warning.)
     let diagnostics = check(
         "
-        mod M(in a: bit[8], out y: f64,) {
+        mod M(in a: bit[8], out y: Widget,) {
             comb { y = a; }
         }
         ",

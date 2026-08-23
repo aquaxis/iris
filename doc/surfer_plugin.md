@@ -172,6 +172,19 @@ $var wire    32 z dmem_rdata [31:0] $end
 **この1点だけで目的は達せられる。**
 Surferには`Signed`という組み込みの翻訳器があり、`$var integer`を受け持つ。
 
+## 浮動小数点の表示
+
+`f32`と`f64`はビット列のまま出すと読めない。
+`iris-sim`は浮動小数点の信号を`$var real`として書き、値の変化は十進で出す。
+
+```
+$var real 1 # y $end
+...
+r1.5 #
+```
+
+これでSurferやGTKWaveが`1.5`と表示する。`0x3FC00000`ではない。
+
 ## 翻訳プラグイン
 
 `tools/surfer-plugin/`にExtismのプラグインがある。

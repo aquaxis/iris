@@ -1,0 +1,16 @@
+// Floating-point types: f32 maps to SystemVerilog `shortreal`, f64 to `real`.
+// Exercises float ports, float arithmetic, a bare real literal, and a float
+// comparison — round-tripped through iris2sv and sv2iris.
+mod FloatOps(
+    in a: f32,
+    in b: f32,
+    out sum: f32,
+    out scaled: f64,
+    out a_ge_b: bit,
+) {
+    comb {
+        sum = a + b;
+        scaled = 2.5;
+        a_ge_b = a >= b;
+    }
+}

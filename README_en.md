@@ -150,6 +150,7 @@ iris/
 │   ├── iris-sim/          # Simulator: interpreter and compiler
 │   └── iris-runtime/      # Values, operations, waveforms, shared by both
 ├── tools/
+│   ├── iris/              # Unified command (Rust; bundles the tools as subcommands)
 │   ├── irisfmt/           # Formatter, linter, language server, VSCode extension
 │   ├── iris2sv/           # IRIS to SystemVerilog
 │   ├── sv2iris/           # SystemVerilog to IRIS
@@ -168,6 +169,37 @@ iris/
 ```
 
 ## Tools
+
+### Unified command, written in Rust
+
+**iris**: one entry point that bundles the tools
+
+The scattered entry points are gathered under `iris` as subcommands. `iris`
+itself is Rust, has no dependencies, and hands work to each tool.
+
+```bash
+iris sim -i design.iris -o out.vcd -c 100    # iris-sim
+iris compile -i design.iris -o sim --release # iris-compile
+iris formal -i design.iris -o out/           # iris-formal
+iris veryl import design.veryl               # veryl2iris (Veryl -> IRIS)
+iris veryl export design.iris                # iris2veryl (IRIS -> Veryl)
+iris fmt design.iris                         # irisfmt (format)
+iris lint design.iris                        # irisfmt-lint (style check)
+iris lsp                                     # irisfmt-lsp (language server)
+iris sv design.iris                          # iris2sv (IRIS -> SystemVerilog)
+iris from-sv design.sv                       # sv2iris (SystemVerilog -> IRIS)
+```
+
+Arguments after the command are passed through unchanged.
+
+**Every subcommand runs a Rust tool directly; none shell out to node any
+more.** The entry point is one command: `sv` = `iris2sv`, `from-sv` = `sv2iris`,
+and `fmt`/`lint`/`lsp` = `irisfmt`. `fmt` passes the conformance suite, and
+`lint`/`lsp` carry the same rule set and features as the former TypeScript
+tools. Only `iris schematic` — the browser viewer's dev server (`npm run dev`)
+— still needs npm.
+
+A Rust tool's location can be overridden with `IRIS_<TOOL>_BIN`.
 
 ### Simulation, written in Rust
 
@@ -202,13 +234,15 @@ It provides IRIS values and the operations on them, waveform recording, and VCD
 output. The interpreter and the executables the compiler produces both use it,
 so a design gives the same result whichever way it is run.
 
-### Utilities, written in TypeScript
+### Utilities, written in Rust
 
-**irisfmt**: formatter, linter, language server and VSCode extension
+**irisfmt**: formatter, linter, language server
 
-Formats IRIS source and checks it against coding conventions.
-It also ships a language server (`packages/ls`) and a VSCode extension
-(`packages/vscode-iris`).
+Formats IRIS source (`iris fmt`) and checks it against coding conventions
+(`iris lint`). It also ships a language server (`iris lsp`). All are ported to
+Rust (`tools/irisfmt-rs`, `tools/irisfmt-lsp-rs`) and never invoke node.
+The VSCode extension (`tools/irisfmt/packages/vscode-iris`) connects to that
+language server.
 
 The extension supports the editor in two layers.
 
@@ -351,7 +385,7 @@ never dropped.
 
 | Kind of refusal | Example |
 |---|---|
-| The language has no counterpart | `f32`, `tri`, `bind` (Veryl side); `fsm`, `rand` (IRIS side) |
+| The language has no counterpart | `tri`, `bind` (Veryl side); `fsm`, `rand` (IRIS side) |
 | This converter has not caught up | `interface`, `function`, multi-value case arms |
 
 `tools/conformance/run.sh` checks that a round trip still simulates the same.
@@ -406,10 +440,11 @@ Used for comparing the speed of the two execution modes.
 
 ### Prerequisites
 
-- **Rust** (rustc, cargo): to build the simulator
-- **Node.js** (18.0.0 or later) and **pnpm**: to build the TypeScript tools
+- **Rust** (rustc, cargo): to build the simulator and every tool
+- **Node.js** and **npm**: only for `iris schematic` (the browser block-diagram
+  viewer) and the VSCode extension. The CLI tools do not need it.
 
-### Building and running the simulator
+### Building and running the simulator and tools
 
 ```bash
 # Build iris-sim
@@ -418,24 +453,18 @@ cargo build --release
 
 # Run a simulation
 cargo run --bin iris-sim -- path/to/your_design.iris
+
+# The transpilers, formatter, linter and LSP each build with cargo
+cargo build --release --manifest-path tools/iris2sv-rs/Cargo.toml
+cargo build --release --manifest-path tools/sv2iris-rs/Cargo.toml
+cargo build --release --manifest-path tools/irisfmt-rs/Cargo.toml
+cargo build --release --manifest-path tools/irisfmt-lsp-rs/Cargo.toml
+cargo build --release --manifest-path tools/iris/Cargo.toml   # the iris dispatcher
 ```
 
-### Building the TypeScript tools
-
-```bash
-# iris2sv, for example
-cd tools/iris2sv
-pnpm install
-pnpm build
-```
-
-`package.json` names `pnpm@9.0.0` as its `packageManager`, so running under
-pnpm 10 may fail while it tries to switch versions. Disable the switch:
-
-```bash
-pnpm install --config.manage-package-manager-versions=false
-pnpm -r --config.manage-package-manager-versions=false build
-```
+Every CLI subcommand (`sim`/`compile`/`formal`/`veryl`/`sv`/`from-sv`/`fmt`/
+`lint`/`lsp`) is Rust and never invokes node; only `iris schematic`'s browser
+dev server uses npm.
 
 ## Language specification
 
@@ -489,6 +518,7 @@ files ending in `_en` are the English editions.
 | [Block diagram viewer](./doc/schematic_en.md) | Drawing module interconnection in a browser |
 | [Waveforms in Surfer](./doc/surfer_plugin_en.md) | Reading waveforms, with `mem` expanded element by element |
 | [Editor support](./doc/editor_en.md) | Syntax highlighting and the language server in VSCode |
+| [The iris command](./doc/iris_en.md) | The unified command that bundles the tools |
 
 The `report_*.md` files at the repository root are **working records**, not
 reference material. They keep the reasoning, the measurements, and the

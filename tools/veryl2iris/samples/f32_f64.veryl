@@ -1,0 +1,11 @@
+module Probe (
+    a: input  f32,
+    b: input  f64,
+    x: output f32,
+    y: output f64,
+) {
+    always_comb {
+        x = a;
+        y = b;
+    }
+}

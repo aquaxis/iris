@@ -8,6 +8,7 @@
 use iris_sim::parser::{AssertSeverity, Parser};
 use iris_sim::project::Project;
 use iris_sim::sim::HierarchicalSimulator;
+use iris_sim::types::SignalValue;
 
 /// Build a project from source and run it for the given number of cycles
 fn run(source: &str, top: &str, cycles: u64) -> HierarchicalSimulator {
@@ -1771,4 +1772,194 @@ fn an_attribute_may_carry_a_duration() {
     );
     let sim = run(&source, "TimeoutTest", 2);
     assert_eq!(value_of(&sim, "y"), 0);
+}
+
+/// Build a project and simulator without running, so a test can drive the
+/// inputs itself.
+fn build(source: &str, top: &str) -> HierarchicalSimulator {
+    let parser = Parser::new();
+    let result = parser.parse_all(source).expect("source should parse");
+    let mut project = Project::new();
+    for module in result.modules {
+        project.modules.insert(module.name.clone(), module);
+    }
+    project.set_top(top).expect("top module should exist");
+    project.elaborate();
+    HierarchicalSimulator::new(project)
+}
+
+#[test]
+fn f32_arithmetic_is_evaluated() {
+    // Float values reach the design through its inputs, driven here as f32
+    // bits. A real literal in the source is a later stage.
+    let mut sim = build(
+        "mod FAdd(in a: f32, in b: f32, out y: f32,) { comb { y = a + b; } }",
+        "FAdd",
+    );
+    sim.set_signal("a", SignalValue::from_f32(1.5));
+    sim.set_signal("b", SignalValue::from_f32(2.25));
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f32()), Some(3.75));
+}
+
+#[test]
+fn f32_multiply_and_compare_are_evaluated() {
+    let mut sim = build(
+        "mod FOps(in a: f32, in b: f32, out prod: f32, out lt: bit,) {
+            comb {
+                prod = a * b;
+                lt = a < b;
+            }
+        }",
+        "FOps",
+    );
+    sim.set_signal("a", SignalValue::from_f32(3.0));
+    sim.set_signal("b", SignalValue::from_f32(0.5));
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("prod").and_then(|v| v.as_f32()), Some(1.5));
+    // 3.0 < 0.5 is false.
+    assert_eq!(sim.get_signal("lt").and_then(|v| v.to_u64()), Some(0));
+}
+
+#[test]
+fn f64_arithmetic_is_evaluated() {
+    let mut sim = build(
+        "mod DAdd(in a: f64, in b: f64, out y: f64,) { comb { y = a - b; } }",
+        "DAdd",
+    );
+    sim.set_signal("a", SignalValue::from_f64(10.5));
+    sim.set_signal("b", SignalValue::from_f64(0.25));
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f64()), Some(10.25));
+}
+
+#[test]
+fn a_real_literal_takes_the_format_of_its_float_operand() {
+    // `a + 1.5`: the literal has no format on its own; it takes f32 from `a`.
+    let mut sim = build(
+        "mod M(in a: f32, out y: f32,) { comb { y = a + 1.5; } }",
+        "M",
+    );
+    sim.set_signal("a", SignalValue::from_f32(1.0));
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f32()), Some(2.5));
+}
+
+#[test]
+fn a_real_literal_scales_an_f64_operand() {
+    let mut sim = build(
+        "mod M(in a: f64, out y: f64,) { comb { y = a * 2.5; } }",
+        "M",
+    );
+    sim.set_signal("a", SignalValue::from_f64(4.0));
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f64()), Some(10.0));
+}
+
+#[test]
+fn a_bare_real_literal_takes_the_format_of_its_f32_target() {
+    // `y = 1.5`: the literal has no float operand; the target `y: f32`
+    // supplies the format.
+    let mut sim = build(
+        "mod M(out y: f32,) { comb { y = 1.5; } }",
+        "M",
+    );
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f32()), Some(1.5));
+}
+
+#[test]
+fn a_bare_real_literal_takes_the_format_of_its_f64_target() {
+    let mut sim = build(
+        "mod M(out y: f64,) { comb { y = 3.25; } }",
+        "M",
+    );
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f64()), Some(3.25));
+}
+
+#[test]
+fn a_bare_real_literal_registers_into_an_f32_signal() {
+    // A sync assignment path also honours the target's float format.
+    let mut sim = build(
+        "mod M(in clk: clock, out y: f32,) { sync(clk.posedge) { y = 2.75; } }",
+        "M",
+    );
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f32()), Some(2.75));
+}
+
+#[test]
+fn two_real_literals_are_folded_in_the_target_format() {
+    // `y = 1.5 + 2.25`: neither operand carries a format; the target `y: f32`
+    // supplies it and the sum is folded.
+    let mut sim = build("mod M(out y: f32,) { comb { y = 1.5 + 2.25; } }", "M");
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f32()), Some(3.75));
+}
+
+#[test]
+fn nested_real_literals_are_folded() {
+    let mut sim = build("mod M(out y: f64,) { comb { y = 1.5 + 2.25 + 3.0; } }", "M");
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f64()), Some(6.75));
+}
+
+#[test]
+fn a_real_literal_product_is_folded() {
+    let mut sim = build("mod M(out y: f32,) { comb { y = 2.5 * 4.0; } }", "M");
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("y").and_then(|v| v.as_f32()), Some(10.0));
+}
+
+#[test]
+fn a_float_memory_reads_back_as_a_float() {
+    // A memory of f32 elements: a value written in comes back tagged as f32,
+    // so a read is used as a float, not as raw bits.
+    let mut sim = build(
+        "mod FMem(
+            in clk: clock,
+            in we: bit,
+            in addr: bit[8],
+            in wdata: f32,
+            out rdata: f32,
+        ) {
+            mem storage: f32[4];
+            sync(clk.posedge) {
+                if we { storage[addr] = wdata; }
+            }
+            comb { rdata = storage[addr]; }
+        }",
+        "FMem",
+    );
+    sim.set_signal("we", SignalValue::from_u64(1, 1));
+    sim.set_signal("addr", SignalValue::from_u64(0, 8));
+    sim.set_signal("wdata", SignalValue::from_f32(1.5));
+    sim.run_cycles(1);
+    assert_eq!(sim.get_signal("rdata").and_then(|v| v.as_f32()), Some(1.5));
+}
+
+#[test]
+fn a_float_signal_is_written_to_vcd_as_a_real() {
+    // A floating-point signal must be a VCD `real` with decimal value changes,
+    // not a hexadecimal bit pattern, so a waveform viewer shows 1.5.
+    use iris_sim::fst::{VcdWriter, WaveWriter};
+    let mut sim = build("mod M(out y: f32,) { comb { y = 1.5; } }", "M");
+    sim.run_cycles(1);
+
+    let path = std::env::temp_dir().join("iris_float_vcd_real_test.vcd");
+    let mut writer = VcdWriter::new(&path).expect("create vcd");
+    writer.write_trace(sim.get_trace(), "M").expect("write trace");
+    writer.close().expect("close vcd");
+    let vcd = std::fs::read_to_string(&path).expect("read vcd");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(
+        vcd.contains("$var real 1 "),
+        "expected a real var declaration:\n{vcd}"
+    );
+    assert!(
+        vcd.contains("r1.5 "),
+        "expected an r1.5 value change:\n{vcd}"
+    );
 }

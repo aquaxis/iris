@@ -116,9 +116,9 @@ fn how_much_of_the_table_is_exercised_is_stated_here() {
     // moving it is a decision rather than a drift.
     let total = exact().count();
     let covered = COVERAGE.iter().filter(|c| c.sample.is_some()).count();
-    assert_eq!(total, 30, "the number of Exact rows changed");
+    assert_eq!(total, 32, "the number of Exact rows changed");
     assert_eq!(
-        covered, 29,
+        covered, 31,
         "the number of Exact rows with a round trip changed: {} of {}",
         covered, total
     );

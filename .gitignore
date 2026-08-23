@@ -27,7 +27,8 @@ example/comparison/target/
 example/comparison/dependencies/
 example/comparison/comparison.f
 
-# Rustのビルド生成物
+# Rustのビルド生成物（どの階層の target/ も無視する）
+target/
 /sim/iris-sim/target/
 /sim/iris-runtime/target/
 
@@ -52,3 +53,6 @@ package-lock.json
 
 # Python のバイトコード
 __pycache__/
+
+# 報告書はgit管理しない（作業記録であり、手元に置く）
+report_*.md

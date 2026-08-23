@@ -375,6 +375,9 @@ impl Parser {
         let text = pair.as_str().trim_start();
         let is_public = text.starts_with("pub ");
         let is_extern = text.starts_with("extern ") || text.starts_with("pub extern ");
+        let line_col = pair.as_span().start_pos().line_col();
+        let end_col = pair.as_span().end_pos().line_col();
+        let span = Some(Span::new(line_col.0, line_col.1, end_col.0, end_col.1));
         let mut inner = pair.into_inner();
 
         let name = inner
@@ -425,7 +428,7 @@ impl Parser {
             signals,
             logic_blocks,
             instances,
-            span: None,
+            span,
             is_test,
             seq_blocks,
             initial_blocks,
@@ -723,6 +726,10 @@ impl Parser {
                     }
                     Rule::uint_type => {
                         Ok((Self::sized_int(base, false)?, None, None))
+                    }
+                    Rule::float_type => {
+                        let bits = if base.as_str() == "f64" { 64 } else { 32 };
+                        Ok((Type::Float { bits }, None, None))
                     }
                     Rule::bool_type => Ok((Type::Bool, None, None)),
                     Rule::string_type => {
@@ -1579,6 +1586,9 @@ impl Parser {
                 })?;
                 Ok(Literal::Decimal { width: None, value })
             }
+            Rule::real_literal => Ok(Literal::Real {
+                text: inner.as_str().to_string(),
+            }),
             _ => Err(ParseError::InvalidLiteral(format!(
                 "Unknown literal: {:?}",
                 inner.as_rule()

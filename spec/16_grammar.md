@@ -95,6 +95,7 @@ type_expr = primitive_type | array_type | tuple_type | user_type | generic_type 
 primitive_type = "bit" [ "[" const_expr [ ":" const_expr ] "]" ]
                | "int" "[" const_expr "]"
                | "uint" "[" const_expr "]"
+               | "f32" | "f64"
                | "bool" | "string"
                | "clock" [ "(" clock_config { "," clock_config } ")" ]
                | "reset" [ "(" reset_config { "," reset_config } ")" ] ;
@@ -448,9 +449,12 @@ sys_func_arg = string_literal | type_expr | expr ;
 ### 16.1.13 リテラル
 
 ```ebnf
-literal = integer_literal | bool_literal | string_literal ;
+literal = integer_literal | real_literal | bool_literal | string_literal ;
 
 integer_literal = [ literal_size ] [ "'" base ] digits ;
+
+real_literal = decimal_digits "." decimal_digits
+             [ ( "e" | "E" ) [ "+" | "-" ] decimal_digits ] ;
 
 (* The width in front of a based literal, as the 8 of 8'hFF *)
 literal_size = decimal_digits ;

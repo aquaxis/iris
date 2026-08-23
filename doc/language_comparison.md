@@ -28,6 +28,7 @@ VerylとIRISは同じ問題を解いている。
 | 括弧 | `begin ... end` | `{ ... }` | `{ ... }` |
 | 型宣言（組み合わせ） | `wire [7:0] data` | `let data: logic<8>` | `let data: bit[8];` |
 | 型宣言（順序） | `reg [7:0] data` | `var data: logic<8>` | `var data: bit[8];` |
+| 浮動小数点型 | `shortreal` / `real` | `f32` / `f64` | `f32` / `f64` |
 | 分岐 | `case ... endcase` | `case { ... }` | `match { ... }` |
 | 組み合わせ論理 | `assign` / `always_comb` | `assign` / `always_comb { }` | `let`宣言 / `comb { }` |
 | 順序論理 | `always_ff @(posedge clk)` | `always_ff (clk) { }` | `sync(clk.posedge) { }` |

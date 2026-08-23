@@ -31,6 +31,7 @@ without discarding its ecosystem.
 | Blocks | `begin ... end` | `{ ... }` | `{ ... }` |
 | Declaration (combinational) | `wire [7:0] data` | `let data: logic<8>` | `let data: bit[8];` |
 | Declaration (sequential) | `reg [7:0] data` | `var data: logic<8>` | `var data: bit[8];` |
+| Floating-point type | `shortreal` / `real` | `f32` / `f64` | `f32` / `f64` |
 | Branching | `case ... endcase` | `case { ... }` | `match { ... }` |
 | Combinational logic | `assign` / `always_comb` | `assign` / `always_comb { }` | `let` / `comb { }` |
 | Sequential logic | `always_ff @(posedge clk)` | `always_ff (clk) { }` | `sync(clk.posedge) { }` |

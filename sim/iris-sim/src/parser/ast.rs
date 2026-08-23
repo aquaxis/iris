@@ -171,6 +171,10 @@ pub enum Type {
     Int { width: usize, signed: bool },
     /// Boolean, one bit
     Bool,
+    /// Floating point (spec 03): `f32` (bits = 32) or `f64` (bits = 64).
+    /// Parsed and carried, but evaluation is not implemented yet; the checker
+    /// refuses a float-typed declaration rather than simulating it wrongly.
+    Float { bits: usize },
     /// Bit vector whose width is a constant expression (may mention generic
     /// parameters or `$clog2`), resolved at elaboration
     BitVecExpr { expr: Box<Expression> },
@@ -253,6 +257,7 @@ impl Type {
             Type::Array { element, size } => element.width().map(|w| w * size),
             Type::Int { width, .. } => Some(*width),
             Type::Bool => Some(1),
+            Type::Float { bits } => Some(*bits),
             Type::BitVecExpr { .. } => None,
             Type::Enum { width, .. } => Some(*width),
             Type::Named(_) => None,
@@ -270,6 +275,7 @@ impl fmt::Display for Type {
                 write!(f, "{}[{}]", if *signed { "int" } else { "uint" }, width)
             }
             Type::Bool => write!(f, "bool"),
+            Type::Float { bits } => write!(f, "f{}", bits),
             Type::Clock => write!(f, "clock"),
             Type::Reset { active_low } => {
                 if *active_low {
@@ -1035,6 +1041,11 @@ pub enum Literal {
     Hex { width: usize, value: u64 },
     /// Decimal literal: 8'd255 or just 255
     Decimal { width: Option<usize>, value: i64 },
+    /// Real literal: 1.5, 3.14e-2. Kept as its source text: a real literal has
+    /// no format on its own (it takes f32/f64 from its operand or assignment
+    /// target at evaluation), and the text preserves it exactly and keeps
+    /// `Literal` comparable.
+    Real { text: String },
 }
 
 impl Literal {
@@ -1044,6 +1055,10 @@ impl Literal {
             Literal::Binary { width, .. } => Some(*width),
             Literal::Hex { width, .. } => Some(*width),
             Literal::Decimal { width, .. } => *width,
+            // A real literal's width is the float format it lands in, which is
+            // not known here. Evaluation is unimplemented, so it never reaches
+            // a point that needs a width.
+            Literal::Real { .. } => None,
         }
     }
 
@@ -1053,6 +1068,9 @@ impl Literal {
             Literal::Binary { value, .. } => *value,
             Literal::Hex { value, .. } => *value,
             Literal::Decimal { value, .. } => *value as u64,
+            // Not an integer value. Evaluation is unimplemented and refuses a
+            // real literal before this is reached.
+            Literal::Real { .. } => 0,
         }
     }
 }
@@ -1163,6 +1181,7 @@ impl fmt::Display for Literal {
             Literal::Hex { width, value } => write!(f, "{}'h{:x}", width, value),
             Literal::Decimal { width: Some(w), value } => write!(f, "{}'d{}", w, value),
             Literal::Decimal { width: None, value } => write!(f, "{}", value),
+            Literal::Real { text } => write!(f, "{}", text),
         }
     }
 }

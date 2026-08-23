@@ -8,7 +8,7 @@
 
 use crate::ops;
 use crate::trace::SignalTrace;
-use crate::value::SignalValue;
+use crate::value::{FloatFmt, SignalValue};
 use crate::SimTime;
 
 /// What a suspended sequential program is waiting for
@@ -65,6 +65,8 @@ pub struct Memory {
     pub data: Vec<SignalValue>,
     /// Writes are ignored
     pub is_rom: bool,
+    /// The floating-point format of an element, when it has one
+    pub float: Option<FloatFmt>,
 }
 
 impl Memory {
@@ -75,7 +77,14 @@ impl Memory {
             depth,
             data: vec![SignalValue::new(element_width); depth],
             is_rom,
+            float: None,
         }
+    }
+
+    /// Tag this memory's elements with a floating-point format
+    pub fn float(mut self, fmt: FloatFmt) -> Self {
+        self.float = Some(fmt);
+        self
     }
 }
 
@@ -113,6 +122,9 @@ pub struct SlotDef {
     pub signed: bool,
     /// Keep out of the waveform (loop variables and the like)
     pub hidden: bool,
+    /// The floating-point format, when the slot has one. Its initial value is
+    /// tagged with it so a waveform shows a real, matching the interpreter.
+    pub float: Option<FloatFmt>,
 }
 
 impl SlotDef {
@@ -123,6 +135,7 @@ impl SlotDef {
             width: Some(width),
             signed,
             hidden: false,
+            float: None,
         }
     }
 
@@ -134,12 +147,19 @@ impl SlotDef {
             width: None,
             signed: false,
             hidden: false,
+            float: None,
         }
     }
 
     /// Keep this slot out of the waveform
     pub fn hidden(mut self) -> Self {
         self.hidden = true;
+        self
+    }
+
+    /// Tag this slot with a floating-point format
+    pub fn float(mut self, fmt: FloatFmt) -> Self {
+        self.float = Some(fmt);
         self
     }
 }
@@ -200,7 +220,13 @@ impl Runtime {
     pub fn new(slots: Vec<SlotDef>) -> Self {
         let sig = slots
             .iter()
-            .map(|s| SignalValue::new(s.width.unwrap_or(0)).with_signed(s.signed))
+            .map(|s| {
+                let mut v = SignalValue::new(s.width.unwrap_or(0)).with_signed(s.signed);
+                if let Some(fmt) = s.float {
+                    v = v.with_float(Some(fmt));
+                }
+                v
+            })
             .collect();
         let established = slots.iter().map(|s| s.width.is_some()).collect();
         let hidden: Vec<bool> = slots.iter().map(|s| s.hidden).collect();
@@ -359,10 +385,12 @@ impl Runtime {
     /// Read one word. Reads past the end give zero rather than aborting.
     pub fn mem_read(&self, mem: usize, addr: usize) -> SignalValue {
         let m = &self.mems[mem];
+        // A read is tagged with the element's floating-point format, so a float
+        // memory is used as a float rather than as its bit pattern.
         if addr < m.depth {
-            m.data[addr].clone()
+            m.data[addr].clone().with_float(m.float)
         } else {
-            SignalValue::new(m.element_width)
+            SignalValue::new(m.element_width).with_float(m.float)
         }
     }
 

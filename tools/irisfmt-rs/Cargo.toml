@@ -1,0 +1,19 @@
+[package]
+name = "irisfmt"
+version = "0.1.0"
+edition = "2021"
+description = "Format IRIS source (Rust port of the TypeScript irisfmt)"
+publish = false
+
+[dependencies]
+iris-sim = { path = "../../sim/iris-sim" }
+
+[[bin]]
+name = "irisfmt"
+path = "src/main.rs"
+
+[lib]
+name = "irisfmt"
+path = "src/lib.rs"
+
+[workspace]

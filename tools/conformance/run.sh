@@ -20,9 +20,9 @@ VERBOSE=0
 [ "${1:-}" = "-v" ] && VERBOSE=1
 
 SIM="sim/iris-sim/target/release/iris-sim"
-IRIS2SV="tools/iris2sv/packages/cli/dist/cli.js"
-IRISFMT="tools/irisfmt/packages/format/dist/cli.js"
-SV2IRIS="tools/sv2iris/dist/bin.js"
+IRIS2SV="tools/iris2sv-rs/target/release/iris2sv"
+IRISFMT="tools/irisfmt-rs/target/release/irisfmt"
+SV2IRIS="tools/sv2iris-rs/target/release/sv2iris"
 VERYL2IRIS="tools/veryl2iris/v2i/target/release/veryl2iris"
 IRIS2VERYL="tools/veryl2iris/i2v/target/release/iris2veryl"
 
@@ -97,7 +97,7 @@ for f in "${STANDALONE[@]}"; do
     [ "${PARSES[$f]}" = 1 ] || continue
     b=$(basename "$f")
 
-    if out=$(node "$IRISFMT" "$f" 2>&1 >/dev/null); then
+    if out=$("$IRISFMT" "$f" 2>&1 >/dev/null); then
         report pass parse "irisfmt $b"
     else
         report fail parse "irisfmt $b" "$(printf '%s' "$out" | head -1)"
@@ -106,7 +106,7 @@ for f in "${STANDALONE[@]}"; do
     # Parsing and conversion are separate questions. A construct iris2sv can
     # parse but not yet convert reports one clear diagnostic; a construct it
     # cannot parse produces a cascade. Only the second is a parse failure.
-    out=$(node "$IRIS2SV" "$f" -o "$WORK/sv" 2>&1)
+    out=$("$IRIS2SV" "$f" -o "$WORK/sv" 2>&1)
     if printf '%s' "$out" | grep -q "message:"; then
         report fail parse "iris2sv $b" "$(printf '%s' "$out" | grep -m1 -oE 'message: .*')"
     else
@@ -119,7 +119,7 @@ UNCONVERTED=0
 for f in "${STANDALONE[@]}"; do
     [ "${PARSES[$f]}" = 1 ] || continue
     b=$(basename "$f")
-    out=$(node "$IRIS2SV" "$f" -o "$WORK/sv" 2>&1)
+    out=$("$IRIS2SV" "$f" -o "$WORK/sv" 2>&1)
     if printf '%s' "$out" | grep -q "Compilation succeeded"; then
         report pass convert "$b"
     elif printf '%s' "$out" | grep -qE "is not supported and was not converted"; then
@@ -138,7 +138,7 @@ for f in "${STANDALONE[@]}"; do
     [ "${PARSES[$f]}" = 1 ] || continue
     b=$(basename "$f")
 
-    if node "$IRISFMT" "$f" > "$WORK/$b" 2>/dev/null; then
+    if "$IRISFMT" "$f" > "$WORK/$b" 2>/dev/null; then
         err=$("$SIM" -i "$WORK/$b" -c 2 2>&1)
         if printf '%s' "$err" | grep -qE "Parse error|Syntax error|^error\[|could not evaluate"; then
             report fail print "irisfmt $b" "$(printf '%s' "$err" | grep -m1 -oE 'Syntax error.*|error\[.*')"
@@ -154,10 +154,10 @@ for f in "${STANDALONE[@]}"; do
     [ "${PARSES[$f]}" = 1 ] || continue
     b=$(basename "$f" .iris)
     rm -rf "$WORK/sv"; mkdir -p "$WORK/sv"
-    node "$IRIS2SV" "$f" -o "$WORK/sv" >/dev/null 2>&1 || continue
+    "$IRIS2SV" "$f" -o "$WORK/sv" >/dev/null 2>&1 || continue
     [ -f "$WORK/sv/$b.sv" ] || continue
 
-    if out=$(node "$SV2IRIS" "$WORK/sv/$b.sv" -o "$WORK/sv/$b.rt.iris" 2>&1); then
+    if out=$("$SV2IRIS" "$WORK/sv/$b.sv" -o "$WORK/sv/$b.rt.iris" 2>&1); then
         report pass chain "$b.sv"
         # sv2iris accepting the file is only half of it: what it writes back has
         # to be IRIS. Checking only the first half let it emit instances as
@@ -189,7 +189,7 @@ if [ -d "$SV_FIXTURES" ]; then
     for sv in "$SV_FIXTURES"/*.sv; do
         [ -e "$sv" ] || continue
         b=$(basename "$sv" .sv)
-        if out=$(node "$SV2IRIS" "$sv" -o "$WORK/$b.iris" 2>&1); then
+        if out=$("$SV2IRIS" "$sv" -o "$WORK/$b.iris" 2>&1); then
             err=$("$SIM" -i "$WORK/$b.iris" -c 2 2>&1)
             if printf '%s' "$err" | grep -qE "Parse error|Syntax error|^error\[|could not evaluate"; then
                 report fail print "sv2iris $b" "$(printf '%s' "$err" | grep -m1 -oE 'Syntax error.*|error\[.*')"
@@ -223,7 +223,7 @@ for entry in "${SIM_GROUPS[@]}"; do
     ok=1
     for f in $files; do
         out="$WORK/fmt_$(basename "$f")"
-        node "$IRISFMT" "$f" > "$out" 2>/dev/null || ok=0
+        "$IRISFMT" "$f" > "$out" 2>/dev/null || ok=0
         fmtd="$fmtd $out"
     done
     [ "$ok" = 1 ] || { report fail behave "$name" "formatter failed"; continue; }
@@ -251,8 +251,8 @@ mkdir -p "$RT/sv" "$RT/back"
 RT_OK=1
 for f in $R/alu.iris $R/decoder.iris $R/regfile.iris $R/riscv_core.iris; do
     b=$(basename "$f" .iris)
-    node "$IRIS2SV" "$f" -o "$RT/sv" >/dev/null 2>&1 || { RT_OK=0; break; }
-    node "$SV2IRIS" "$RT/sv/$b.sv" -o "$RT/back/$b.iris" >/dev/null 2>&1 || { RT_OK=0; break; }
+    "$IRIS2SV" "$f" -o "$RT/sv" >/dev/null 2>&1 || { RT_OK=0; break; }
+    "$SV2IRIS" "$RT/sv/$b.sv" -o "$RT/back/$b.iris" >/dev/null 2>&1 || { RT_OK=0; break; }
 done
 
 if [ "$RT_OK" = 1 ]; then
@@ -271,8 +271,8 @@ else
 fi
 
 # The async FIFO exercises a clock-domain crossing, which the RV32I core does not.
-if node "$IRIS2SV" "$A/async_fifo.iris" -o "$RT/sv" >/dev/null 2>&1 &&
-   node "$SV2IRIS" "$RT/sv/async_fifo.sv" -o "$RT/back/async_fifo.iris" >/dev/null 2>&1; then
+if "$IRIS2SV" "$A/async_fifo.iris" -o "$RT/sv" >/dev/null 2>&1 &&
+   "$SV2IRIS" "$RT/sv/async_fifo.sv" -o "$RT/back/async_fifo.iris" >/dev/null 2>&1; then
     before=$("$SIM" -i "$A/async_fifo.iris" "$A/async_fifo_tb.iris" -c 400 2>&1)
     after=$("$SIM" -i "$RT/back/async_fifo.iris" "$A/async_fifo_tb.iris" -c 400 2>&1)
     if [ "$before" = "$after" ]; then
@@ -298,7 +298,7 @@ if command -v verilator >/dev/null 2>&1; then
         mkdir -p "$VDIR"
         ok=1
         for f in alu decoder regfile riscv_core "$t"; do
-            node "$IRIS2SV" "$R/$f.iris" -o "$VDIR" >/dev/null 2>&1 || { ok=0; break; }
+            "$IRIS2SV" "$R/$f.iris" -o "$VDIR" >/dev/null 2>&1 || { ok=0; break; }
         done
         [ "$ok" = 1 ] || { report fail verilator "$t" "conversion failed"; continue; }
 
@@ -341,14 +341,14 @@ module reset_probe (
 endmodule
 EOF
 printf 'this is not iris at all !!!\n' > "$WORK/broken.iris"
-node "$IRISFMT" -w "$WORK/broken.iris" >/dev/null 2>&1
+"$IRISFMT" -w "$WORK/broken.iris" >/dev/null 2>&1
 if [ -s "$WORK/broken.iris" ]; then
     report pass loud "irisfmt -w keeps an unparseable file"
 else
     report fail loud "irisfmt -w keeps an unparseable file" "file truncated to zero bytes"
 fi
 
-out=$(node "$SV2IRIS" "$WORK/reset.sv" 2>&1)
+out=$("$SV2IRIS" "$WORK/reset.sv" 2>&1)
 if printf '%s' "$out" | grep -q "count = 0\|count = 8'd0\|count = 8d0"; then
     report pass loud "sv2iris reset branch"
 elif printf '%s' "$out" | grep -qi "error\|warning\|unsupported"; then
@@ -834,13 +834,31 @@ VCASTEOF
 
     echo "== veryl: what neither language shares is refused, not dropped =="
 
-    # A type IRIS has no counterpart for.
-    printf 'module M (y: output f32,) { always_comb { y = 0; } }\n' > "$WORK/float.veryl"
-    out=$("$VERYL2IRIS" "$WORK/float.veryl" 2>&1 >/dev/null)
+    # A type IRIS has no counterpart for. (f32/f64 now map across; the
+    # posit-like p8..p64 remain without an IRIS counterpart.)
+    printf 'module M (y: output p32,) { always_comb { y = 0; } }\n' > "$WORK/posit.veryl"
+    out=$("$VERYL2IRIS" "$WORK/posit.veryl" 2>&1 >/dev/null)
     if printf '%s' "$out" | grep -q "no counterpart in the target language"; then
-        report pass veryl "f32 refused as a language limit"
+        report pass veryl "p32 refused as a language limit"
     else
-        report fail veryl "f32 refused as a language limit" "got: $(printf '%s' "$out" | head -1)"
+        report fail veryl "p32 refused as a language limit" "got: $(printf '%s' "$out" | head -1)"
+    fi
+
+    # f32/f64 now map both ways: the floating-point type must survive a round
+    # trip veryl -> IRIS -> veryl -> IRIS.
+    printf 'module FAdd (a: input f32, b: input f32, y: output f32,) { always_comb { y = a + b; } }\n' > "$WORK/fadd.veryl"
+    if "$VERYL2IRIS" "$WORK/fadd.veryl" > "$WORK/fadd1.iris" 2>/dev/null \
+       && "$IRIS2VERYL" "$WORK/fadd1.iris" > "$WORK/fadd2.veryl" 2>/dev/null \
+       && "$VERYL2IRIS" "$WORK/fadd2.veryl" > "$WORK/fadd3.iris" 2>/dev/null; then
+        c1=$(grep -c 'f32' "$WORK/fadd1.iris")
+        c3=$(grep -c 'f32' "$WORK/fadd3.iris")
+        if [ "$c1" -eq 3 ] && [ "$c3" -eq 3 ]; then
+            report pass veryl "f32 round trip keeps the floating-point type"
+        else
+            report fail veryl "f32 round trip keeps the floating-point type" "f32 count $c1 then $c3"
+        fi
+    else
+        report fail veryl "f32 round trip keeps the floating-point type" "a conversion step failed"
     fi
 
     # A construct Veryl has no counterpart for.
@@ -862,7 +880,7 @@ FSMEOF
     fi
 
     # A refused conversion writes nothing. Half a design looks whole.
-    if [ ! -s "$WORK/nothing.iris" ] && ! "$VERYL2IRIS" "$WORK/float.veryl" > "$WORK/nothing.iris" 2>/dev/null; then
+    if [ ! -s "$WORK/nothing.iris" ] && ! "$VERYL2IRIS" "$WORK/posit.veryl" > "$WORK/nothing.iris" 2>/dev/null; then
         if [ ! -s "$WORK/nothing.iris" ]; then
             report pass veryl "a refusal emits nothing"
         else

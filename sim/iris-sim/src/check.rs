@@ -755,6 +755,10 @@ fn check_expr(
                 check_expr(project, module, arg, verification_context, out);
             }
         }
+        // A real literal is evaluated when it is used with a floating-point
+        // value (its format comes from there). Used without one, it is refused
+        // at evaluation, not here, because the format cannot be known
+        // statically at this point.
         Expression::Literal(_) | Expression::Ident(_) => {}
     }
 }
