@@ -159,6 +159,7 @@ iris/
 │   ├── schematic/         # block diagram viewer (frontend only)
 │   ├── surfer-plugin/     # translator plugin for Surfer
 │   └── veryl2iris/        # conversion between Veryl and IRIS
+├── lib/                   # reusable RTL standard library written in IRIS
 ├── example/
 │   ├── async_fifo/        # Asynchronous FIFO, two clock domains, with SystemVerilog
 │   ├── riscv/             # RV32I processor, single cycle, 40 instructions

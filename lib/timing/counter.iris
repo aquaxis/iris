@@ -1,0 +1,51 @@
+/// カウンタ
+///
+/// 幅・方向・ラップ/飽和をジェネリックで選べる汎用カウンタ。
+///
+/// ジェネリックパラメータ:
+/// - Width:    ビット幅（既定8、1以上）
+/// - Down:     0で加算、1で減算（既定0）
+/// - Saturate: 0でラップ、1で飽和（既定0）
+///
+/// ラップは幅での自然なあふれに任せる（`count + 1`がWidthビットで巻き戻る）。
+/// 飽和は上限（全ビット1）と下限（0）で値を保つ。
+/// 上限の判定は`count + 1 == 0`で行う（全ビット1に1を足すとWidthビットで0に戻る）。
+///
+/// リセットは非同期assert・同期deassert、能動High。リセット値は0。
+mod Counter[
+    Width: uint = 8,
+    Down: bit = 0,
+    Saturate: bit = 0,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en: bit,
+    out count: bit[Width],
+) {
+    var count_r: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if en {
+            if Down {
+                if (Saturate & (count_r == 0)) {
+                    count_r = count_r;
+                } else {
+                    count_r = count_r - 1;
+                }
+            } else {
+                if (Saturate & ((count_r + 1) == 0)) {
+                    count_r = count_r;
+                } else {
+                    count_r = count_r + 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        count = count_r;
+    }
+}

@@ -1,0 +1,65 @@
+/// Counterのテストベンチ
+///
+/// 既定のCounter（Width=8、加算、ラップ）と、ジェネリックで作った4ビットの
+/// 変種（ラップ／飽和／減算）を同時に駆動し、次を確かめる。
+///   - 許可時（en=1）は1サイクルごとに1だけ増える／減る
+///   - 禁止時（en=0）は値を保つ
+///   - ラップは上限で0へ、下限で全ビット1へ巻き戻る
+///   - 飽和は上限（全ビット1）と下限（0）で値を保つ
+///
+/// クロックとリセットはテストが自動で駆動する（リセットは既定で先頭5サイクル）。
+/// サンプルは`await clk.cycles(1)`で1サイクル隔てて取り、同一エッジの競合を避ける。
+test CounterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var snap8: bit[8] = 0;
+    var snap4: bit[4] = 0;
+
+    inst dut = Counter { clk: clk, rst: rst, en: en };
+    inst wrap4 = Counter[Width: 4] { clk: clk, rst: rst, en: en };
+    inst sat4 = Counter[Width: 4, Saturate: 1] { clk: clk, rst: rst, en: en };
+    inst down4 = Counter[Width: 4, Down: 1] { clk: clk, rst: rst, en: en };
+    inst dsat4 = Counter[Width: 4, Down: 1, Saturate: 1] { clk: clk, rst: rst, en: en };
+
+    seq {
+        // 4ビットの上カウンタが上限へ達し、飽和が安定するまで待つ。
+        await clk.cycles(28);
+
+        // 飽和は上限・下限で値を保つ。
+        assert sat4.count == 4'd15, "up-saturate holds at max";
+        assert dsat4.count == 4'd0, "down-saturate holds at min";
+
+        // 加算ラップは1サイクルで1増える（15の次は0へ巻き戻る）。
+        snap4 = wrap4.count;
+        await clk.cycles(1);
+        assert wrap4.count == (snap4 + 4'd1), "up-wrap counts modulo 16";
+
+        // 減算ラップは1サイクルで1減る（0の次は15へ巻き戻る）。
+        snap4 = down4.count;
+        await clk.cycles(1);
+        assert down4.count == (snap4 - 4'd1), "down-wrap counts modulo 16";
+
+        // 既定のカウンタは許可中1サイクルで1増える。
+        snap8 = dut.count;
+        await clk.cycles(1);
+        assert dut.count == (snap8 + 8'd1), "counter increments by one when enabled";
+
+        // 禁止すると値を保つ。
+        en = 0;
+        await clk.cycles(2);
+        snap8 = dut.count;
+        await clk.cycles(3);
+        assert dut.count == snap8, "counter holds when disabled";
+
+        // 再許可で増加を再開する。
+        en = 1;
+        await clk.cycles(2);
+        snap8 = dut.count;
+        await clk.cycles(1);
+        assert dut.count == (snap8 + 8'd1), "counter resumes when re-enabled";
+
+        $display("CounterTB: all checks passed");
+        $finish;
+    }
+}

@@ -148,6 +148,7 @@ iris/
 │   ├── schematic/         # ブロック図ビューア（フロントエンドのみ）
 │   ├── surfer-plugin/     # Surferの翻訳プラグイン
 │   └── veryl2iris/        # VerylとIRISの相互変換
+├── lib/                   # IRISで書いた再利用可能なRTL標準ライブラリ
 ├── example/
 │   ├── async_fifo/        # 非同期FIFO（2クロックドメイン、SystemVerilog変換つき）
 │   ├── riscv/             # RV32Iプロセッサ（単サイクル、40命令）
