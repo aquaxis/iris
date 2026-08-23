@@ -168,6 +168,7 @@ needs an XOR fold and is not expressible in today's `comb`.
 | `UartTx` | UART transmitter (start 0, LSB-first 8 bits, stop 1) | `ClksPerBit` (baud divisor, default 4, >= 2) |
 | `UartRx` | UART receiver (falling-edge detect, sample at bit centers) | `ClksPerBit` (default 4, >= 2) |
 | `SpiMaster` | SPI master (mode 0, MSB-first, full-duplex) | `Width` (default 8), `ClkDiv` (clocks per sclk half-period, default 2) |
+| `I2cMaster` | I2C master (single-byte write: START + 8 bits + ACK + STOP) | `ClkDiv` (clocks per quarter-bit, default 2) |
 
 `UartTx`/`UartRx` are FSM + shift register + bit-time counter (the first Tier-3
 "buildable in IRIS" parts). A TX→RX loopback confirms a sent byte is received
@@ -178,6 +179,12 @@ real baud rate.
 updates MOSI on the falling edge (mode 0). Tying MISO to MOSI makes received
 equal sent, which the loopback test checks (full-duplex). The `sclk` period is
 `2 * ClkDiv` clocks; `cs_n` is active-low.
+
+`I2cMaster` does a single-byte write (START + 8 bits + ACK + STOP). SDA is
+open-drain, modeled by an output enable `sda_oe` (1 drives 0, 0 releases) and an
+input `sda_i`. Each bit is four quarter-phases; START pulls SDA 1→0 while SCL is
+high, STOP drives SDA 0→1 while SCL is high. Repeated start, reads, multi-byte,
+clock stretching, and arbitration are not included (see OSS for a full version).
 
 ## Implementation notes
 
@@ -217,7 +224,7 @@ work.
 warning, not an error). `Lzc` warns on the all-zero default (`count = Width`;
 `Width` is a 32-bit parameter in SV but the value fits the output width).
 `ArbiterFixed`/`ArbiterRr` warn because the untyped `1` in `~x + 1` widens to 32
-bits in SV (the `&` masks it back, so behavior is correct). `ClkDivider`/`UartTx`/`UartRx`/`SpiMaster` warn on
+bits in SV (the `&` masks it back, so behavior is correct). `ClkDivider`/`UartTx`/`UartRx`/`SpiMaster`/`I2cMaster` warn on
 `count == Div - 1` and similar because the parameter is 32-bit (the compare is
 correct). These stem from IRIS untyped literals and parameters becoming 32-bit
 in SV.

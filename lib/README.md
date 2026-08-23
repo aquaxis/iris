@@ -159,6 +159,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | `UartTx` | UART送信器（スタート0・LSB先頭8ビット・ストップ1） | `ClksPerBit`（ボー分周、既定4、2以上） |
 | `UartRx` | UART受信器（立下り検出＋ビット中央で標本化） | `ClksPerBit`（既定4、2以上） |
 | `SpiMaster` | SPIマスタ（モード0、MSB先頭、全二重） | `Width`（既定8）、`ClkDiv`（sclk半周期のクロック数、既定2） |
+| `I2cMaster` | I2Cマスタ（1バイト書き：START＋8ビット＋ACK＋STOP） | `ClkDiv`（四半分あたりのクロック数、既定2） |
 
 `UartTx`／`UartRx`はFSM＋シフトレジスタ＋ビット時間カウンタで書ける（段L3の第一候補）。
 TX→RXのループバックで、送ったバイトがそのまま受信されることを確認している。
@@ -167,6 +168,12 @@ TX→RXのループバックで、送ったバイトがそのまま受信され�
 `SpiMaster`はsclkを内部で分周し、立上りでMISOを標本化・立下りでMOSIを更新する（モード0）。
 MISOをMOSIに折り返すと受信＝送信になることを確認している（全二重）。
 sclk周期は`2 * ClkDiv`クロック。cs_nは能動Low。
+
+`I2cMaster`は1バイト書き込み（START＋8ビット＋ACK＋STOP）を行う。
+SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆動、0で開放）と入力`sda_i`で表す。
+1ビットを4つの四半分に分け、STARTはSCL高でSDAを1→0、STOPはSCL高でSDAを0→1で作る。
+リピーテッドSTART・読み出し・複数バイト・クロックストレッチ・アービトレーションは含まない
+（本格版はOSSを参照）。
 
 ## 実装上の注意
 
@@ -203,7 +210,7 @@ SystemVerilogへ出せる。
 パラメータだが値は出力幅に収まる）。
 `ArbiterFixed`／`ArbiterRr`は`~x + 1`の無型リテラル`1`がSVで32ビットに広がるため幅拡張の警告
 （`&`で元の幅に戻るので挙動は正しい）。
-`ClkDivider`／`UartTx`／`UartRx`／`SpiMaster`は`count == Div - 1`等でパラメータが32ビットの
+`ClkDivider`／`UartTx`／`UartRx`／`SpiMaster`／`I2cMaster`は`count == Div - 1`等でパラメータが32ビットの
 ため幅の警告（比較は正しい）。
 これらはIRISの無型リテラルやパラメータがSVで32ビットになることに由来する。
 

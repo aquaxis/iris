@@ -1,0 +1,124 @@
+/// I2Cマスタ（1バイト書き込み：START＋8ビット＋ACK＋STOP）
+///
+/// `start`で`data_in`（8ビット、MSB先頭）をSDAに送り、ACKを取り、STOPで終える。
+/// SDAはオープンドレインなので、出力イネーブル`sda_oe`（1で0を駆動、0で開放＝プルアップで1）と
+/// 入力`sda_i`（バスの値）で表す。SCLはマスタが駆動する（クロックストレッチは扱わない）。
+///
+/// 1ビットを4つの四半分（q0..q3、各`ClkDiv`クロック）に分ける。
+///   q0: SCL低（SDAを更新）  q1/q2: SCL高（スレーブが標本化／ACKを見る）  q3: SCL低
+/// STARTはSCL高でSDAを1→0、STOPはSCL高でSDAを0→1にして作る。
+///
+/// ジェネリックパラメータ:
+/// - ClkDiv:   四半分あたりのクロック数（既定2、1以上）
+/// - CntWidth: 分周カウンタ幅（導出）
+///
+/// 対象は単一バイト書き込みのみ。リピーテッドSTART・読み出し・複数バイト・
+/// クロックストレッチ・アービトレーションは含まない（本格版はOSSを参照）。
+///
+/// リセットは非同期assert・同期deassert、能動High。SCL高・SDA開放で始まる。
+mod I2cMaster[
+    ClkDiv: uint = 2,
+    CntWidth: uint = $clog2(ClkDiv),
+]
+where
+    ClkDiv >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  data_in: bit[8],
+    in  sda_i: bit,
+    out scl: bit,
+    out sda_oe: bit,
+    out ack: bit,
+    out busy: bit,
+    out done: bit,
+) {
+    var st: bit[3] = 0;       // 0 IDLE, 1 START, 2 BIT, 3 ACK, 4 STOP
+    var q: bit[2] = 0;
+    var div_cnt: bit[CntWidth] = 0;
+    var bit_idx: bit[3] = 0;
+    var shift: bit[8] = 0;
+    var ack_r: bit = 0;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if st == 3'd0 {
+            if start {
+                shift = data_in;
+                st = 3'd1;
+                q = 0;
+                div_cnt = 0;
+                bit_idx = 0;
+            }
+        } else {
+            if div_cnt == ClkDiv - 1 {
+                div_cnt = 0;
+                if q == 2'd3 {
+                    q = 0;
+                    if st == 3'd1 {
+                        st = 3'd2;
+                        bit_idx = 0;
+                    } else {
+                        if st == 3'd2 {
+                            shift = shift << 1;
+                            if bit_idx == 3'd7 {
+                                st = 3'd3;
+                            } else {
+                                bit_idx = bit_idx + 1;
+                            }
+                        } else {
+                            if st == 3'd3 {
+                                st = 3'd4;
+                            } else {
+                                st = 3'd0;
+                                done_r = 1;
+                            }
+                        }
+                    }
+                } else {
+                    if st == 3'd3 & q == 2'd2 {
+                        ack_r = ~sda_i;
+                    }
+                    q = q + 1;
+                }
+            } else {
+                div_cnt = div_cnt + 1;
+            }
+        }
+    }
+
+    comb {
+        // SCL: 各状態のq1/q2で高、q0/q3で低。STARTのq0/q1とSTOPのq1以降は高。
+        if st == 3'd0 {
+            scl = 1;
+            sda_oe = 0;
+        } else {
+            if st == 3'd1 {
+                // START: SCL高でSDAを0へ落とし、q2でSCLを低へ
+                scl = q < 2'd2;
+                sda_oe = 1;
+            } else {
+                if st == 3'd2 {
+                    // BIT: SCLはq1/q2で高。SDAは現ビット（0なら駆動）
+                    scl = (q == 2'd1) | (q == 2'd2);
+                    sda_oe = ~shift[7];
+                } else {
+                    if st == 3'd3 {
+                        // ACK: SDAを開放し、SCL高でsda_iを見る
+                        scl = (q == 2'd1) | (q == 2'd2);
+                        sda_oe = 0;
+                    } else {
+                        // STOP: SCL高でSDAを0→1へ
+                        scl = q >= 2'd1;
+                        sda_oe = q < 2'd2;
+                    }
+                }
+            }
+        }
+        ack = ack_r;
+        busy = st != 3'd0;
+        done = done_r;
+    }
+}
