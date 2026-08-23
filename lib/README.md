@@ -3,6 +3,31 @@
 IRISで書いた、再利用できるRTLの論理モジュール群である。
 FIFOやカウンタや調停器を毎回書き直さずに、部品として取り込む。
 
+## 全体像
+
+現在23部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
+
+| 分類 | 部品数 | 部品 |
+|---|---|---|
+| `timing/` | 5 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider` |
+| `arith/` | 3 | `PriorityEncoder`／`Lzc`／`Bin2Gray` |
+| `mem/` | 2 | `FifoSync`／`FifoAsync` |
+| `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
+| `stream/` | 1 | `SpillRegister` |
+| `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
+| `coding/` | 1 | `Crc` |
+| `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
+| `dsp/` | 2 | `FirSerial`／`MacSerial` |
+| 合計 | 23 | |
+
+**書けたもの／書けなかったものの線引きが、この一覧の要点である。**
+単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
+展開する積算（CRC・LFSR・直列DSP）はIRISで素直に書ける。
+一方、組み合わせでの畳み込み・積算（popcount／parity／並列CRC）、ジェネリックな配列ポート
+（多ストリームのmux）、ジェネリック関数（汎用math）は現状のIRISでは書けない。
+詳しくは各部品の説明と「実装上の注意」に、できなかった理由まで残している。
+
 ## 置き場所
 
 分類ごとにディレクトリを分ける。

@@ -3,6 +3,33 @@
 Reusable RTL logic modules written in IRIS. Take a FIFO, a counter or an
 arbiter as a part instead of writing it again each time.
 
+## Overview
+
+23 parts in 9 categories. Every part passes three checks: an `iris-sim`
+testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
+`tools/conformance/run.sh` stays at 158/0.
+
+| Category | Count | Parts |
+|---|---|---|
+| `timing/` | 5 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider` |
+| `arith/` | 3 | `PriorityEncoder`, `Lzc`, `Bin2Gray` |
+| `mem/` | 2 | `FifoSync`, `FifoAsync` |
+| `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
+| `stream/` | 1 | `SpillRegister` |
+| `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
+| `coding/` | 1 | `Crc` |
+| `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
+| `dsp/` | 2 | `FirSerial`, `MacSerial` |
+| Total | 23 | |
+
+**The line between what is and is not expressible is the point of this list.**
+Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
+interfaces), and accumulation unrolled over time (CRC, LFSR, serial DSP) are
+written directly in IRIS. A combinational fold (popcount, parity, parallel CRC),
+generic array ports (a multi-stream mux), and generic functions (a general math
+library) are not expressible today. Each part's description and the
+"Implementation notes" record what could not be done, and why.
+
 ## Layout
 
 One directory per category.
