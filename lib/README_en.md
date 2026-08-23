@@ -5,7 +5,7 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-23 parts in 9 categories. Every part passes three checks: an `iris-sim`
+24 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 `tools/conformance/run.sh` stays at 158/0.
 
@@ -13,14 +13,14 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 |---|---|---|
 | `timing/` | 5 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider` |
 | `arith/` | 3 | `PriorityEncoder`, `Lzc`, `Bin2Gray` |
-| `mem/` | 2 | `FifoSync`, `FifoAsync` |
+| `mem/` | 3 | `FifoSync`, `FifoAsync`, `RamSp` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 1 | `Crc` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 23 | |
+| Total | 24 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -128,6 +128,7 @@ Both are combinational and use a `for` loop with combinational last-write-wins.
 |---|---|---|
 | `FifoSync` | single-clock synchronous FIFO (first-in first-out) | `Width` (default 8), `Depth` (default 4, power of two), `AddrWidth`/`PtrWidth` (derived from Depth) |
 | `FifoAsync` | two-clock-domain asynchronous FIFO (gray-code pointer sync) | `DataWidth` (default 8), `Depth` (default 16, power of two >= 4), `AddrWidth`/`PtrWidth` (derived) |
+| `RamSp` | single-port synchronous RAM (registered read, read-before-write) | `Width` (default 8), `Depth` (default 256, >= 2), `AddrWidth` (derived) |
 
 `FifoSync` uses a `mem` and pointers with a wrap bit. `empty` is pointer
 equality; `full` is a differing wrap bit with equal low address bits.
@@ -137,6 +138,13 @@ does not propagate (the `example/async_fifo` design as a part). **Its resets are
 active-low (`wr_rst_n`/`rd_rst_n`)**, unlike the library default (active-high) —
 a deliberate exception matching the usual async-FIFO convention. The max-delay
 SDC constraints cannot be emitted from IRIS and are the user's responsibility.
+
+`RamSp` is a plain single-port synchronous RAM (a `mem`) read and written through
+one address port. The read is registered, so it takes one cycle. Reading and
+writing the same address on one cycle returns the old value on `dout`
+(read-before-write). The RAM contents are not reset (a `mem` is not a reset
+target); reset only clears the output register `dout`. A dual-port variant and
+write byte-enables are not included (add a variant when needed).
 
 ### arbiter
 
@@ -238,8 +246,12 @@ one at a time on `in_valid` and results leave on `out_valid`. **A convolution
 lets `sync` accumulate it one tap per cycle** — the concrete case of the Tier-3
 policy "if it can be serialized, write it in IRIS". Multiplication truncates to
 the operand width, so coefficients and samples are held zero-extended in
-`AccWidth`-wide mems, and the wide product is not truncated. Values are unsigned
-(a signed FIR needs int types; a future item).
+`AccWidth`-wide mems, and the wide product is not truncated. Values are unsigned.
+A signed version is on hold: int types (`int[N]`/`iN`) exist and same-width signed
+arithmetic works, but a widening assignment zero-extends rather than sign-extends
+(`int[16] = int[8]` turns `-7` into `249`), and an `as` cast does not parse in
+comb/sync, so a wide signed product is not expressible cleanly (sign-extension
+needs language support; a future item).
 
 ## Implementation notes
 

@@ -5,21 +5,21 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在23部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+現在24部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
 `iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 5 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider` |
 | `arith/` | 3 | `PriorityEncoder`／`Lzc`／`Bin2Gray` |
-| `mem/` | 2 | `FifoSync`／`FifoAsync` |
+| `mem/` | 3 | `FifoSync`／`FifoAsync`／`RamSp` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 1 | `Crc` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 23 | |
+| 合計 | 24 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -122,6 +122,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 |---|---|---|
 | `FifoSync` | 単一クロックの同期FIFO（先入れ先出し） | `Width`（既定8）、`Depth`（既定4、2のべき乗）、`AddrWidth`／`PtrWidth`（Depthから導出） |
 | `FifoAsync` | 2クロックドメインの非同期FIFO（GRAY符号ポインタ同期） | `DataWidth`（既定8）、`Depth`（既定16、4以上の2のべき乗）、`AddrWidth`／`PtrWidth`（導出） |
+| `RamSp` | 単一ポート同期RAM（登録読み出し、read-before-write） | `Width`（既定8）、`Depth`（既定256、2以上）、`AddrWidth`（導出） |
 
 `FifoSync`は`mem`とラップビット付きポインタで実装する。
 `empty`はポインタ一致、`full`はラップビットが異なり下位アドレスが等しいこと。
@@ -130,6 +131,12 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 （`example/async_fifo`の設計を部品化）。**リセットは能動Low（`wr_rst_n`／`rd_rst_n`）**で、
 本ライブラリの既定（能動High）とは異なる。非同期FIFOの定番に合わせた例外である。
 配置制約（最大遅延SDC）はIRISから出せないので利用者の責任。
+
+`RamSp`は1つのアドレスポートで読み書きする素直な同期RAM（`mem`）である。
+読み出しは1サイクル遅れる（同期読み出し）。同一アドレスへ同時に読み書きすると`dout`には
+書き込み前の古い値が出る（read-before-write）。RAMの中身はリセットしない（`mem`はリセット
+対象にしない）。リセットは出力レジスタ`dout`だけを0に戻す。デュアルポートや書き込みバイト
+イネーブルは含まない（必要時に変種を足す）。
 
 ### arbiter
 
@@ -221,7 +228,11 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 **combでは畳み込み（積算）を書けないが、直列にして時間へ展開すればsyncの逐次加算で書ける**
 （段L3の方針「直列にできるものはIRIS」の実例）。
 乗算はオペランド幅に切り詰められるので、係数とサンプルは`AccWidth`幅のmemに零拡張して持ち、
-積が切り詰められないようにする。数は符号なし（符号付きFIRはint型が要る。今後の課題）。
+積が切り詰められないようにする。数は符号なし。
+符号付き版は保留である。int型（`int[N]`／`iN`）はあり同幅の符号付き演算は効くが、
+**幅を広げる代入が符号拡張にならず零拡張になる**（`int[16] = int[8]`で`-7`が`249`になる）。
+式中の`as`キャストもcomb／syncではパースできないため、幅広の符号付き積を素直に作れない
+（符号拡張の言語対応が要る。今後の課題）。
 
 ## 実装上の注意
 
