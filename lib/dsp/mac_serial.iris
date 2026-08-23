@@ -1,0 +1,78 @@
+/// 直列積和（MAC）ユニット
+///
+/// `en`のサイクルごとに `acc = acc + a * b` を積む、DSPの基本部品。
+/// `clear`で累算器を0に戻す。ベクトルの内積 Σ a[i]*b[i] を、対を1つずつ
+/// 流し込んで求めるのに使う（FIRの中核を単体で取り出したもの）。
+///
+/// 乗算はオペランド幅に切り詰められるので、入力を一度AccWidth幅へ零拡張して
+/// から掛ける。IRISのsyncは非ブロッキング（RHSは前サイクルの値を読む）なので、
+/// 「幅を広げて登録する段」と「掛けて足す段」の2段パイプラインにする。
+/// このため入力から`acc`反映まで2サイクルの遅延がある（`valid_out`が同じ遅延で1になる）。
+///
+/// ジェネリックパラメータ:
+/// - AWidth:    aのビット幅（既定8、1以上）
+/// - BWidth:    bのビット幅（既定8、1以上）
+/// - GuardBits: 積の和のあふれ余裕（既定8）。多数回の積算に耐える
+/// - AccWidth:  累算・積・出力の幅（導出＝AWidth+BWidth+GuardBits）
+///
+/// ポート:
+/// - clear: 1で累算器を0に戻す（enより優先）
+/// - en:    1で a*b を足す
+/// - a／b:  被乗数・乗数
+/// - acc:       現在の累算値
+/// - valid_out: enの積がaccに反映されたサイクルで1（enの2サイクル後）
+///
+/// 数は符号なし。符号付きMACはint型が要る（今後の課題）。
+/// リセットは非同期assert・同期deassert、能動High。累算器は0で始まる。
+mod MacSerial[
+    AWidth: uint = 8,
+    BWidth: uint = 8,
+    GuardBits: uint = 8,
+    AccWidth: uint = AWidth + BWidth + GuardBits,
+]
+where
+    AWidth >= 1,
+    BWidth >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  clear: bit,
+    in  en: bit,
+    in  a: bit[AWidth],
+    in  b: bit[BWidth],
+    out acc: bit[AccWidth],
+    out valid_out: bit,
+) {
+    // 段1：入力を登録しつつAccWidth幅へ零拡張する（代入は零拡張する）。
+    var aw: bit[AccWidth] = 0;
+    var bw: bit[AccWidth] = 0;
+    var en_d: bit = 0;
+    var clr_d: bit = 0;
+    // 段2：累算器と有効フラグ。
+    var accr: bit[AccWidth] = 0;
+    var vout: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        // 段1：今サイクルの入力を登録・零拡張する。
+        aw = a;
+        bw = b;
+        en_d = en;
+        clr_d = clear;
+
+        // 段2：前サイクルに登録した幅広オペランドで積和する（非ブロッキングで整合）。
+        vout = 0;
+        if clr_d {
+            accr = 0;
+        } else {
+            if en_d {
+                accr = accr + aw * bw;
+                vout = 1;
+            }
+        }
+    }
+
+    comb {
+        acc = accr;
+        valid_out = vout;
+    }
+}

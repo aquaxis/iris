@@ -183,6 +183,13 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 | 部品 | 機能 | パラメータ |
 |---|---|---|
 | `FirSerial` | 直列（時分割）FIRフィルタ（1乗算器を時分割、1サンプルにTapsサイクル） | `Width`（既定8）、`Taps`（既定4、2以上）、`CoeffWidth`（既定8）、`AccWidth`／`IdxWidth`／`CntWidth`（導出） |
+| `MacSerial` | 直列積和（MAC）。`en`ごとに`acc += a*b`、`clear`で0に戻す | `AWidth`（既定8）、`BWidth`（既定8）、`GuardBits`（既定8）、`AccWidth`（導出） |
+
+`MacSerial`はDSPの基本部品で、`en`のたびに`acc = acc + a*b`を積む。内積Σa[i]*b[i]を対を
+1つずつ流して求めるのに使う（`FirSerial`の中核を単体で取り出したもの）。
+乗算の切り詰めを避けるため入力をAccWidth幅へ零拡張し、非ブロッキングのsyncに合わせて
+「幅を広げて登録する段」と「掛けて足す段」の2段にする（入力からaccへ2サイクルの遅延、
+`valid_out`も同じ遅延で1になる）。`clear`は`en`より優先。数は符号なし。
 
 `FirSerial`は`y[n] = Σ coeff[k]*x[n-k]`を、1つの乗算器を時分割で使って求める。
 係数は書き込みポートで読み込み、サンプルは`in_valid`で1つずつ入れ、`out_valid`で結果を出す。

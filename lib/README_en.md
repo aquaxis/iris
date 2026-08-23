@@ -194,6 +194,15 @@ clock stretching, and arbitration are not included (see OSS for a full version).
 | Part | Function | Parameters |
 |---|---|---|
 | `FirSerial` | serial (time-multiplexed) FIR filter (one multiplier, `Taps` cycles per sample) | `Width` (default 8), `Taps` (default 4, >= 2), `CoeffWidth` (default 8), `AccWidth`/`IdxWidth`/`CntWidth` (derived) |
+| `MacSerial` | serial multiply-accumulate: `acc += a*b` on each `en`, `clear` zeroes it | `AWidth` (default 8), `BWidth` (default 8), `GuardBits` (default 8), `AccWidth` (derived) |
+
+`MacSerial` is the elemental DSP part: it adds `a*b` to `acc` on each `en`, and
+computes a dot product Σ a[i]*b[i] by streaming pairs one at a time (the core of
+`FirSerial` on its own). To avoid the multiply truncation, inputs are
+zero-extended to `AccWidth`, and, to fit the non-blocking `sync`, it is two stages
+(register+widen, then multiply-accumulate) — so there is a 2-cycle latency from
+input to `acc`, and `valid_out` pulses with the same latency. `clear` takes
+priority over `en`. Values are unsigned.
 
 `FirSerial` computes `y[n] = Σ coeff[k]*x[n-k]` with a single multiplier used
 across `Taps` cycles. Coefficients are loaded through a write port; samples enter
