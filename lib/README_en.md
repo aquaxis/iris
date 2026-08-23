@@ -204,6 +204,22 @@ bits in SV (the `&` masks it back, so behavior is correct). `ClkDivider` warns o
 correct). These stem from IRIS untyped literals and parameters becoming 32-bit
 in SV.
 
+## Tier 3 (heavy IP) policy
+
+The heavy layer (DMA, crypto, DSP, peripheral IF, on-chip bus) is not all
+written in IRIS.
+
+- **Buildable in IRIS (added when needed)**: `uart`/`spi`/`i2c` (FSM + shift
+  register), serial/systolic `fir` (accumulate in `sync`), a simple `cache`
+  (mem + tags + FSM).
+- **Reuse OSS**: the AXI set (pulp-platform/axi), crypto (OpenTitan prim_*),
+  floating-point units (hardfloat/FPnew), large DSP. Do not re-implement proven
+  IP.
+
+The criteria are IRIS's `comb` limits (no XOR fold/accumulation) and no generic
+array ports: anything that can be made serial or written as an FSM goes in IRIS;
+anything heavy, proof-sensitive, or hitting those limits comes from OSS.
+
 ## What is not expressed in IRIS
 
 Technology-dependent cells (`clk_gate`, `tc_sram`, level shifters, ...) bind to a

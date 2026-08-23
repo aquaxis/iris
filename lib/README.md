@@ -190,6 +190,18 @@ SystemVerilogへ出せる。
 `ClkDivider`は`count == Div - 1`でパラメータ`Div`が32ビットのため幅の警告（比較は正しい）。
 これらはIRISの無型リテラルやパラメータがSVで32ビットになることに由来する。
 
+## Tier 3（重いIP）の方針
+
+重い層（DMA・暗号・DSP・周辺IF・オンチップバス）は、全部をIRISで書かない。
+
+- **IRISで書ける（必要時に追加）**：`uart`／`spi`／`i2c`（FSM＋シフト）、
+  直列/シストリック`fir`（syncで積算）、簡易`cache`（mem＋タグ＋FSM）。
+- **OSSを流用する**：AXI一式（pulp-platform/axi）、暗号（OpenTitan prim_*）、
+  浮動小数点演算器（hardfloat／FPnew）、大型DSP。実証済みのものを再実装しない。
+
+判断基準は、IRISのcombの限界（XOR畳み込み/積算不可）と配列ポート不可。
+直列にできるもの・FSMで書けるものはIRIS、重い/実証が要る/限界に当たるものはOSS。
+
 ## IRISで表さないもの
 
 テクノロジ依存のセル（`clk_gate`、`tc_sram`、level_shifter等）はPDK実装に紐づくので、
