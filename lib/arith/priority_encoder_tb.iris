@@ -1,0 +1,32 @@
+/// PriorityEncoderのテストベンチ
+///
+/// いくつかの入力に対して、最下位の1の添字とvalidを確かめる。
+/// 組み合わせなので、入力を変えて次のサイクルで結果を読む。
+test PriorityEncoderTB {
+    let clk: clock(period: 10ns);
+    var d: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = PriorityEncoder { d: d };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { d = 8'b01011000; }  // 最下位の1はbit3
+        if step == 8'd2 { d = 8'b00000001; }  // bit0
+        if step == 8'd3 { d = 8'b10000000; }  // bit7
+        if step == 8'd4 { d = 8'b00000000; }  // 立っていない
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.valid == 1, "valid on nonzero"; assert dut.idx == 3'd3, "lowest set is bit3"; }
+        if step == 8'd3 { assert dut.idx == 3'd0, "lowest set is bit0"; }
+        if step == 8'd4 { assert dut.idx == 3'd7, "lone bit7"; }
+        if step == 8'd5 { assert dut.valid == 0, "not valid when zero"; }
+    }
+
+    seq {
+        await clk.cycles(8);
+        $display("PriorityEncoderTB: all checks passed");
+        $finish;
+    }
+}

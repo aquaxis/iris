@@ -1,0 +1,32 @@
+/// ArbiterFixedのテストベンチ
+///
+/// いくつかの要求に対し、最下位の要求だけにgrantが立つこと、
+/// 要求が無ければvalidが0になることを確かめる。組み合わせ。
+test ArbiterFixedTB {
+    let clk: clock(period: 10ns);
+    var req: bit[4] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = ArbiterFixed { req: req };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { req = 4'b1100; }  // 最下位の要求はbit2
+        if step == 8'd2 { req = 4'b1011; }  // bit0
+        if step == 8'd3 { req = 4'b1000; }  // bit3のみ
+        if step == 8'd4 { req = 4'b0000; }  // 要求無し
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.grant == 4'b0100, "lowest of 1100 is bit2"; assert dut.valid == 1, "valid when any request"; }
+        if step == 8'd3 { assert dut.grant == 4'b0001, "lowest of 1011 is bit0"; }
+        if step == 8'd4 { assert dut.grant == 4'b1000, "lone bit3"; }
+        if step == 8'd5 { assert dut.grant == 4'b0000, "no grant when no request"; assert dut.valid == 0, "not valid when no request"; }
+    }
+
+    seq {
+        await clk.cycles(8);
+        $display("ArbiterFixedTB: all checks passed");
+        $finish;
+    }
+}

@@ -667,6 +667,25 @@ fn emit_stmt(
             }
             Ok(s)
         }
+        Statement::For { var, range, body } => {
+            // A range loop with static bounds becomes a SystemVerilog `for`,
+            // which is synthesisable in always_comb/always_ff when the bounds
+            // are constant (as they are for a generic-width library part).
+            let cmp = if range.inclusive { "<=" } else { "<" };
+            let mut s = format!(
+                "{}for (int {} = {}; {} {} {}; {} = {} + 1) ",
+                pad,
+                var,
+                emit_expr(&range.start),
+                var,
+                cmp,
+                emit_expr(&range.end),
+                var,
+                var
+            );
+            s.push_str(&emit_branch(body, indent, nb, widths)?);
+            Ok(s)
+        }
         Statement::SysCall(expr) => Ok(format!("{}{};", pad, emit_expr(expr))),
         Statement::Assert(a) => {
             let sev = match a.severity {

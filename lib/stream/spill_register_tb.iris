@@ -1,0 +1,53 @@
+/// SpillRegisterのテストベンチ
+///
+/// 上流は10から順に送り続け、下流はstep10まで止める（バックプレッシャ）。
+/// 止まっている間に2段が埋まり（出力段10・スキッド段11）、in_readyが下がる。
+/// 解除後は順序どおり（11→12→13…）に、毎サイクル流れることを確かめる。
+/// 駆動も検査もsyncで行い、既知のサイクルで読む。
+test SpillRegisterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var in_valid: bit = 0;
+    var in_data: bit[8] = 0;
+    var out_ready: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = SpillRegister {
+        clk: clk,
+        rst: rst,
+        in_valid: in_valid,
+        in_data: in_data,
+        out_ready: out_ready,
+    };
+
+    // 上流：受理されたら次の値へ。下流：step10から受け取る。
+    sync(clk.posedge) {
+        step = step + 1;
+        if step >= 8'd6 & step <= 8'd20 & in_valid & dut.in_ready {
+            in_data = in_data + 1;
+        }
+        if step == 8'd6 { in_valid = 1; in_data = 8'd10; }
+        if step >= 8'd10 { out_ready = 1; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd8 {
+            assert dut.out_valid == 1, "first item is presented";
+            assert dut.out_data == 8'd10, "first item is 10";
+            assert dut.in_ready == 1, "still accepting into skid";
+        }
+        if step == 8'd9 {
+            assert dut.in_ready == 0, "backpressure when both slots full";
+            assert dut.out_data == 8'd10, "output held during stall";
+        }
+        if step == 8'd12 { assert dut.out_data == 8'd11, "skid drains in order"; }
+        if step == 8'd13 { assert dut.out_data == 8'd12, "flows at full rate"; }
+        if step == 8'd14 { assert dut.out_data == 8'd13, "flows at full rate"; }
+    }
+
+    seq {
+        await clk.cycles(18);
+        $display("SpillRegisterTB: all checks passed");
+        $finish;
+    }
+}

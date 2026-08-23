@@ -1,0 +1,46 @@
+/// ラウンドロビンアービタ
+///
+/// 要求`req`のうち1つにgrantをone-hotで与える。直前に選んだものより上の添字を優先し、
+/// 無ければ最下位へ回り込む（公平な巡回）。`update`が1のとき次へ回す。
+///
+/// ジェネリックパラメータ:
+/// - N: 要求の本数（既定4、2以上）
+///
+/// 優先マスクは「直前のgrantより上の添字」を表す。
+///   mask = ~(grant | (grant - 1))   （grantより上のビットだけが立つ）
+/// 最上位を選ぶとmaskは0になり、次は最下位へ回り込む（全ビット1のリテラルが要らない）。
+/// 最下位の分離は2の補数の性質`x & (~x + 1)`を使う。
+///
+/// リセットは非同期assert・同期deassert、能動High。maskは0で始まる（最初は最下位優先）。
+mod ArbiterRr[
+    N: uint = 4,
+]
+where
+    N >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  req: bit[N],
+    in  update: bit,
+    out grant: bit[N],
+    out valid: bit,
+) {
+    var mask: bit[N] = 0;
+
+    comb {
+        valid = req != 0;
+        if (req & mask) != 0 {
+            grant = (req & mask) & (~(req & mask) + 1);
+        } else {
+            grant = req & (~req + 1);
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if update {
+            if valid {
+                mask = ~(grant | (grant - 1));
+            }
+        }
+    }
+}

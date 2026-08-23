@@ -1,0 +1,44 @@
+/// EdgeDetectのテストベンチ
+///
+/// 入力dをエッジに合わせて動かし、立上りで1サイクルだけrise、
+/// 立下りで1サイクルだけfallが出ることを、既知のサイクルで確かめる。
+/// 駆動も検査もsyncで行い、seqとの競合を避ける。
+test EdgeDetectTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var d: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = EdgeDetect { clk: clk, rst: rst, d: d };
+
+    // dをエッジに合わせて動かす。
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd7 { d = 1; }
+        if step == 8'd10 { d = 0; }
+    }
+
+    // 変化の1サイクル後に、1サイクル幅のパルスを確かめる。
+    sync(clk.posedge) {
+        if step == 8'd8 {
+            assert dut.rise == 1, "rise pulses on 0 to 1";
+            assert dut.fall == 0, "no fall on 0 to 1";
+        }
+        if step == 8'd9 {
+            assert dut.rise == 0, "rise is one cycle wide";
+        }
+        if step == 8'd11 {
+            assert dut.fall == 1, "fall pulses on 1 to 0";
+            assert dut.rise == 0, "no rise on 1 to 0";
+        }
+        if step == 8'd12 {
+            assert dut.fall == 0, "fall is one cycle wide";
+        }
+    }
+
+    seq {
+        await clk.cycles(16);
+        $display("EdgeDetectTB: all checks passed");
+        $finish;
+    }
+}

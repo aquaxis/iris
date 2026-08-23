@@ -1,0 +1,28 @@
+/// Lfsrのテストベンチ
+///
+/// 種1・多項式0xB8（Galois形）で、状態が1→184→92→46→23と進むことを確かめる。
+/// 0でない値を巡回する（0に落ちない）ことも順序で担保される。
+test LfsrTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = Lfsr { clk: clk, rst: rst, en: en, poly: 8'b10111000 };
+
+    sync(clk.posedge) { step = step + 1; }
+
+    sync(clk.posedge) {
+        if step == 8'd5 { assert dut.q == 8'd1, "seed 1"; }
+        if step == 8'd6 { assert dut.q == 8'd184, "1 -> 184"; }
+        if step == 8'd7 { assert dut.q == 8'd92, "184 -> 92"; }
+        if step == 8'd8 { assert dut.q == 8'd46, "92 -> 46"; }
+        if step == 8'd9 { assert dut.q == 8'd23, "46 -> 23"; }
+    }
+
+    seq {
+        await clk.cycles(12);
+        $display("LfsrTB: all checks passed");
+        $finish;
+    }
+}

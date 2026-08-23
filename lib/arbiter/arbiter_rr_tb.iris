@@ -1,0 +1,36 @@
+/// ArbiterRrのテストベンチ
+///
+/// 全要求（req=1111）でupdate=1を保ち、grantが0→1→2→3→0と巡回すること、
+/// 要求が無ければvalid／grantが0になることを確かめる。
+test ArbiterRrTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var req: bit[4] = 4'b1111;
+    var update: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = ArbiterRr { clk: clk, rst: rst, req: req, update: update };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd11 { req = 4'b0000; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd5 { assert dut.grant == 4'b0001, "grant bit0"; assert dut.valid == 1, "valid with requests"; }
+        if step == 8'd6 { assert dut.grant == 4'b0010, "grant bit1"; }
+        if step == 8'd7 { assert dut.grant == 4'b0100, "grant bit2"; }
+        if step == 8'd8 { assert dut.grant == 4'b1000, "grant bit3"; }
+        if step == 8'd9 { assert dut.grant == 4'b0001, "wraps to bit0"; }
+        if step == 8'd12 {
+            assert dut.valid == 0, "not valid when no request";
+            assert dut.grant == 4'b0000, "no grant when no request";
+        }
+    }
+
+    seq {
+        await clk.cycles(16);
+        $display("ArbiterRrTB: all checks passed");
+        $finish;
+    }
+}
