@@ -10,7 +10,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::sim::SignalTrace;
-use iris_runtime::trace::{vcd_ident, write_scoped_vars, VarDecl};
+use iris_runtime::trace::{vcd_ident, vcd_real_value, write_scoped_vars, VarDecl};
 use crate::types::{BitValue, SignalValue, SimTime};
 
 /// Waveform output error
@@ -86,6 +86,11 @@ impl VcdWriter {
 
     /// Write signal value
     fn write_value(&mut self, id: &str, value: &SignalValue) -> Result<(), WaveformError> {
+        // A floating-point value is written as a VCD real (`r1.5 <id>`).
+        if let Some(real) = vcd_real_value(value) {
+            writeln!(self.writer, "r{} {}", real, id)?;
+            return Ok(());
+        }
         let width = value.width();
         if width == 1 {
             let bit = value.get_bit(0).unwrap_or(BitValue::X);
@@ -122,7 +127,8 @@ impl VcdWriter {
         for name in &signal_names {
             let width = trace.get_width(name).unwrap_or(1);
             let id = self.add_signal(name, width)?;
-            decls.push((name.clone(), id, width, trace.is_signed(name)));
+            let is_float = trace.float_fmt(name).is_some();
+            decls.push((name.clone(), id, width, trace.is_signed(name), is_float));
         }
         write_scoped_vars(&mut self.writer, &decls)?;
 

@@ -59,7 +59,7 @@ bounded result as unbounded is the worst outcome this work could produce.
 
 ### What the statement is silent about
 
-Four things are excluded by construction. Each is a deliberate limit.
+Five things are excluded by construction. Each is a deliberate limit.
 
 **X and Z.** After `prep`, yosys reasons over two values. IRIS has no X in its
 type system, so nothing is lost on the reference side; a difference in X
@@ -79,27 +79,45 @@ preserved it.
 **Anything outside the port list.** Internal signals are free to differ, and
 should be. That is what makes the proof about behaviour rather than about text.
 
-## The two models must be independent
+**Floating point (`f32`/`f64`).** After `prep`, yosys reasons over two values;
+`miter`/`equiv`/`sat` work on bit vectors, and IEEE-754 reals (SV `real`/
+`shortreal`) are not bit-blastable there. So the reference emitter **refuses**
+float types outright rather than dropping them silently. The interpreter and
+compiled backends evaluate floats, but formal equivalence over them is outside
+this flow — a deliberate limit that follows from the tool (yosys), not an
+unimplemented gap.
+
+## The two lowerings must be independent
 
 Comparing requires a formal model of each side.
 
-**The reference must not be built from `iris2sv`'s own IR.** A lowering bug would
-appear identically on both sides, the miter would be satisfied, and the proof
-would be a tautology with a long runtime.
+**The reference must not be built from `iris2sv`'s lowered IR.** A lowering bug
+would appear identically on both sides, the miter would be satisfied, and the
+proof would be a tautology with a long runtime.
 
-IRIS has two complete, independent front ends:
+**What is independent is the lowering.** `iris2sv` was ported to Rust (stage A4)
+and now reuses `iris-sim`'s parser, so the reference (`iris-formal`) and the
+design under test (`iris2sv`) **share the front end** (lexer, parser, AST,
+`Project`). What they do not share is the lowering to SystemVerilog: the
+reference is deliberately blunt (`if`/`else`, width-carrying literals, no casts),
+while `iris2sv` is idiomatic (nested ternaries, `N'(...)` casts, inlining).
+These are separate code paths.
 
-| | Language | Parser |
+| | Parser | Lowering to SystemVerilog |
 |---|---|---|
-| `iris2sv` | TypeScript | hand-written lexer and parser |
-| `iris-sim` | Rust | `sim/iris-sim/src/parser/iris.pest` |
+| `iris-formal` (reference) | `iris-sim`'s `iris.pest` (shared) | blunt, structural (`sim/iris-sim/src/formal/`) |
+| `iris2sv` (under test) | `iris-sim`'s `iris.pest` (shared) | idiomatic (`tools/iris2sv-rs`) |
 
-The reference model comes from `iris-formal` on the Rust side. It shares no
-lexer, no parser, no AST, no type checker and no lowering with the model under
-test.
+So a **lowering** disagreement is exactly what this flow surfaces — its purpose.
+A bug in the shared front end is *not* caught here (both sides break the same
+way); that class is covered by the interpreter, the round-trip conformance
+checks, and Verilator's own SystemVerilog front end, which reads `iris2sv`'s
+output independently.
 
-The only thing the two share is the IRIS language definition itself, and **a
-disagreement about that is exactly what this flow should surface.**
+**Note:** before the port, `iris2sv` had its own TypeScript parser, so the front
+ends were independent too. The move to Rust (per the directive to implement
+`iris` in Rust) made the front end shared; independence now lives at the
+lowering layer. The round-trip and Verilator independence remain.
 
 ## Where the tools live
 
@@ -108,9 +126,10 @@ disagreement about that is exactly what this flow should surface.**
 | Reference model emitter | Added to an existing tool | `iris-formal`, the third binary in `sim/iris-sim` |
 | Proof driver | New tool | `tools/formal/` |
 
-The reference model can only be written on the Rust parser and AST. Moving it
-out would mean reimplementing them, and the moment it is reimplemented the
-premise of an independent second front end is gone.
+The reference model is written on the Rust parser and AST because it can reuse
+`iris-sim`'s AST and `Project` directly; moving it out would mean reimplementing
+them. (`iris2sv` uses the same parser, so what is independent is the lowering,
+not the parse.)
 
 The driver has to stand at equal distance from both sides. Placing it inside
 either tool would make that condition impossible to check by reading.
@@ -120,7 +139,7 @@ either tool would make that condition impossible to check by reading.
 ```
 design.iris
    ├── iris-formal (Rust, pest)     → reference.sv  structural, one construct per line
-   └── iris2sv     (TypeScript)     → impl.sv       idiomatic
+   └── iris2sv     (Rust, pest)     → impl.sv       idiomatic (separate lowering)
 
          both → yosys: read_verilog -sv
                        hierarchy -check -top
@@ -281,9 +300,10 @@ What the flow does not prove, and therefore assumes:
 
 - **Yosys's SystemVerilog front end**, used on both sides
 - **The `async2sync` transformation**, applied to both sides equally
-- **The IRIS language definition.** Two front ends agreeing means they read the
-  same specification the same way, not that the specification is what was
-  intended
+- **The IRIS language definition and the shared front end.** The reference and
+  the design under test use the same parser and AST, so a bug there does not
+  appear in this flow (both sides break the same way); whether the spec is read
+  as intended is covered instead by the round-trip checks and Verilator
 - **The reference emitter itself.** It is small and blunt so that it can be
   read, but it is code, and it is not itself proven
 

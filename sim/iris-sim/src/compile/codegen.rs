@@ -20,6 +20,7 @@ use crate::parser::{
 };
 use crate::project::Project;
 use crate::sim::eval::Evaluator;
+use crate::types::FloatFmt;
 
 /// Code generation error
 #[derive(Debug, Error)]
@@ -58,6 +59,8 @@ struct Slot {
     width: Option<usize>,
     signed: bool,
     hidden: bool,
+    /// The floating-point format of this slot, when it has one.
+    float: Option<FloatFmt>,
 }
 
 /// A memory slot
@@ -67,6 +70,8 @@ struct Mem {
     depth: usize,
     is_rom: bool,
     init: Vec<u64>,
+    /// The floating-point format of an element, when it has one
+    float: Option<FloatFmt>,
 }
 
 /// A clock the design drives itself
@@ -157,6 +162,41 @@ fn join(prefix: &str, name: &str) -> String {
 /// Is this type read as two's complement?
 fn is_signed(ty: &Type) -> bool {
     matches!(ty, Type::Int { signed: true, .. })
+}
+
+fn is_float(ty: &Type) -> bool {
+    match ty {
+        Type::Float { .. } => true,
+        Type::Array { element, .. } => is_float(element),
+        _ => false,
+    }
+}
+
+/// The floating-point format of a type, when it has one.
+fn float_fmt_of(ty: &Type) -> Option<FloatFmt> {
+    match ty {
+        Type::Float { bits: 64 } => Some(FloatFmt::F64),
+        Type::Float { .. } => Some(FloatFmt::F32),
+        _ => None,
+    }
+}
+
+/// An arithmetic operator, which on floating-point operands yields a float.
+fn is_arith_op(op: crate::parser::BinOp) -> bool {
+    use crate::parser::BinOp::*;
+    matches!(op, Add | Sub | Mul | Div)
+}
+
+/// An operator floating point defines: arithmetic (yields a float) or a
+/// comparison (yields one bit).
+fn is_float_op(op: crate::parser::BinOp) -> bool {
+    use crate::parser::BinOp::*;
+    is_arith_op(op) || matches!(op, Eq | Ne | Lt | Le | Gt | Ge)
+}
+
+/// The `iris_runtime::value::FloatFmt` path for generated code.
+fn fmt_code(fmt: FloatFmt) -> String {
+    format!("iris_runtime::value::FloatFmt::{:?}", fmt)
 }
 
 /// Generates a standalone Rust simulation from an elaborated project
@@ -337,6 +377,7 @@ impl SimGenerator {
             width,
             signed,
             hidden,
+            float: None,
         });
         slot
     }
@@ -375,6 +416,18 @@ impl SimGenerator {
     }
 
     fn collect_module(&mut self, module: &Module, prefix: &str) -> Result<(), CodeGenError> {
+        // Float ports, signals and memories are handled. A float *array signal*
+        // (as opposed to a memory) is not yet: its elements are not tagged, so
+        // it is refused rather than read as integers.
+        for signal in &module.signals {
+            if is_float(&signal.ty) && matches!(signal.ty, Type::Array { .. }) {
+                return Err(CodeGenError::UnsupportedFeature(format!(
+                    "floating-point array (signal '{}'); use iris-sim",
+                    signal.name
+                )));
+            }
+        }
+
         self.scopes.push(Scope {
             module: module.name.clone(),
             prefix: prefix.to_string(),
@@ -383,7 +436,8 @@ impl SimGenerator {
 
         for port in &module.ports {
             let width = port.ty.width().unwrap_or(1);
-            self.add_slot(join(prefix, &port.name), Some(width), is_signed(&port.ty), false);
+            let slot = self.add_slot(join(prefix, &port.name), Some(width), is_signed(&port.ty), false);
+            self.slots[slot].float = float_fmt_of(&port.ty);
         }
         for signal in &module.signals {
             // A `let` written without a type takes its width from the
@@ -398,12 +452,13 @@ impl SimGenerator {
                     .and_then(|e| self.infer_width(e, prefix))
                     .unwrap_or_else(|| signal.ty.width().unwrap_or(1))
             };
-            self.add_slot(
+            let slot = self.add_slot(
                 join(prefix, &signal.name),
                 Some(width),
                 is_signed(&signal.ty),
                 false,
             );
+            self.slots[slot].float = float_fmt_of(&signal.ty);
         }
         // A block-local `let` with an explicit type gets that width and appears
         // in the waveform; an untyped one takes the width of its expression.
@@ -459,6 +514,7 @@ impl SimGenerator {
             let is_rom = mem.config.mem_type == Some(MemType::Rom);
             let init = self.memory_init(mem.init.as_ref(), mem.depth, element_width);
 
+            let float = float_fmt_of(&mem.element_type);
             self.mem_of.insert(path.clone(), self.mems.len());
             self.mems.push(Mem {
                 name: path.clone(),
@@ -466,9 +522,11 @@ impl SimGenerator {
                 depth: mem.depth,
                 is_rom,
                 init,
+                float,
             });
 
-            self.add_slot(format!("{}_rdata", path), Some(element_width), false, false);
+            let rdata = self.add_slot(format!("{}_rdata", path), Some(element_width), false, false);
+            self.slots[rdata].float = float;
         }
         for inst in &module.instances {
             let inst_prefix = join(prefix, &inst.name);
@@ -710,10 +768,13 @@ impl SimGenerator {
             let slot = &self.slots[i];
             let line = match slot.width {
                 Some(width) => {
-                    let base = format!(
+                    let mut base = format!(
                         "SlotDef::new({:?}, {}, {})",
                         slot.name, width, slot.signed
                     );
+                    if let Some(fmt) = slot.float {
+                        base = format!("{}.float(iris_runtime::value::FloatFmt::{:?})", base, fmt);
+                    }
                     if slot.hidden {
                         format!("{}.hidden(),", base)
                     } else {
@@ -740,10 +801,18 @@ impl SimGenerator {
                 let (width, depth, is_rom, name) =
                     (mem.element_width, mem.depth, mem.is_rom, mem.name.clone());
                 let init: Vec<u64> = mem.init.clone();
-                self.line(&format!(
-                    "rt.mems.push(Memory::new({}, {}, {})); // {}",
-                    width, depth, is_rom, name
-                ));
+                let float = mem.float;
+                let ctor = match float {
+                    Some(fmt) => format!(
+                        "Memory::new({}, {}, {}).float({})",
+                        width,
+                        depth,
+                        is_rom,
+                        fmt_code(fmt)
+                    ),
+                    None => format!("Memory::new({}, {}, {})", width, depth, is_rom),
+                };
+                self.line(&format!("rt.mems.push({}); // {}", ctor, name));
                 if init.iter().any(|v| *v != 0) {
                     for (addr, value) in init.iter().enumerate() {
                         if *value == 0 {
@@ -897,7 +966,7 @@ impl SimGenerator {
                 let fsm_scope = scope.within(&path);
                 for (name, expr) in moore_outputs(fsm, &state) {
                     let slot = self.target_slot(&fsm_scope, &name);
-                    let code = self.expr(&expr, &fsm_scope)?;
+                    let code = self.expr_for_slot(&expr, slot, &fsm_scope)?;
                     moore.push(format!("rt.set({}, {});", slot, code));
                 }
             }
@@ -1399,7 +1468,7 @@ impl SimGenerator {
             let fsm_scope = scope.within(&path);
             for (name, expr) in moore_outputs(&fsm, &state) {
                 let target = self.target_slot(&fsm_scope, &name);
-                let code = self.expr(&expr, &fsm_scope)?;
+                let code = self.expr_for_slot(&expr, target, &fsm_scope)?;
                 self.line(&format!("rt.set({}, {});", target, code));
             }
         }
@@ -1507,7 +1576,7 @@ impl SimGenerator {
             self.open(&format!("{} => {{", i));
             for (name, expr) in outputs {
                 let slot = self.target_slot(scope, &name);
-                let code = self.expr(&expr, scope)?;
+                let code = self.expr_for_slot(&expr, slot, scope)?;
                 self.line(&format!("rt.set({}, {});", slot, code));
             }
             self.close("}");
@@ -1526,7 +1595,7 @@ impl SimGenerator {
                         continue;
                     };
                     let slot = self.target_slot(scope, &output.signal);
-                    let code = self.expr(expr, scope)?;
+                    let code = self.expr_for_slot(expr, slot, scope)?;
                     self.open(&format!("{} => {{", i));
                     self.line(&format!("rt.set({}, {});", slot, code));
                     self.close("}");
@@ -1562,7 +1631,7 @@ impl SimGenerator {
                 }
                 FsmAction::Assign { target, value } => {
                     let slot = self.target_slot(scope, target);
-                    let code = self.expr(value, scope)?;
+                    let code = self.expr_for_slot(value, slot, scope)?;
                     self.line(&format!("rt.set({}, {});", slot, code));
                 }
                 FsmAction::If {
@@ -1755,7 +1824,7 @@ impl SimGenerator {
         match stmt {
             SeqStatement::Assign { target, value } => {
                 let slot = self.target_slot(scope, target);
-                let code = self.expr(value, scope)?;
+                let code = self.expr_for_slot(value, slot, scope)?;
                 self.line(&format!("rt.set({}, {});", slot, code));
             }
             SeqStatement::SignalWrite { path, value } => {
@@ -1763,7 +1832,7 @@ impl SimGenerator {
                 let Some(&slot) = self.slot_of.get(&name) else {
                     return Err(CodeGenError::UnknownSignal(name));
                 };
-                let code = self.expr(value, scope)?;
+                let code = self.expr_for_slot(value, slot, scope)?;
                 self.line(&format!("rt.set({}, {});", slot, code));
             }
             SeqStatement::If {
@@ -1894,7 +1963,7 @@ impl SimGenerator {
                     let word = self.word_expr(value, scope)?;
                     format!("SignalValue::from_u64({}, {})", word, width)
                 } else {
-                    self.expr(value, scope)?
+                    self.expr_for_slot(value, slot, scope)?
                 };
                 self.line(&format!("updates.push(({}, {}));", slot, code));
             }
@@ -2309,10 +2378,17 @@ impl SimGenerator {
             return false;
         }
         match expr {
+            // A real literal is a floating-point value, not a machine word.
+            Expression::Literal(Literal::Real { .. }) => false,
             Expression::Literal(lit) => lit.width().unwrap_or(32) <= 64,
             Expression::Ident(name) => match self.resolve(scope, name) {
                 Some(slot) => match self.slots.get(slot) {
-                    Some(s) => !s.signed && s.width.map(|w| w <= 64).unwrap_or(false),
+                    // A floating-point slot's bits are not an integer word.
+                    Some(s) => {
+                        !s.signed
+                            && s.float.is_none()
+                            && s.width.map(|w| w <= 64).unwrap_or(false)
+                    }
                     None => false,
                 },
                 None => false,
@@ -2394,6 +2470,88 @@ impl SimGenerator {
         }
     }
 
+    /// The floating-point format an expression evaluates to, when it has one.
+    ///
+    /// A signal carries its slot's format; an arithmetic operation carries the
+    /// format of a floating-point operand. A comparison yields one bit, not a
+    /// float, so it has no format.
+    fn expr_float_fmt(&self, expr: &Expression, scope: &Scope) -> Option<FloatFmt> {
+        match expr {
+            Expression::Ident(name) => {
+                self.resolve(scope, name).and_then(|slot| self.slots[slot].float)
+            }
+            Expression::BinOp { op, lhs, rhs } if is_arith_op(*op) => self
+                .expr_float_fmt(lhs, scope)
+                .or_else(|| self.expr_float_fmt(rhs, scope)),
+            _ => None,
+        }
+    }
+
+    /// Code for a floating-point operand, as a `&SignalValue`. A real literal
+    /// is encoded to the given format here, where the format is known.
+    fn float_operand(
+        &mut self,
+        expr: &Expression,
+        fmt: FloatFmt,
+        scope: &Scope,
+    ) -> Result<String, CodeGenError> {
+        if let Some(text) = crate::sim::eval::real_text(expr) {
+            return Ok(match fmt {
+                FloatFmt::F32 => format!("&SignalValue::from_f32({}f32)", text),
+                FloatFmt::F64 => format!("&SignalValue::from_f64({}f64)", text),
+            });
+        }
+        self.expr_ref(expr, scope)
+    }
+
+    /// Code for a value assigned to `slot`, honouring the slot's floating-point
+    /// format so a bare real literal (`y = 1.5`) or a real-literal-only
+    /// expression (`y = 1.5 + 2.25`) takes the target's format, matching the
+    /// interpreter. An integer slot falls straight through to `expr`.
+    fn expr_for_slot(
+        &mut self,
+        value: &Expression,
+        slot: usize,
+        scope: &Scope,
+    ) -> Result<String, CodeGenError> {
+        if let Some(fmt) = self.slots.get(slot).and_then(|s| s.float) {
+            return self.float_ctx_code(value, fmt, scope);
+        }
+        self.expr(value, scope)
+    }
+
+    /// Code for a value in a known floating-point format, folding a real
+    /// literal or a real-literal-only operation into that format.
+    fn float_ctx_code(
+        &mut self,
+        value: &Expression,
+        fmt: FloatFmt,
+        scope: &Scope,
+    ) -> Result<String, CodeGenError> {
+        if let Some(text) = crate::sim::eval::real_text(value) {
+            return Ok(match fmt {
+                FloatFmt::F32 => format!("SignalValue::from_f32({}f32)", text),
+                FloatFmt::F64 => format!("SignalValue::from_f64({}f64)", text),
+            });
+        }
+        if let Expression::BinOp { op, lhs, rhs } = value {
+            if crate::sim::eval::real_text(lhs).is_some()
+                || crate::sim::eval::real_text(rhs).is_some()
+            {
+                let l = self.float_operand(lhs, fmt, scope)?;
+                let r = self.float_operand(rhs, fmt, scope)?;
+                return Ok(format!(
+                    "ops::float_binop(BinOp::{:?}, {}, {}, {})",
+                    crate::sim::eval::runtime_binop(*op),
+                    l,
+                    r,
+                    fmt_code(fmt),
+                ));
+            }
+        }
+        self.expr(value, scope)
+    }
+
     /// Code for an expression where a `&SignalValue` is wanted.
     ///
     /// Reading a signal already yields a reference, so `&rt.get(n).clone()`
@@ -2410,6 +2568,15 @@ impl SimGenerator {
     /// Code for an expression, yielding a `SignalValue`
     fn expr(&mut self, expr: &Expression, scope: &Scope) -> Result<String, CodeGenError> {
         match expr {
+            // A real literal has no format on its own; it is encoded where the
+            // format is known (in a floating-point operation, via
+            // `float_operand`). Reaching here means it has no floating-point
+            // context, which the compiled backend does not fold.
+            Expression::Literal(Literal::Real { .. }) => Err(CodeGenError::UnsupportedFeature(
+                "a real literal needs a floating-point operand in the compiled backend; \
+                 use iris-sim"
+                    .to_string(),
+            )),
             Expression::Literal(lit) => {
                 let width = lit.width().unwrap_or(32);
                 Ok(format!(
@@ -2423,6 +2590,22 @@ impl SimGenerator {
                 None => Err(CodeGenError::UnknownSignal(join(&scope.prefix, name))),
             },
             Expression::BinOp { op, lhs, rhs } => {
+                // A floating-point operand (a signal, or a real literal beside
+                // one) makes this a floating-point operation.
+                let fmt = self
+                    .expr_float_fmt(lhs, scope)
+                    .or_else(|| self.expr_float_fmt(rhs, scope));
+                if let (Some(fmt), true) = (fmt, is_float_op(*op)) {
+                    let l = self.float_operand(lhs, fmt, scope)?;
+                    let r = self.float_operand(rhs, fmt, scope)?;
+                    return Ok(format!(
+                        "ops::float_binop(BinOp::{:?}, {}, {}, {})",
+                        crate::sim::eval::runtime_binop(*op),
+                        l,
+                        r,
+                        fmt_code(fmt),
+                    ));
+                }
                 let l = self.expr_ref(lhs, scope)?;
                 let r = self.expr_ref(rhs, scope)?;
                 Ok(format!(

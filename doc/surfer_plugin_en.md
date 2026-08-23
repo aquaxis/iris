@@ -176,6 +176,19 @@ Surfer then treats it as signed and negative values display as negative.
 **That one change is enough on its own.** Surfer has a built-in `Signed`
 translator that handles `$var integer`.
 
+## Floating-point values
+
+`f32` and `f64` are unreadable as raw bit patterns. `iris-sim` writes a
+floating-point signal as `$var real` and emits its value changes in decimal.
+
+```
+$var real 1 # y $end
+...
+r1.5 #
+```
+
+Surfer and GTKWave then show `1.5`, not `0x3FC00000`.
+
 ## The translator plugin
 
 `tools/surfer-plugin/` holds an Extism plugin.

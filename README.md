@@ -139,6 +139,7 @@ iris/
 │   ├── iris-sim/          # シミュレータ（インタプリタ + コンパイラ）
 │   └── iris-runtime/      # 値、演算、波形（両実行方式が共有）
 ├── tools/
+│   ├── iris/              # 統合コマンド（Rust。各ツールをサブコマンドに束ねる）
 │   ├── irisfmt/           # フォーマッタ、リンタ、Language Server、VSCode拡張
 │   ├── iris2sv/           # IRIS → SystemVerilog トランスパイラ
 │   ├── sv2iris/           # SystemVerilog → IRIS トランスパイラ
@@ -157,6 +158,35 @@ iris/
 ```
 
 ## ツール
+
+### 統合コマンド（Rust製）
+
+**iris**：各ツールを1つの入口に束ねるコマンド
+
+散らばっていた入口を`iris`のサブコマンドにまとめます。
+`iris`自身はRustで、依存を持たず、各ツールへ処理を渡します。
+
+```bash
+iris sim -i design.iris -o out.vcd -c 100   # iris-sim
+iris compile -i design.iris -o sim --release # iris-compile
+iris formal -i design.iris -o out/           # iris-formal
+iris veryl import design.veryl               # veryl2iris（Veryl → IRIS）
+iris veryl export design.iris                # iris2veryl（IRIS → Veryl）
+iris fmt design.iris                         # irisfmt（整形）
+iris lint design.iris                        # irisfmt-lint（スタイル検査）
+iris lsp                                     # irisfmt-lsp（Language Server）
+iris sv design.iris                          # iris2sv（IRIS → SystemVerilog）
+iris from-sv design.sv                       # sv2iris（SystemVerilog → IRIS）
+```
+
+コマンドの後ろの引数はそのまま各ツールへ渡されます。
+
+**すべてのサブコマンドがRust製のツールを直に起動します。もうnodeは使いません。**
+入口は`iris`の1つです。`sv`＝`iris2sv`、`from-sv`＝`sv2iris`、`fmt`／`lint`／`lsp`＝`irisfmt`。
+`fmt`はconformanceが通り、`lint`／`lsp`はTS版と同じ規則・機能を持ちます。
+`iris schematic`だけはWebアプリの開発サーバ（`npm run dev`）で、ここだけnpmが要ります。
+
+Rust製ツールの場所は`IRIS_<TOOL>_BIN`で上書きできます。
 
 ### シミュレーション（Rust製）
 
@@ -191,12 +221,14 @@ IRISの値とその演算、波形の記録とVCD出力を提供するライブ�
 インタプリタとコンパイラモードで生成された実行ファイルの双方がこれを使うため、
 同じ設計はどちらで実行しても同じ結果になります。
 
-### ユーティリティ（TypeScript製）
+### ユーティリティ（Rust製）
 
-**irisfmt**：フォーマッタ、リンタ、Language Server、VSCode拡張
+**irisfmt**：フォーマッタ、リンタ、Language Server
 
-IRISソースコードの自動整形とコーディング規約チェックを行います。
-加えてLanguage Server（`packages/ls`）とVSCode拡張（`packages/vscode-iris`）を持ちます。
+IRISソースコードの自動整形（`iris fmt`）とコーディング規約チェック（`iris lint`）を行います。
+加えてLanguage Server（`iris lsp`）を持ちます。いずれもRustへ移植済みで
+（`tools/irisfmt-rs`、`tools/irisfmt-lsp-rs`）、nodeを起動しません。
+VSCode拡張（`tools/irisfmt/packages/vscode-iris`）はこのLanguage Serverに繋いでエディタを支えます。
 
 VSCode拡張は2つの層でエディタを支えます。
 
@@ -335,7 +367,7 @@ iris2veryl design.iris     # IRIS  -> Veryl
 
 | 拒否の種類 | 例 |
 |---|---|
-| 言語に対応物が無い | `f32`、`tri`、`bind`（Veryl側）／`fsm`、`rand`（IRIS側） |
+| 言語に対応物が無い | `tri`、`bind`（Veryl側）／`fsm`、`rand`（IRIS側） |
 | この変換器が未実装 | `interface`、`function`、複数値のcaseアーム |
 
 往復は模擬実行で一致することを`tools/conformance/run.sh`が検査します。
@@ -388,10 +420,11 @@ cd example/riscv/sv  && ./run.sh              # SystemVerilog（Verilator）
 
 ### 前提条件
 
-- **Rust**（rustc、cargo）：シミュレータのビルドに必要
-- **Node.js**（18.0.0以上）と**pnpm**：TypeScript製ツールのビルドに必要
+- **Rust**（rustc、cargo）：シミュレータと全ツールのビルドに必要
+- **Node.js**と**npm**：`iris schematic`（ブラウザのブロック図ビューア）と
+  VSCode拡張のビルドにのみ必要。CLIツールには不要
 
-### シミュレータのビルドと実行
+### シミュレータと各ツールのビルド
 
 ```bash
 # iris-simのビルド
@@ -400,25 +433,17 @@ cargo build --release
 
 # シミュレーションの実行
 cargo run --bin iris-sim -- path/to/your_design.iris
+
+# トランスパイラ・整形・lint・LSPはそれぞれcargoでビルドする
+cargo build --release --manifest-path tools/iris2sv-rs/Cargo.toml
+cargo build --release --manifest-path tools/sv2iris-rs/Cargo.toml
+cargo build --release --manifest-path tools/irisfmt-rs/Cargo.toml
+cargo build --release --manifest-path tools/irisfmt-lsp-rs/Cargo.toml
+cargo build --release --manifest-path tools/iris/Cargo.toml   # 統合コマンド iris
 ```
 
-### TypeScript製ツールのビルド
-
-```bash
-# iris2svの例
-cd tools/iris2sv
-pnpm install
-pnpm build
-```
-
-`package.json`の`packageManager`が`pnpm@9.0.0`を指しているため、
-pnpm 10で実行すると別バージョンへ切り替えようとして失敗することがあります。
-その場合は次のように切り替えを無効にしてください。
-
-```bash
-pnpm install --config.manage-package-manager-versions=false
-pnpm -r --config.manage-package-manager-versions=false build
-```
+CLIツール（`sim`／`compile`／`formal`／`veryl`／`sv`／`from-sv`／`fmt`／`lint`／`lsp`）は
+すべてRust製で、nodeを起動しません。`iris schematic`のブラウザ開発サーバだけがnpmを使います。
 
 ## 言語仕様
 
@@ -471,6 +496,7 @@ pnpm -r --config.manage-package-manager-versions=false build
 | [ブロック図ビューア](./doc/schematic.md) | モジュール接続をブラウザで描く |
 | [Surferでの波形表示](./doc/surfer_plugin.md) | 波形を読み、`mem`を要素ごとに展開する |
 | [エディタ支援](./doc/editor.md) | VSCodeのSyntax HighlightとLanguage Server |
+| [irisコマンド](./doc/iris.md) | ツールを束ねる統合コマンド |
 
 リポジトリ直下の`report_*.md`は資料ではなく**作業の記録**です。
 経緯、測定、判断、そこで出た誤りを残しています。

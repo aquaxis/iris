@@ -59,6 +59,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable linting"
+        },
+        "iris.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Rust irisfmt-lsp binary. If empty, the extension auto-detects it (repository build or PATH) and falls back to the bundled Node server when no Rust binary is found."
         }
       }
     },

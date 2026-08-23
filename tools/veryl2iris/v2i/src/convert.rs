@@ -901,7 +901,9 @@ fn scalar_type_to_iris(
         "i16" => "int[16]".to_string(),
         "i32" => "int[32]".to_string(),
         "i64" => "int[64]".to_string(),
-        "f32" | "f64" => return Err(one(unsupported(file, position, "f32 / f64"))),
+        // IRIS has f32/f64, so a Veryl floating-point type maps straight across.
+        "f32" => "f32".to_string(),
+        "f64" => "f64".to_string(),
         "p8" | "p16" | "p32" | "p64" => {
             return Err(one(unsupported(file, position, "p8 .. p64")))
         }

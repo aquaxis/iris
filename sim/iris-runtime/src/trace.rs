@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use crate::value::{BitValue, SignalValue};
+use crate::value::{BitValue, FloatFmt, SignalValue};
 use crate::SimTime;
 
 /// Recorded value changes, per signal
@@ -21,6 +21,8 @@ pub struct SignalTrace {
     widths: HashMap<String, usize>,
     /// Signals whose IRIS type is signed
     signed: HashMap<String, bool>,
+    /// Floating-point format of each signal, when it has one
+    float: HashMap<String, Option<FloatFmt>>,
     /// Signal names in the order they were first recorded
     order: Vec<String>,
 }
@@ -35,6 +37,17 @@ impl SignalTrace {
     pub fn record(&mut self, name: &str, time: SimTime, value: SignalValue) {
         self.widths.insert(name.to_string(), value.width());
         self.signed.insert(name.to_string(), value.is_signed());
+        // A float format, once seen for a signal, stays with it. Reset and
+        // memory-clear writes may carry a plain integer zero; they must not
+        // erase the format the declaration gave the signal.
+        match value.float_fmt() {
+            Some(fmt) => {
+                self.float.insert(name.to_string(), Some(fmt));
+            }
+            None => {
+                self.float.entry(name.to_string()).or_insert(None);
+            }
+        }
 
         let changes = match self.signals.get_mut(name) {
             Some(changes) => changes,
@@ -71,6 +84,11 @@ impl SignalTrace {
     /// the only place the signedness of an `int[N]` survives into the file.
     pub fn is_signed(&self, name: &str) -> bool {
         self.signed.get(name).copied().unwrap_or(false)
+    }
+
+    /// The signal's floating-point format, if it has one.
+    pub fn float_fmt(&self, name: &str) -> Option<FloatFmt> {
+        self.float.get(name).copied().flatten()
     }
 
     /// Every signal with its changes
@@ -117,9 +135,22 @@ pub fn vcd_ident(mut n: usize) -> String {
     chars.iter().rev().collect()
 }
 
-/// One `$var` declaration: full dotted name, identifier code, bit width, and
-/// whether the IRIS type is signed.
-pub type VarDecl = (String, String, usize, bool);
+/// A floating-point value rendered as a VCD real, e.g. `1.5`, or `None` when
+/// the value is not tagged as floating point.
+///
+/// VCD's real values are decimal, not bit patterns: a viewer shows `1.5`, not
+/// `0x3FC00000`. The bits are read back through the value's own format so an
+/// `f32` and an `f64` both print as the number they stand for.
+pub fn vcd_real_value(value: &SignalValue) -> Option<String> {
+    match value.float_fmt()? {
+        FloatFmt::F32 => value.as_f32().map(|x| format!("{}", x)),
+        FloatFmt::F64 => value.as_f64().map(|x| format!("{}", x)),
+    }
+}
+
+/// One `$var` declaration: full dotted name, identifier code, bit width,
+/// whether the IRIS type is signed, and whether it is floating point.
+pub type VarDecl = (String, String, usize, bool, bool);
 
 /// A level of the `$scope` tree, holding the variables declared at this level
 /// and the child scopes below it, both in first-seen order.
@@ -140,17 +171,24 @@ impl ScopeNode {
         &mut self.children.last_mut().expect("just pushed").1
     }
 
-    fn insert(&mut self, path: &[&str], leaf: &str, id: &str, width: usize, signed: bool) {
+    fn insert(&mut self, path: &[&str], leaf: &str, id: &str, width: usize, signed: bool, is_float: bool) {
         match path.split_first() {
             None => self
                 .vars
-                .push((leaf.to_string(), id.to_string(), width, signed)),
-            Some((head, rest)) => self.child_mut(head).insert(rest, leaf, id, width, signed),
+                .push((leaf.to_string(), id.to_string(), width, signed, is_float)),
+            Some((head, rest)) => self.child_mut(head).insert(rest, leaf, id, width, signed, is_float),
         }
     }
 
     fn emit<W: Write>(&self, out: &mut W) -> std::io::Result<()> {
-        for (name, id, width, signed) in &self.vars {
+        for (name, id, width, signed, is_float) in &self.vars {
+            // A floating-point signal is a VCD `real`: its value changes are
+            // decimal (`r1.5`), so the reader must be told the type up front.
+            // VCD carries no bit range for a real; its size field is 1.
+            if *is_float {
+                writeln!(out, "$var real 1 {} {} $end", id, name)?;
+                continue;
+            }
             // `integer` is VCD's own word for a signed quantity. Emitting it
             // is what lets a viewer, or a plugin behind one, render `int[32]`
             // as a negative number rather than a large positive one.
@@ -188,10 +226,10 @@ impl ScopeNode {
 /// last segment becomes the signal name.
 pub fn write_scoped_vars<W: Write>(out: &mut W, decls: &[VarDecl]) -> std::io::Result<()> {
     let mut root = ScopeNode::default();
-    for (full_name, id, width, signed) in decls {
+    for (full_name, id, width, signed, is_float) in decls {
         let parts: Vec<&str> = full_name.split('.').collect();
         let (leaf, path) = parts.split_last().expect("split always yields one part");
-        root.insert(path, leaf, id, *width, *signed);
+        root.insert(path, leaf, id, *width, *signed, *is_float);
     }
     root.emit(out)
 }
@@ -221,7 +259,8 @@ pub fn write_vcd_to<W: Write>(
     for (index, name) in names.iter().enumerate() {
         let id = vcd_ident(index);
         let width = trace.get_width(name).unwrap_or(1);
-        decls.push((name.clone(), id.clone(), width, trace.is_signed(name)));
+        let is_float = trace.float_fmt(name).is_some();
+        decls.push((name.clone(), id.clone(), width, trace.is_signed(name), is_float));
         ids.insert(name.clone(), id);
     }
     write_scoped_vars(out, &decls)?;
@@ -286,6 +325,10 @@ pub fn write_vcd_to<W: Write>(
 }
 
 fn write_value<W: Write>(out: &mut W, id: &str, value: &SignalValue) -> std::io::Result<()> {
+    // A floating-point value is written as a VCD real (`r1.5 <id>`).
+    if let Some(real) = vcd_real_value(value) {
+        return writeln!(out, "r{} {}", real, id);
+    }
     let width = value.width();
     if width == 1 {
         let bit = value.get_bit(0).unwrap_or(BitValue::X);

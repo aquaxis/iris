@@ -159,6 +159,84 @@ fn read(path: &Path) -> String {
 const COUNTER_HEAD: &str = "in clk: clock, in rst_n: reset(active_low: true),";
 
 #[test]
+fn floating_point_arithmetic_agrees() {
+    // The compiled backend must evaluate f32/f64 the same as the interpreter,
+    // including a real literal taking its operand's format and a comparison
+    // yielding one bit. Inputs default to zero, so a = 0.0.
+    both_ways(
+        "float_math",
+        &[(
+            "float_math.iris",
+            "mod FMath(
+                in a: f32,
+                in b: f64,
+                out y: f32,
+                out d: f64,
+                out lt: bit,
+            ) {
+                comb {
+                    y = a + 1.5;
+                    d = b * 2.0;
+                    lt = a < 1.5;
+                }
+            }",
+        )],
+        None,
+        3,
+    );
+}
+
+#[test]
+fn floating_point_literals_agree() {
+    // A bare real literal and a real-literal-only expression take the target's
+    // format in both backends.
+    both_ways(
+        "float_literals",
+        &[(
+            "float_literals.iris",
+            "mod FLit(
+                out y: f32,
+                out z: f64,
+            ) {
+                comb {
+                    y = 1.5 + 2.25;
+                    z = 3.25;
+                }
+            }",
+        )],
+        None,
+        3,
+    );
+}
+
+#[test]
+fn a_floating_point_memory_agrees() {
+    // A memory of f32 elements must read back as a float in both backends,
+    // waveform included.
+    both_ways(
+        "float_memory",
+        &[(
+            "float_memory.iris",
+            "mod FMem(
+                in clk: clock,
+                in we: bit,
+                in addr: bit[8],
+                in wdata: f32,
+                out rdata: f32,
+            ) {
+                mem storage: f32[4];
+                sync(clk.posedge) {
+                    if we { storage[addr] = wdata; }
+                }
+                comb { rdata = storage[addr]; }
+            }",
+        )],
+        None,
+        4,
+    );
+}
+
+#[test]
 fn a_single_clock_counter_agrees() {
     both_ways(
         "counter",

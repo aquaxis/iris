@@ -93,6 +93,8 @@ pub const MAPPINGS: &[Mapping] = &[
     m("u8 .. u64", "uint[N]", Verdict::Exact, Side::Both, ""),
     m("i8 .. i64", "int[N]", Verdict::Exact, Side::Both, ""),
     m("signed logic<N>", "int[N]", Verdict::Exact, Side::Both, ""),
+    m("f32 / f64", "f32 / f64", Verdict::Exact, Side::Both,
+      "IRIS has the same IEEE 754 types and iris-sim evaluates them"),
     m("string", "string", Verdict::Exact, Side::Both, ""),
     m("clock", "clock", Verdict::Exact, Side::Both, ""),
     m("reset", "reset", Verdict::Exact, Side::Both, ""),
@@ -106,6 +108,8 @@ pub const MAPPINGS: &[Mapping] = &[
        zero-extends an unsigned operand, while IRIS emits `32'($signed(a))`; \
        repeating the sign bit says the same thing in both languages"),
     m(">>> << >>", ">>> << >>", Verdict::Exact, Side::Both, ""),
+    m("real literal such as 1.5", "real literal such as 1.5", Verdict::Exact, Side::Both,
+      "kept as source text, so it carries across unchanged"),
     // ---- interfaces ----
     m("interface", "interface", Verdict::Exact, Side::Both, ""),
     m(
@@ -168,12 +172,8 @@ pub const MAPPINGS: &[Mapping] = &[
         "Veryl has arrays but no memory configuration, so the settings are lost",
     ),
     // ---- unsupported, Veryl side ----
-    m("f32 / f64", "no counterpart", Verdict::Unsupported, Side::Veryl,
-      "IRIS has no floating point type and no real literal"),
     m("p8 .. p64", "no counterpart", Verdict::Unsupported, Side::Veryl,
       "IRIS has no corresponding fixed-point type"),
-    m("real literal such as 1.5", "no counterpart", Verdict::Unsupported, Side::Veryl,
-      "an IRIS literal is integer, boolean or string only"),
     m("tri", "no counterpart", Verdict::Unsupported, Side::Veryl,
       "IRIS has no tri-state; inout is a different thing"),
     m("bind", "no counterpart", Verdict::Unsupported, Side::Veryl,
@@ -289,6 +289,7 @@ pub const COVERAGE: &[Coverage] = &[
     covered("u8 .. u64", "u8_to_u64"),
     covered("i8 .. i64", "i8_to_i64"),
     covered("signed logic<N>", "signed_logic_n"),
+    covered("f32 / f64", "f32_f64"),
     uncovered("string", "iris-sim has no string-valued const to round trip through"),
     covered("clock", "clock"),
     covered("reset", "reset"),
@@ -298,6 +299,7 @@ pub const COVERAGE: &[Coverage] = &[
     covered("{a repeat n}", "repeat"),
     covered("{a[w-1] repeat n, a}", "sign_extend"),
     covered(">>> << >>", "shifts"),
+    covered("real literal such as 1.5", "real_literal"),
     covered("interface", "interface"),
     covered("modport with a direction per signal", "modport"),
 ];

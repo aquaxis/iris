@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::parser::{BinOp, Expression, Literal, UnaryOp};
-use crate::types::SignalValue;
+use crate::types::{FloatFmt, SignalValue};
 
 /// Evaluation error
 #[derive(Error, Debug)]
@@ -55,6 +55,68 @@ pub fn runtime_unop(op: UnaryOp) -> iris_runtime::ops::UnaryOp {
         UnaryOp::Neg => R::Neg,
         UnaryOp::LogNot => R::LogNot,
     }
+}
+
+/// The text of a real literal, if the expression is one. A real literal has no
+/// format on its own; it takes the format of the floating-point value it is
+/// used with, so it cannot be evaluated in isolation.
+pub(crate) fn real_text(expr: &Expression) -> Option<&str> {
+    match expr {
+        Expression::Literal(Literal::Real { text }) => Some(text),
+        _ => None,
+    }
+}
+
+/// A real literal encoded into a floating-point format.
+pub(crate) fn real_to_value(text: &str, fmt: FloatFmt) -> Result<SignalValue, EvalError> {
+    let invalid =
+        || EvalError::InvalidOperation(format!("invalid floating-point literal '{}'", text));
+    match fmt {
+        FloatFmt::F32 => text.parse::<f32>().map(SignalValue::from_f32).map_err(|_| invalid()),
+        FloatFmt::F64 => text.parse::<f64>().map(SignalValue::from_f64).map_err(|_| invalid()),
+    }
+}
+
+/// A floating-point binary operation, as the interpreter uses it.
+///
+/// The arithmetic itself is `iris_runtime::ops::float_binop`, shared with the
+/// code `iris-compile` generates so the two agree. This wrapper adds the
+/// interpreter's diagnostics: it refuses unknown bits and operators floating
+/// point does not define, rather than falling back silently.
+pub(crate) fn float_binop(
+    op: BinOp,
+    lhs: &SignalValue,
+    rhs: &SignalValue,
+    fmt: FloatFmt,
+) -> Result<SignalValue, EvalError> {
+    let known = match fmt {
+        FloatFmt::F32 => lhs.as_f32().is_some() && rhs.as_f32().is_some(),
+        FloatFmt::F64 => lhs.as_f64().is_some() && rhs.as_f64().is_some(),
+    };
+    if !known {
+        return Err(EvalError::InvalidOperation(
+            "a floating-point operand has unknown bits".to_string(),
+        ));
+    }
+    if !matches!(
+        op,
+        BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Eq
+            | BinOp::Ne
+            | BinOp::Lt
+            | BinOp::Le
+            | BinOp::Gt
+            | BinOp::Ge
+    ) {
+        return Err(EvalError::InvalidOperation(format!(
+            "operator {:?} is not supported on floating point",
+            op
+        )));
+    }
+    Ok(iris_runtime::ops::float_binop(runtime_binop(op), lhs, rhs, fmt))
 }
 
 /// Do the low `tag_width` bits of a value hold this tag?
@@ -138,8 +200,38 @@ impl<'a> Evaluator<'a> {
                 .cloned()
                 .ok_or_else(|| EvalError::UndefinedSignal(name.clone())),
             Expression::BinOp { op, lhs, rhs } => {
-                let lhs_val = self.eval(lhs)?;
-                let rhs_val = self.eval(rhs)?;
+                // A real literal has no format on its own, so it is not
+                // evaluated yet; its format comes from the other operand.
+                let lhs_real = real_text(lhs);
+                let rhs_real = real_text(rhs);
+                let lhs_val = if lhs_real.is_none() { Some(self.eval(lhs)?) } else { None };
+                let rhs_val = if rhs_real.is_none() { Some(self.eval(rhs)?) } else { None };
+
+                // A floating-point operand makes this a floating-point op. The
+                // format travels with the value, so no type lookup is needed.
+                let fmt = lhs_val
+                    .as_ref()
+                    .and_then(|v| v.float_fmt())
+                    .or_else(|| rhs_val.as_ref().and_then(|v| v.float_fmt()));
+                if let Some(fmt) = fmt {
+                    let a = match lhs_real {
+                        Some(t) => real_to_value(t, fmt)?,
+                        None => lhs_val.unwrap(),
+                    };
+                    let b = match rhs_real {
+                        Some(t) => real_to_value(t, fmt)?,
+                        None => rhs_val.unwrap(),
+                    };
+                    return float_binop(*op, &a, &b, fmt);
+                }
+
+                let real_needs_float = || {
+                    EvalError::InvalidOperation(
+                        "a real literal needs a floating-point operand".to_string(),
+                    )
+                };
+                let lhs_val = lhs_val.ok_or_else(real_needs_float)?;
+                let rhs_val = rhs_val.ok_or_else(real_needs_float)?;
                 self.eval_binop(*op, &lhs_val, &rhs_val)
             }
             Expression::UnaryOp { op, expr } => {
@@ -288,11 +380,20 @@ impl<'a> Evaluator<'a> {
                 let w = width.unwrap_or(32);
                 (w, *value as u64)
             }
+            // Floating point is parsed but not evaluated yet. Refuse it rather
+            // than computing its bits as an integer.
+            Literal::Real { text } => {
+                return Err(EvalError::InvalidOperation(format!(
+                    "floating-point literal '{}' is not implemented yet",
+                    text
+                )))
+            }
         };
         Ok(SignalValue::from_u64(value, width))
     }
 
     /// Evaluate a binary operation
+
     fn eval_binop(
         &self,
         op: BinOp,

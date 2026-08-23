@@ -16,7 +16,12 @@ IRISはVSCode拡張を持つ。
 **Syntax HighlightはLanguage Serverが動かない環境でも効く。**
 TextMate文法（`syntaxes/iris.tmLanguage.json`）だけで色が付くためである。
 
-Language Serverの詳細は`tools/irisfmt-ls.md`にある。
+**Language ServerはRustへ移植済みである。** `irisfmt-lsp`（`tools/irisfmt-lsp-rs`、
+`iris lsp`でも起動）がstdio上のJSON-RPCで動き、`irisfmt`の整形・lintと`iris-sim`のASTを
+再利用する。機能は下表の通りで、移植前のTypeScript版（`packages/ls`）と同じである。
+**VSCode拡張はRust版を優先して起動する**（見つからなければ同梱のnode版へフォールバック）。
+探索順は、設定`iris.server.path`、拡張同梱の`server-bin/`、リポジトリのビルド
+（`tools/irisfmt-lsp-rs/target/release/`）。Rust版が使われればnodeは要らない。
 
 ## 何ができるか
 
@@ -42,7 +47,7 @@ Language Serverの詳細は`tools/irisfmt-ls.md`にある。
 
 ### Language Server
 
-`irisfmt-ls.md`によれば、次を提供する。
+Rust版（`iris lsp`）もTypeScript版も、次を提供する。
 
 | 機能 | LSPメソッド |
 |---|---|
@@ -78,8 +83,9 @@ $ tsc -p ./
 文法`source.iris`を`syntaxes/iris.tmLanguage.json`に結んでいる。
 VSCodeで`.iris`を開くと、Syntax Highlightが効く。
 
-Language Serverは拡張が起動する。
+Language Serverは拡張が起動する（Rust版`irisfmt-lsp`を優先、無ければnode版）。
 ステータスバーの`IRIS`が、起動中、実行中、停止のどれかを示す。
+別の場所のバイナリを使うには設定`iris.server.path`にパスを与える。
 
 ## 検証
 
@@ -124,3 +130,9 @@ VSCodeが使うOnigurumaとは実装が違うが、
 ここで使う正規表現は語境界と文字クラスだけであり、両者は一致する。
 
 **Onigurumaによる完全なトークン化は行っていない。**
+
+**実際のVSCodeでRust版サーバの起動は試していない。**
+拡張のTypeScriptはコンパイルが通り（`tsc -p ./`、終了0）、バイナリのパス解決も確かめた。
+Rust版サーバのstdio JSON-RPCは、LSPクライアントと同じ手順（initialize→
+publishDiagnostics→hover→definition→references→rename→formatting→shutdown/exit）で
+別途駆動して動作を確認済み。だがVSCode本体からの起動そのものは未検証である。

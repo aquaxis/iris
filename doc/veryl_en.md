@@ -158,7 +158,7 @@ to x0 changed nothing: the design also forces x0 to zero on the read side, so
 the mutation is invisible. **A control aimed where nothing can observe it is
 not a control.**
 
-All are in `tools/conformance/run.sh`, which went from 130 checks to 151, no
+All are in `tools/conformance/run.sh`, which went from 130 checks to 152, no
 failures.
 
 **The checks were themselves checked.** Deliberately breaking the converter so
@@ -180,13 +180,13 @@ it drops a `case` default makes `alu round trip` fail.
 ### Every row of the table, one at a time
 
 **Six designs passing is not the same as covering the syntax.** So each of the
-30 rows marked `Exact` got a small fragment of its own, and each fragment was
+32 rows marked `Exact` got a small fragment of its own, and each fragment was
 round-tripped.
 
 | | Count |
 |---|---|
-| `Exact` rows | 30 |
-| with a round trip | **29** |
+| `Exact` rows | 32 |
+| with a round trip | **31** |
 | no fragment to write | 1 |
 
 **The one remaining row is unimplemented in `iris-sim`, not in this converter.**
@@ -505,10 +505,10 @@ matching simulation results.
 
 ```
 module declarations and ports (input / output / inout)
-types: logic, logic<N>, signed logic<N>, u8..u64, i8..i64, string, clock, reset
+types: logic, logic<N>, signed logic<N>, u8..u64, i8..i64, f32, f64, string, clock, reset
 declarations: let, var, const, type, enum, struct, union, function, import
 bodies: always_ff, always_comb, assign, inst
-expressions: case, conditionals, arithmetic / logical / comparison / shift
+expressions: case, conditionals, real literals, arithmetic / logical / comparison / shift
 interface and modport (with a direction written per signal)
 ```
 
@@ -525,6 +525,8 @@ The correspondence:
 | `if c ? x : y` | `if c { x } else { y }` |
 | `a <: b` | `a < b` |
 | `u8`, `i32` | `uint[8]`, `int[32]` |
+| `a: input f32`, `y: output f64` | `in a: f32`, `out y: f64` |
+| `y = a + 1.5` | `y = a + 1.5` (real literal carries across) |
 
 `u8` is a built-in alias for `uint[8]` in IRIS too, and it does behave as eight
 bits:
@@ -542,9 +544,7 @@ u8: 255+1 = 0
 
 | Veryl construct | Why it cannot be converted |
 |---|---|
-| `f32`, `f64` | IRIS has no floating point |
 | `p8`–`p64` | IRIS has no corresponding type |
-| Real literals (`1.5`) | An IRIS `literal` is integer, boolean or string only |
 | `tri` | IRIS has no tri-state; `inout` is a different thing |
 | `bind` | No construct binds to an existing instance from outside |
 | `connect` | No construct joins two interfaces |
@@ -601,13 +601,17 @@ as one bit.
 
 | Type name | Result of assigning 3 from a `bit[8]` |
 |---|---|
-| `f32`, `f64`, `p32`, `lbool` | all 1 |
+| `p32`, `lbool` | all 1 |
 | `NoSuchTypeAtAll`, `Zzz` | all 1 |
 
-`iris2sv` warns on the same input:
+`f32` and `f64` are no longer in this list: `iris-sim` evaluates them as
+floating point (the Rust `iris-sim` only; the TS `iris2sv` still treats them as
+an unknown one-bit type).
+
+`iris2sv` warns on an unknown type name:
 
 ```
-modonly.iris: warning: User type 'f32' treated as logic[1]
+modonly.iris: warning: User type 'p32' treated as logic[1]
 ```
 
 **The two together are the worst case.**

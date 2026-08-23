@@ -17,7 +17,14 @@ of them is not working.
 **Syntax highlighting works even where the language server does not.**
 The TextMate grammar (`syntaxes/iris.tmLanguage.json`) colors on its own.
 
-The language server is described in `tools/irisfmt-ls.md`.
+**The language server is ported to Rust.** `irisfmt-lsp` (`tools/irisfmt-lsp-rs`,
+also launchable as `iris lsp`) runs JSON-RPC over stdio and reuses `irisfmt`'s
+formatter and linter and the `iris-sim` AST. Its features are the table below —
+the same as the former TypeScript server (`packages/ls`). **The VSCode extension
+prefers the Rust server** (falling back to the bundled Node server if no Rust
+binary is found). It looks in order at the `iris.server.path` setting, a bundled
+`server-bin/`, and the repository build (`tools/irisfmt-lsp-rs/target/release/`).
+When the Rust server is used, no node is involved.
 
 ## What it can do
 
@@ -44,7 +51,7 @@ unchanged.
 
 ### Language server
 
-Per `irisfmt-ls.md`, it provides the following.
+Both the Rust server (`iris lsp`) and the TypeScript one provide the following.
 
 | Feature | LSP method |
 |---|---|
@@ -80,8 +87,9 @@ The extension binds language `iris` to `.iris` and `.irs`, and binds the
 grammar `source.iris` to `syntaxes/iris.tmLanguage.json`.
 Open a `.iris` file in VSCode and syntax highlighting takes effect.
 
-The extension starts the language server.
-The `IRIS` item in the status bar shows starting, running or stopped.
+The extension starts the language server (the Rust `irisfmt-lsp` if found, else
+the bundled Node build). The `IRIS` item in the status bar shows starting,
+running or stopped. To use a binary elsewhere, set `iris.server.path`.
 
 ## Verification
 
@@ -126,3 +134,10 @@ That differs from the Oniguruma engine VSCode uses, but the expressions here
 use only word boundaries and character classes, where the two agree.
 
 **No full tokenization through Oniguruma was performed.**
+
+**Launching the Rust server from a live VSCode was not tested.**
+The extension's TypeScript compiles (`tsc -p ./`, exit 0) and the binary path
+resolution was checked. The Rust server's stdio JSON-RPC was driven separately
+through the same sequence an LSP client uses (initialize → publishDiagnostics →
+hover → definition → references → rename → formatting → shutdown/exit) and
+behaved correctly. What is untested is the launch from VSCode itself.

@@ -174,6 +174,25 @@ impl Repr {
     }
 }
 
+/// An IEEE 754 floating-point format a value's bits are to be read as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FloatFmt {
+    /// `f32`, IEEE 754 single precision (32 bits)
+    F32,
+    /// `f64`, IEEE 754 double precision (64 bits)
+    F64,
+}
+
+impl FloatFmt {
+    /// The bit width of this format.
+    pub fn bits(self) -> usize {
+        match self {
+            FloatFmt::F32 => 32,
+            FloatFmt::F64 => 64,
+        }
+    }
+}
+
 /// Multi-bit signal value
 #[derive(Clone, Debug)]
 pub struct SignalValue {
@@ -183,6 +202,12 @@ pub struct SignalValue {
     /// This is an interpretation, not part of the value, so it is excluded
     /// from equality.
     signed: bool,
+    /// If set, the bits are to be read as this floating-point format. Like
+    /// `signed`, it is an interpretation of the same bits, not part of the
+    /// value, so it is excluded from equality. The value carries it so the
+    /// evaluator can tell a float operation from an integer one without
+    /// looking up types.
+    float: Option<FloatFmt>,
 }
 
 impl Eq for SignalValue {}
@@ -211,6 +236,7 @@ impl SignalValue {
         Self {
             repr: Repr::General(filled(BitValue::X, width)),
             signed: false,
+            float: None,
         }
     }
 
@@ -234,6 +260,7 @@ impl SignalValue {
         Self {
             repr,
             signed: false,
+            float: None,
         }
     }
 
@@ -255,6 +282,37 @@ impl SignalValue {
     pub fn with_signed(mut self, signed: bool) -> Self {
         self.signed = signed;
         self
+    }
+
+    /// A single-precision float, held as its 32 IEEE bits and tagged `f32`.
+    pub fn from_f32(value: f32) -> Self {
+        Self::from_u64(value.to_bits() as u64, 32).with_float(Some(FloatFmt::F32))
+    }
+
+    /// A double-precision float, held as its 64 IEEE bits and tagged `f64`.
+    pub fn from_f64(value: f64) -> Self {
+        Self::from_u64(value.to_bits(), 64).with_float(Some(FloatFmt::F64))
+    }
+
+    /// Tag (or untag) the bits as a floating-point format.
+    pub fn with_float(mut self, fmt: Option<FloatFmt>) -> Self {
+        self.float = fmt;
+        self
+    }
+
+    /// The floating-point format the bits are read as, if any.
+    pub fn float_fmt(&self) -> Option<FloatFmt> {
+        self.float
+    }
+
+    /// Read the bits as `f32`, when every bit is known and it fits.
+    pub fn as_f32(&self) -> Option<f32> {
+        self.to_u64().map(|bits| f32::from_bits(bits as u32))
+    }
+
+    /// Read the bits as `f64`, when every bit is known and it fits.
+    pub fn as_f64(&self) -> Option<f64> {
+        self.to_u64().map(f64::from_bits)
     }
 
     /// Read the bits as two's complement, sign-extending from the top bit
@@ -289,6 +347,7 @@ impl SignalValue {
                         width: new_width,
                     },
                     signed: true,
+                    float: None,
                 };
             }
         }
@@ -299,6 +358,7 @@ impl SignalValue {
         SignalValue {
             repr: Repr::General(bits),
             signed: true,
+            float: None,
         }
     }
 
@@ -380,6 +440,7 @@ impl SignalValue {
                         width,
                     },
                     signed: false,
+                    float: None,
                 };
             }
         }
@@ -389,6 +450,7 @@ impl SignalValue {
         SignalValue {
             repr: Repr::General(bits),
             signed: false,
+            float: None,
         }
     }
 
@@ -412,6 +474,7 @@ impl SignalValue {
                         width: new_width,
                     },
                     signed: false,
+                    float: None,
                 };
             }
         }
@@ -423,6 +486,7 @@ impl SignalValue {
         SignalValue {
             repr: Repr::General(bits),
             signed: false,
+            float: None,
         }
     }
 
@@ -459,6 +523,7 @@ impl SignalValue {
                         width,
                     },
                     signed: false,
+                    float: None,
                 };
             }
         }
@@ -472,6 +537,7 @@ impl SignalValue {
         SignalValue {
             repr: Repr::General(bits),
             signed: false,
+            float: None,
         }
     }
 
@@ -484,6 +550,7 @@ impl SignalValue {
                     width,
                 },
                 signed: self.signed,
+                float: None,
             };
         }
         let old = self.repr.to_bits();
@@ -492,6 +559,7 @@ impl SignalValue {
         SignalValue {
             repr: Repr::General(bits),
             signed: self.signed,
+            float: None,
         }
     }
 
@@ -551,6 +619,36 @@ impl fmt::Display for SignalValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_float_value_holds_its_ieee_bits_and_format() {
+        let x = SignalValue::from_f32(1.5);
+        assert_eq!(x.float_fmt(), Some(FloatFmt::F32));
+        assert_eq!(x.width(), 32);
+        // 1.5f32 is 0x3FC00000.
+        assert_eq!(x.to_u64(), Some(0x3FC0_0000));
+        assert_eq!(x.as_f32(), Some(1.5));
+
+        let y = SignalValue::from_f64(1.5);
+        assert_eq!(y.float_fmt(), Some(FloatFmt::F64));
+        assert_eq!(y.width(), 64);
+        assert_eq!(y.as_f64(), Some(1.5));
+    }
+
+    #[test]
+    fn the_float_tag_is_excluded_from_equality() {
+        // Same bits, different interpretation: equal, like `signed`.
+        let tagged = SignalValue::from_f32(1.5);
+        let plain = SignalValue::from_u64(0x3FC0_0000, 32);
+        assert_eq!(tagged, plain);
+        assert_eq!(plain.float_fmt(), None);
+    }
+
+    #[test]
+    fn an_ordinary_value_has_no_float_format() {
+        assert_eq!(SignalValue::from_u64(42, 8).float_fmt(), None);
+        assert_eq!(SignalValue::new(8).float_fmt(), None);
+    }
 
     #[test]
     fn test_bit_operations() {

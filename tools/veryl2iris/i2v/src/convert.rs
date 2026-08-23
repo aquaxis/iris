@@ -779,6 +779,9 @@ fn type_to_veryl(ctx: &Ctx, ty: &Type, report: &mut Report) -> Result<String, Re
         Type::Bool => "logic".to_string(),
         Type::Clock => "clock".to_string(),
         Type::Reset { .. } => "reset".to_string(),
+        // Veryl has f32/f64 too, so a floating-point type maps straight across.
+        Type::Float { bits } if *bits == 64 => "f64".to_string(),
+        Type::Float { .. } => "f32".to_string(),
         // Veryl has a fixed type at each of these widths, and IRIS spells
         // them `u8`..`u64` and `i8`..`i64` as well. Writing `logic<8>` instead
         // would come back as `bit[8]`, so `uint[8]` would not survive a round
@@ -1039,6 +1042,8 @@ fn literal_to_veryl(lit: &Literal) -> String {
         Literal::Hex { width, value } => format!("{}'h{:x}", width, value),
         Literal::Decimal { width: Some(w), value } => format!("{}'d{}", w, value),
         Literal::Decimal { width: None, value } => format!("{}", value),
+        // A real literal is kept as its source text, so it carries across as-is.
+        Literal::Real { text } => text.clone(),
     }
 }
 

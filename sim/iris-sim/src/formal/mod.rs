@@ -3,12 +3,17 @@
 //! This is the reference side of the formal equivalence flow. `iris2sv` emits
 //! the model under test; this emits the one it is proven against.
 //!
-//! The two must not share a front end. `iris2sv` parses IRIS in TypeScript with
-//! a hand-written lexer and parser; this walks the AST that `iris.pest`
-//! produces, through the same `Project` the interpreter runs. A lowering bug in
-//! either is therefore visible to the other, which is the whole point: a
-//! reference built from `iris2sv`'s own IR would make the miter satisfied by
-//! construction and the proof a tautology.
+//! The two *lowerings* must be independent. `iris2sv` was ported to Rust and
+//! now reuses `iris-sim`'s parser, so the reference and the design under test
+//! share the front end (lexer, parser, AST, the same `Project`). What they do
+//! not share is the lowering to SystemVerilog: this emitter is deliberately
+//! blunt, while `iris2sv` emits idiomatic SV through a separate code path. A
+//! lowering bug in either is therefore visible to the other, which is the whole
+//! point: a reference built from `iris2sv`'s own lowered IR would make the miter
+//! satisfied by construction and the proof a tautology. A bug in the shared
+//! front end is not caught here — it corrupts both sides identically; the
+//! interpreter, the round-trip conformance checks, and Verilator's own
+//! SystemVerilog front end cover that class instead.
 //!
 //! What comes out is deliberately blunt:
 //!
@@ -120,6 +125,17 @@ fn decl_type_in(ty: &Type, env: &std::collections::HashMap<String, i64>) -> Resu
             Some(w) if w > 0 => Ok(format!("logic [{}:0]", w - 1)),
             _ => Err("a width that does not resolve to a number".to_string()),
         },
+        // The equivalence flow proves designs bit-for-bit with yosys, which
+        // reasons in two-valued logic. IEEE-754 reals are not bit-blastable
+        // there (yosys `miter`/`equiv`/`sat` have no `real`), so there is no
+        // formal model to emit. This is a deliberate boundary, not a stub:
+        // the interpreter and compiled backends evaluate floats, but formal
+        // equivalence over them is outside what the flow can prove.
+        Type::Float { bits } => Err(format!(
+            "floating point (f{}) has no formal model: the equivalence flow proves \
+             designs bit-for-bit with yosys, and IEEE-754 reals are not bit-blastable there",
+            bits
+        )),
         Type::Named(n) => Err(format!("the unresolved type '{}'", n)),
     }
 }
@@ -927,6 +943,9 @@ fn literal(lit: &Literal) -> String {
             Some(w) => format!("{}'d{}", w, value),
             None => format!("{}", value),
         },
+        // Unreachable in practice: a float type is refused earlier
+        // (decl_type_in), so no real literal reaches formal emission.
+        Literal::Real { text } => text.clone(),
     }
 }
 

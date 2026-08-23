@@ -5,5 +5,5 @@
 mod signal;
 mod time;
 
-pub use signal::{BitValue, SignalValue};
+pub use signal::{BitValue, FloatFmt, SignalValue};
 pub use time::{format_time, SimTime, TimeUnit};

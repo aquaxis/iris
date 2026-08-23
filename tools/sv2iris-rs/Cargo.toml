@@ -1,0 +1,16 @@
+[package]
+name = "sv2iris"
+version = "0.1.0"
+edition = "2021"
+description = "Convert a subset of SystemVerilog to IRIS (Rust port of the TypeScript sv2iris)"
+
+[[bin]]
+name = "sv2iris"
+path = "src/main.rs"
+
+[lib]
+name = "sv2iris"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 3

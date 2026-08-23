@@ -159,7 +159,7 @@ RV32Iの4本の試験プログラムで、元と往復後の出力が1バイト�
 この設計は読み出し側でもx0を0にしており、書き込み側の変異が見えない。
 **観測できない場所を突いた対照は、対照にならない。**
 
-`tools/conformance/run.sh`に載せた。130項目から151項目になり、失敗0。
+`tools/conformance/run.sh`に載せた。130項目から152項目になり、失敗0。
 
 **検査そのものが働くことも確かめた。**
 `case`の`default`を落とすように変換器をわざと壊すと、
@@ -181,12 +181,12 @@ RV32Iの4本の試験プログラムで、元と往復後の出力が1バイト�
 ### 対応表の行を1つずつ往復させた
 
 **設計が6本通ったことは、構文を網羅したことではない。**
-そこで、`Exact`と書いた30行それぞれに小さな断片を書き、往復させた。
+そこで、`Exact`と書いた32行それぞれに小さな断片を書き、往復させた。
 
 | | 数 |
 |---|---|
-| `Exact`の行 | 30 |
-| 往復する断片がある | **29** |
+| `Exact`の行 | 32 |
+| 往復する断片がある | **31** |
 | 断片が書けない | 1 |
 
 **残る1行は`iris-sim`側の未実装であって、この変換器の穴ではない。**
@@ -498,10 +498,10 @@ IRISも幅に定数式を取れるので、式のまま運べばよかった。
 
 ```
 module 宣言とポート（input / output / inout）
-型: logic, logic<N>, signed logic<N>, u8..u64, i8..i64, string, clock, reset
+型: logic, logic<N>, signed logic<N>, u8..u64, i8..i64, f32, f64, string, clock, reset
 宣言: let, var, const, type, enum, struct, union, function, import
 本体: always_ff, always_comb, assign, inst
-式: case, 条件式, 算術/論理/比較/シフト演算子
+式: case, 条件式, 実数リテラル, 算術/論理/比較/シフト演算子
 interface と modport（向きを信号ごとに書いたもの）
 ```
 
@@ -518,6 +518,8 @@ interface と modport（向きを信号ごとに書いたもの）
 | `if c ? x : y` | `if c { x } else { y }` |
 | `a <: b` | `a < b` |
 | `u8`、`i32` | `uint[8]`、`int[32]` |
+| `a: input f32`、`y: output f64` | `in a: f32`、`out y: f64` |
+| `y = a + 1.5` | `y = a + 1.5`（実数リテラルはそのまま） |
 
 `u8`はIRISでも`uint[8]`の組み込み別名である。
 8ビットとして振る舞うことを確かめた。
@@ -535,9 +537,7 @@ u8: 255+1 = 0
 
 | Verylの構文 | なぜ変換できないか |
 |---|---|
-| `f32`、`f64` | IRISに浮動小数点が無い |
 | `p8`〜`p64` | IRISに対応する型が無い |
-| 実数リテラル（`1.5`） | IRISの`literal`は整数、真偽、文字列のみ |
 | `tri` | IRISに三状態が無い。`inout`はあるが別のもの |
 | `bind` | 外から既存のインスタンスへ結ぶ構文が無い |
 | `connect` | インターフェース同士を結ぶ構文が無い |
@@ -591,13 +591,16 @@ assert  cover  constraint  rand  fsm  state  memory  ram  rom
 
 | 型名 | `bit[8]`の3を代入した結果 |
 |---|---|
-| `f32`、`f64`、`p32`、`lbool` | すべて 1 |
+| `p32`、`lbool` | すべて 1 |
 | `NoSuchTypeAtAll`、`Zzz` | すべて 1 |
 
-`iris2sv`は同じ入力に警告を出す。
+`f32`と`f64`はもう対象外である。`iris-sim`はこの2つを浮動小数点として評価する
+（Rustの`iris-sim`のみ。TSの`iris2sv`はまだ未知の型として1ビット扱いにする）。
+
+`iris2sv`は未知の型名に警告を出す。
 
 ```
-modonly.iris: warning: User type 'f32' treated as logic[1]
+modonly.iris: warning: User type 'p32' treated as logic[1]
 ```
 
 **この2つが重なると最悪になる。**

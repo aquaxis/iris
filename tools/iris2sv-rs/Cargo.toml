@@ -1,0 +1,19 @@
+[package]
+name = "iris2sv"
+version = "0.1.0"
+edition = "2021"
+description = "Convert IRIS source to SystemVerilog (Rust port of the TypeScript iris2sv)"
+publish = false
+
+[dependencies]
+iris-sim = { path = "../../sim/iris-sim" }
+
+[[bin]]
+name = "iris2sv"
+path = "src/main.rs"
+
+[lib]
+name = "iris2sv"
+path = "src/lib.rs"
+
+[workspace]

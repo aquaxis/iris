@@ -219,10 +219,12 @@ port_connection = { identifier ~ ":" ~ expr }
 
 // Types
 type_expr = { base_type ~ array_suffix* }
-base_type = { bit_type | int_type | uint_type | clock_type | reset_type | bool_type | string_type | identifier }
+base_type = { bit_type | int_type | uint_type | float_type | clock_type | reset_type | bool_type | string_type | identifier }
 bit_type = { "bit" ~ ("[" ~ width_expr ~ "]")? }
 int_type = { "int" ~ ("[" ~ width_expr ~ "]")? }
 uint_type = { "uint" ~ ("[" ~ width_expr ~ "]")? }
+// Floating point (spec 03). Parsed now; evaluation is not implemented yet.
+float_type = { "f32" | "f64" }
 bool_type = { "bool" }
 string_type = { "string" }
 clock_type = { "clock" ~ clock_config? }
@@ -306,7 +308,10 @@ bin_op = {
 unary_op = { "!" | "~" | "-" }
 
 // Literals
-literal = { sized_literal | integer }
+literal = { sized_literal | real_literal | integer }
+// Real literal (spec 03/02): 1.5, 3.14e-2. Parsed now; evaluation is not
+// implemented yet, so it is refused rather than computed.
+real_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
 sized_literal = { integer ~ "'" ~ (bin_literal | hex_literal | dec_literal) }
 bin_literal = { "b" ~ bin_digits }
 hex_literal = { "h" ~ hex_digits }

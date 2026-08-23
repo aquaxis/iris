@@ -6,7 +6,7 @@
 //! operands already resolved. A design therefore cannot mean one thing when
 //! interpreted and another when compiled.
 
-use crate::value::SignalValue;
+use crate::value::{FloatFmt, SignalValue};
 
 /// Binary operators
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,6 +188,59 @@ pub fn binop(
     };
 
     SignalValue::from_u64(result, width).with_signed(signed)
+}
+
+/// A floating-point binary operation, shared by the interpreter and the code
+/// `iris-compile` generates so the two agree.
+///
+/// The operands' bits are read as `fmt`, the operation runs in that precision
+/// (so rounding is the format's own), and an arithmetic result is encoded back
+/// to the same format. A comparison yields one bit. An operator that floating
+/// point does not define (a bitwise or shift operator) falls back to the
+/// integer operation on the raw bits, matching how such an operator would be
+/// applied to the stored pattern. Unknown bits yield an unknown value.
+pub fn float_binop(op: BinOp, lhs: &SignalValue, rhs: &SignalValue, fmt: FloatFmt) -> SignalValue {
+    let bool_val = |b: bool| SignalValue::from_u64(if b { 1 } else { 0 }, 1);
+    match fmt {
+        FloatFmt::F32 => {
+            let (a, b) = match (lhs.as_f32(), rhs.as_f32()) {
+                (Some(a), Some(b)) => (a, b),
+                _ => return SignalValue::new(32),
+            };
+            match op {
+                BinOp::Add => SignalValue::from_f32(a + b),
+                BinOp::Sub => SignalValue::from_f32(a - b),
+                BinOp::Mul => SignalValue::from_f32(a * b),
+                BinOp::Div => SignalValue::from_f32(a / b),
+                BinOp::Eq => bool_val(a == b),
+                BinOp::Ne => bool_val(a != b),
+                BinOp::Lt => bool_val(a < b),
+                BinOp::Le => bool_val(a <= b),
+                BinOp::Gt => bool_val(a > b),
+                BinOp::Ge => bool_val(a >= b),
+                _ => binop(op, lhs, rhs, false, false),
+            }
+        }
+        FloatFmt::F64 => {
+            let (a, b) = match (lhs.as_f64(), rhs.as_f64()) {
+                (Some(a), Some(b)) => (a, b),
+                _ => return SignalValue::new(64),
+            };
+            match op {
+                BinOp::Add => SignalValue::from_f64(a + b),
+                BinOp::Sub => SignalValue::from_f64(a - b),
+                BinOp::Mul => SignalValue::from_f64(a * b),
+                BinOp::Div => SignalValue::from_f64(a / b),
+                BinOp::Eq => bool_val(a == b),
+                BinOp::Ne => bool_val(a != b),
+                BinOp::Lt => bool_val(a < b),
+                BinOp::Le => bool_val(a <= b),
+                BinOp::Gt => bool_val(a > b),
+                BinOp::Ge => bool_val(a >= b),
+                _ => binop(op, lhs, rhs, false, false),
+            }
+        }
+    }
 }
 
 /// Apply a unary operator

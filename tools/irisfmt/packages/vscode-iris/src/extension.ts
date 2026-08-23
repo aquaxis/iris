@@ -54,23 +54,68 @@ function resolveServerModule(context: vscode.ExtensionContext): string {
   return context.asAbsolutePath(path.join('..', 'ls', 'dist', 'server.js'));
 }
 
-function startLanguageClient(context: vscode.ExtensionContext): void {
-  const serverModule = resolveServerModule(context);
+/**
+ * Where the Rust language server binary is, if present.
+ *
+ * In order: the `iris.server.path` setting (trusted as given), a copy bundled
+ * with the extension under `server-bin/`, then the repository build (relative to
+ * this package). Returns undefined when none is found, so the caller falls back
+ * to the bundled Node server. A binary on `PATH` only is not auto-detected; set
+ * `iris.server.path` to use one.
+ */
+function resolveRustServer(context: vscode.ExtensionContext): string | undefined {
+  const exe = process.platform === 'win32' ? 'irisfmt-lsp.exe' : 'irisfmt-lsp';
 
-  // Server options
-  const serverOptions: ServerOptions = {
-    run: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-    },
-    debug: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-      options: {
-        execArgv: ['--nolazy', '--inspect=6009'],
+  const configured = vscode.workspace
+    .getConfiguration('iris')
+    .get<string>('server.path');
+  if (configured && configured.trim().length > 0) {
+    return configured;
+  }
+
+  const bundled = context.asAbsolutePath(path.join('server-bin', exe));
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+
+  // Repository layout: tools/irisfmt/packages/vscode-iris -> tools/irisfmt-lsp-rs
+  const repoBuilt = context.asAbsolutePath(
+    path.join('..', '..', '..', 'irisfmt-lsp-rs', 'target', 'release', exe)
+  );
+  if (fs.existsSync(repoBuilt)) {
+    return repoBuilt;
+  }
+
+  return undefined;
+}
+
+function startLanguageClient(context: vscode.ExtensionContext): void {
+  // Prefer the Rust server (`irisfmt-lsp`, over stdio); fall back to the
+  // bundled Node server so an install without the Rust binary still works.
+  const rustServer = resolveRustServer(context);
+  let serverOptions: ServerOptions;
+  if (rustServer) {
+    const executable = {
+      command: rustServer,
+      transport: TransportKind.stdio,
+    };
+    serverOptions = { run: executable, debug: executable };
+  } else {
+    const serverModule = resolveServerModule(context);
+    serverOptions = {
+      run: {
+        module: serverModule,
+        transport: TransportKind.ipc,
       },
-    },
-  };
+      debug: {
+        module: serverModule,
+        transport: TransportKind.ipc,
+        options: {
+          execArgv: ['--nolazy', '--inspect=6009'],
+        },
+      },
+    };
+  }
 
   // Client options
   const clientOptions: LanguageClientOptions = {

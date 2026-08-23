@@ -80,8 +80,17 @@ fn the_ordering_comparison_loses_its_colon() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn a_float_type_is_refused() {
-    let text = refused("module M (y: output f32,) { always_comb { y = 0; } }");
+fn a_float_type_is_converted() {
+    // IRIS has f32/f64, so they map straight across.
+    let text = ok("module M (a: input f32, b: input f64, x: output f32, y: output f64,) { always_comb { x = a; y = b; } }");
+    assert!(text.contains("f32"), "{}", text);
+    assert!(text.contains("f64"), "{}", text);
+}
+
+#[test]
+fn a_posit_type_is_refused() {
+    // The posit-like p8..p64 still have no IRIS counterpart.
+    let text = refused("module M (y: output p32,) { always_comb { y = 0; } }");
     assert!(text.contains("no counterpart in the target language"), "{}", text);
 }
 
@@ -456,7 +465,7 @@ fn nothing_is_written_when_anything_is_refused() {
     let converted = convert(
         "t.veryl",
         "module Good (a: input logic, y: output logic,) { always_comb { y = a; } }
-         module Bad (y: output f64,) { always_comb { y = 0; } }",
+         module Bad (y: output p64,) { always_comb { y = 0; } }",
     )
     .expect("source should parse");
     assert!(converted.report.failed());

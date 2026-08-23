@@ -36,6 +36,18 @@ pub struct MemoryState {
     pub is_rom: bool,
     /// Registered read data (for sync read)
     pub read_data_reg: SignalValue,
+    /// The floating-point format of an element, when it has one. A read is
+    /// tagged with it so the value is used as a float, not as raw bits.
+    pub float: Option<crate::types::FloatFmt>,
+}
+
+impl MemoryState {
+    /// The value at `addr`, tagged with the element's floating-point format so
+    /// a read is used as a float rather than as its bit pattern. For an integer
+    /// memory the format is `None` and the tag is left untouched.
+    pub fn read(&self, addr: usize) -> SignalValue {
+        self.data[addr].clone().with_float(self.float)
+    }
 }
 
 use super::eval::Evaluator;
@@ -361,6 +373,7 @@ impl HierarchicalSimulator {
                 }
             }
 
+            let float = Self::float_fmt_of(&mem.element_type);
             let state = MemoryState {
                 name: mem_path.clone(),
                 element_width,
@@ -368,17 +381,23 @@ impl HierarchicalSimulator {
                 data,
                 read_mode,
                 is_rom,
-                read_data_reg: SignalValue::new(element_width),
+                read_data_reg: SignalValue::new(element_width).with_float(float),
+                float,
             };
 
             self.memories.insert(mem_path.clone(), state);
 
             // Create signals for memory read data
             let read_data_signal = format!("{}_rdata", mem_path);
-            self.signals
-                .insert(read_data_signal.clone(), SignalValue::new(element_width));
-            self.trace
-                .record(&read_data_signal, 0, SignalValue::new(element_width));
+            self.signals.insert(
+                read_data_signal.clone(),
+                SignalValue::new(element_width).with_float(float),
+            );
+            self.trace.record(
+                &read_data_signal,
+                0,
+                SignalValue::new(element_width).with_float(float),
+            );
         }
 
         for inst in &module.instances {
@@ -418,7 +437,7 @@ impl HierarchicalSimulator {
     pub fn memory_read(&self, mem_name: &str, addr: usize) -> Option<SignalValue> {
         if let Some(mem) = self.memories.get(mem_name) {
             if addr < mem.depth {
-                return Some(mem.data[addr].clone());
+                return Some(mem.read(addr));
             }
         }
         None
@@ -701,7 +720,9 @@ impl HierarchicalSimulator {
         for port in &module.ports {
             let name = self.make_signal_name(prefix, &port.name);
             let width = port.ty.width().unwrap_or(1);
-            let value = SignalValue::new(width).with_signed(Self::is_signed_type(&port.ty));
+            let value = SignalValue::new(width)
+                .with_signed(Self::is_signed_type(&port.ty))
+                .with_float(Self::float_fmt_of(&port.ty));
             self.signals.insert(name.clone(), value.clone());
             self.trace.record(&name, 0, value);
         }
@@ -730,7 +751,8 @@ impl HierarchicalSimulator {
             } else {
                 SignalValue::new(declared)
             }
-            .with_signed(signed);
+            .with_signed(signed)
+            .with_float(Self::float_fmt_of(&signal.ty));
             self.signals.insert(name.clone(), value.clone());
             // An untyped `let` is recorded once its width is settled, so that
             // the waveform does not show a one-bit value first
@@ -789,6 +811,23 @@ impl HierarchicalSimulator {
             name.to_string()
         } else {
             format!("{}.{}", prefix, name)
+        }
+    }
+
+    /// Evaluate an assigned value, honouring the target's floating-point
+    /// format when it has one. This lets a bare real literal (`y = 1.5`)
+    /// take its format from the target signal it is assigned to.
+    fn eval_to_target(
+        &self,
+        value: &Expression,
+        target_full: &str,
+        prefix: &str,
+    ) -> Result<SignalValue, super::eval::EvalError> {
+        let evaluator =
+            HierarchicalEvaluator::with_memories(&self.signals, prefix, &self.memories);
+        match self.signals.get(target_full).and_then(|v| v.float_fmt()) {
+            Some(fmt) => evaluator.eval_float_ctx(value, fmt),
+            None => evaluator.eval(value),
         }
     }
 
@@ -860,6 +899,16 @@ impl HierarchicalSimulator {
     /// Is this type read as two's complement?
     fn is_signed_type(ty: &crate::parser::Type) -> bool {
         matches!(ty, crate::parser::Type::Int { signed: true, .. })
+    }
+
+    /// The floating-point format a type carries, if any, so an f32/f64 signal's
+    /// value is tagged and the evaluator can tell its operations are float.
+    fn float_fmt_of(ty: &crate::parser::Type) -> Option<crate::types::FloatFmt> {
+        match ty {
+            crate::parser::Type::Float { bits: 64 } => Some(crate::types::FloatFmt::F64),
+            crate::parser::Type::Float { .. } => Some(crate::types::FloatFmt::F32),
+            _ => None,
+        }
     }
 
     /// Truncate or zero-extend a value to the declared width of a signal.
@@ -1545,11 +1594,9 @@ impl HierarchicalSimulator {
     fn execute_seq_statement(&mut self, stmt: &SeqStatement, prefix: &str) {
         match stmt {
             SeqStatement::Assign { target, value } => {
-                let evaluator =
-                    HierarchicalEvaluator::with_memories(&self.signals, prefix, &self.memories);
-                match evaluator.eval(value) {
+                let name = self.make_signal_name(prefix, target);
+                match self.eval_to_target(value, &name, prefix) {
                     Ok(val) => {
-                        let name = self.make_signal_name(prefix, target);
                         self.apply_signal_update(&name, val);
                     }
                     Err(e) => {
@@ -1559,10 +1606,8 @@ impl HierarchicalSimulator {
                 }
             }
             SeqStatement::SignalWrite { path, value } => {
-                let evaluator =
-                    HierarchicalEvaluator::with_memories(&self.signals, prefix, &self.memories);
                 let target_name = path.to_string();
-                match evaluator.eval(value) {
+                match self.eval_to_target(value, &target_name, prefix) {
                     Ok(val) => {
                         self.apply_signal_update(&target_name, val);
                     }
@@ -2575,12 +2620,11 @@ impl HierarchicalSimulator {
     fn execute_statement_collect(&mut self, stmt: &Statement, prefix: &str, updates: &mut Vec<(String, SignalValue)>, mem_writes: &mut Vec<(String, usize, SignalValue)>) {
         match stmt {
             Statement::Assign { target, value } => {
-                // Create evaluator with hierarchical signal and memory resolution
-                let evaluator =
-                    HierarchicalEvaluator::with_memories(&self.signals, prefix, &self.memories);
-                match evaluator.eval(value) {
+                // Resolve the target first so its floating-point format, if any,
+                // can shape a bare real literal on the right-hand side.
+                let name = self.make_signal_name(prefix, target);
+                match self.eval_to_target(value, &name, prefix) {
                     Ok(val) => {
-                        let name = self.make_signal_name(prefix, target);
                         updates.push((name, val));
                     }
                     Err(e) => {
@@ -2994,6 +3038,35 @@ impl<'a> HierarchicalEvaluator<'a> {
         }
     }
 
+    /// Evaluate `expr` toward a floating-point target of format `fmt`.
+    ///
+    /// A bare real literal (`1.5`) has no format on its own; here the
+    /// assignment target supplies it, so `y = 1.5` can be encoded.
+    /// Everything else is evaluated normally: `a + 1.5` already works
+    /// through the operand's format, and integer expressions are left
+    /// untouched.
+    fn eval_float_ctx(
+        &self,
+        expr: &Expression,
+        fmt: crate::types::FloatFmt,
+    ) -> Result<SignalValue, super::eval::EvalError> {
+        if let Some(text) = super::eval::real_text(expr) {
+            return super::eval::real_to_value(text, fmt);
+        }
+        // A binary operation with a real-literal operand is folded in the
+        // target's format, so `y = 1.5 + 2.25` works even though neither
+        // operand carries a format of its own. Operands without a real literal
+        // fall through to the normal path, so integer math is untouched.
+        if let Expression::BinOp { op, lhs, rhs } = expr {
+            if super::eval::real_text(lhs).is_some() || super::eval::real_text(rhs).is_some() {
+                let a = self.eval_float_ctx(lhs, fmt)?;
+                let b = self.eval_float_ctx(rhs, fmt)?;
+                return super::eval::float_binop(*op, &a, &b, fmt);
+            }
+        }
+        self.eval(expr)
+    }
+
     fn eval(&self, expr: &Expression) -> Result<SignalValue, super::eval::EvalError> {
         match expr {
             Expression::Call { name, .. } => Err(super::eval::EvalError::InvalidOperation(
@@ -3009,8 +3082,37 @@ impl<'a> HierarchicalEvaluator<'a> {
                     .ok_or_else(|| super::eval::EvalError::UndefinedSignal(name.clone()))
             }
             Expression::BinOp { op, lhs, rhs } => {
-                let l = self.eval(lhs)?;
-                let r = self.eval(rhs)?;
+                // A real literal has no format on its own; its format comes
+                // from the other operand, so it is not evaluated yet.
+                let lhs_real = super::eval::real_text(lhs);
+                let rhs_real = super::eval::real_text(rhs);
+                let l = if lhs_real.is_none() { Some(self.eval(lhs)?) } else { None };
+                let r = if rhs_real.is_none() { Some(self.eval(rhs)?) } else { None };
+
+                // A floating-point operand makes this a floating-point op.
+                let fmt = l
+                    .as_ref()
+                    .and_then(|v| v.float_fmt())
+                    .or_else(|| r.as_ref().and_then(|v| v.float_fmt()));
+                if let Some(fmt) = fmt {
+                    let a = match lhs_real {
+                        Some(t) => super::eval::real_to_value(t, fmt)?,
+                        None => l.unwrap(),
+                    };
+                    let b = match rhs_real {
+                        Some(t) => super::eval::real_to_value(t, fmt)?,
+                        None => r.unwrap(),
+                    };
+                    return super::eval::float_binop(*op, &a, &b, fmt);
+                }
+
+                let real_needs_float = || {
+                    super::eval::EvalError::InvalidOperation(
+                        "a real literal needs a floating-point operand".to_string(),
+                    )
+                };
+                let l = l.ok_or_else(real_needs_float)?;
+                let r = r.ok_or_else(real_needs_float)?;
                 Ok(iris_runtime::ops::binop(
                     super::eval::runtime_binop(*op),
                     &l,
@@ -3168,7 +3270,7 @@ impl<'a> HierarchicalEvaluator<'a> {
                         let addr = self.eval(&args[0])?.to_u64().unwrap_or(0) as usize;
                         if let Some(mem) = self.resolve_memory(&path) {
                             return if addr < mem.depth {
-                                Ok(mem.data[addr].clone())
+                                Ok(mem.read(addr))
                             } else {
                                 Err(super::eval::EvalError::InvalidOperation(format!(
                                     "address {} is outside memory '{}'",
@@ -3229,10 +3331,10 @@ impl<'a> HierarchicalEvaluator<'a> {
                 let addr_usize = addr_val.to_u64().unwrap_or(0) as usize;
                 if let Some(mem) = self.resolve_memory(mem_name) {
                     if addr_usize < mem.depth {
-                        return Ok(mem.data[addr_usize].clone());
+                        return Ok(mem.read(addr_usize));
                     }
                     // Out-of-range reads return zero rather than aborting the assignment
-                    return Ok(SignalValue::new(mem.element_width));
+                    return Ok(SignalValue::new(mem.element_width).with_float(mem.float));
                 }
                 Err(super::eval::EvalError::UndefinedSignal(format!(
                     "memory read {}",
