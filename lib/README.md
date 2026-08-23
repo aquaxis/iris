@@ -158,10 +158,15 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 |---|---|---|
 | `UartTx` | UART送信器（スタート0・LSB先頭8ビット・ストップ1） | `ClksPerBit`（ボー分周、既定4、2以上） |
 | `UartRx` | UART受信器（立下り検出＋ビット中央で標本化） | `ClksPerBit`（既定4、2以上） |
+| `SpiMaster` | SPIマスタ（モード0、MSB先頭、全二重） | `Width`（既定8）、`ClkDiv`（sclk半周期のクロック数、既定2） |
 
 `UartTx`／`UartRx`はFSM＋シフトレジスタ＋ビット時間カウンタで書ける（段L3の第一候補）。
 TX→RXのループバックで、送ったバイトがそのまま受信されることを確認している。
 ボーレートは`clk / ClksPerBit`。`ClksPerBit`を大きくすれば実際のボーレートに合わせられる。
+
+`SpiMaster`はsclkを内部で分周し、立上りでMISOを標本化・立下りでMOSIを更新する（モード0）。
+MISOをMOSIに折り返すと受信＝送信になることを確認している（全二重）。
+sclk周期は`2 * ClkDiv`クロック。cs_nは能動Low。
 
 ## 実装上の注意
 
@@ -198,8 +203,8 @@ SystemVerilogへ出せる。
 パラメータだが値は出力幅に収まる）。
 `ArbiterFixed`／`ArbiterRr`は`~x + 1`の無型リテラル`1`がSVで32ビットに広がるため幅拡張の警告
 （`&`で元の幅に戻るので挙動は正しい）。
-`ClkDivider`／`UartTx`／`UartRx`は`count == Div - 1`等でパラメータが32ビットのため幅の警告
-（比較は正しい）。
+`ClkDivider`／`UartTx`／`UartRx`／`SpiMaster`は`count == Div - 1`等でパラメータが32ビットの
+ため幅の警告（比較は正しい）。
 これらはIRISの無型リテラルやパラメータがSVで32ビットになることに由来する。
 
 ## Tier 3（重いIP）の方針
