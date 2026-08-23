@@ -15,6 +15,9 @@ One directory per category.
 | `arbiter/` | arbitration |
 | `cdc/` | CDC, reset, clock |
 | `timing/` | counters and timing |
+| `coding/` | error detection and coding |
+| `periph/` | peripheral interfaces |
+| `dsp/` | DSP and signal processing |
 | `util/` | utilities (functions) |
 
 A part is three pieces.
@@ -186,6 +189,22 @@ input `sda_i`. Each bit is four quarter-phases; START pulls SDA 1→0 while SCL 
 high, STOP drives SDA 0→1 while SCL is high. Repeated start, reads, multi-byte,
 clock stretching, and arbitration are not included (see OSS for a full version).
 
+### dsp
+
+| Part | Function | Parameters |
+|---|---|---|
+| `FirSerial` | serial (time-multiplexed) FIR filter (one multiplier, `Taps` cycles per sample) | `Width` (default 8), `Taps` (default 4, >= 2), `CoeffWidth` (default 8), `AccWidth`/`IdxWidth`/`CntWidth` (derived) |
+
+`FirSerial` computes `y[n] = Σ coeff[k]*x[n-k]` with a single multiplier used
+across `Taps` cycles. Coefficients are loaded through a write port; samples enter
+one at a time on `in_valid` and results leave on `out_valid`. **A convolution
+(a sum) cannot be written in `comb`, but making it serial and unrolling over time
+lets `sync` accumulate it one tap per cycle** — the concrete case of the Tier-3
+policy "if it can be serialized, write it in IRIS". Multiplication truncates to
+the operand width, so coefficients and samples are held zero-extended in
+`AccWidth`-wide mems, and the wide product is not truncated. Values are unsigned
+(a signed FIR needs int types; a future item).
+
 ## Implementation notes
 
 **IRIS does not allow `var` in `comb`** — `var` is for `sync`/`fsm` only. And a
@@ -219,6 +238,16 @@ and is not included yet.
 `sync`/`comb` does not convert (it needs width inference). For now, inline the
 expression instead (`SpillRegister` inlines its fire conditions). Future iris2sv
 work.
+
+**Multiplication `*` truncates to the operand width.** `bit[8] * bit[8]` yields 8
+bits, not 16 (`200*200` becomes the low 8 bits, 64, not 40000). For a full-width
+product, zero-extend the operands first. An `as` cast in expression position does
+not parse inside `comb`/`sync` (`let x: bit[16] = a as bit[16];` parses, but
+iris2sv does not support a block-local `let`). So `FirSerial` holds coefficients
+and samples zero-extended in `AccWidth`-wide mems (assignment zero-extends) and
+multiplies the wide values, avoiding the truncation. A parallel convolution (the
+sum) is not expressible in `comb`, so `FirSerial` serializes it and accumulates
+one tap per cycle in `sync`.
 
 **Some SV raises verilator width warnings, but the values are correct** (a
 warning, not an error). `Lzc` warns on the all-zero default (`count = Width`;
