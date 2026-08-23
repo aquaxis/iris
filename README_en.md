@@ -520,6 +520,7 @@ files ending in `_en` are the English editions.
 | [Waveforms in Surfer](./doc/surfer_plugin_en.md) | Reading waveforms, with `mem` expanded element by element |
 | [Editor support](./doc/editor_en.md) | Syntax highlighting and the language server in VSCode |
 | [The iris command](./doc/iris_en.md) | The unified command that bundles the tools |
+| [Standard library](./doc/library_en.md) | The reusable RTL parts, and the line between what is and is not expressible |
 
 The `report_*.md` files at the repository root are **working records**, not
 reference material. They keep the reasoning, the measurements, and the
