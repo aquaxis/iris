@@ -1,0 +1,37 @@
+/// CreditCounterのテストベンチ
+///
+/// MaxCredit=4で、takeで4つ使うと0になりavailableが下がること、
+/// giveで戻すと増えることを確かめる。
+test CreditCounterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var give: bit = 0;
+    var take: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = CreditCounter[MaxCredit: 4] { clk: clk, rst: rst, give: give, take: take };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd1 { take = 1; }   // 4つ使う（step2..5で反映）
+            if step == 8'd5 { take = 0; }
+            if step == 8'd7 { give = 1; }   // 1つ戻す
+            if step == 8'd8 { give = 0; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd1 { assert dut.count == 8'd4, "reset to MaxCredit"; assert dut.available == 1, "available"; }
+            if step == 8'd6 { assert dut.count == 8'd0, "4 taken -> 0"; assert dut.available == 0, "none left"; }
+            if step == 8'd9 { assert dut.count == 8'd1, "one given back -> 1"; assert dut.available == 1, "available again"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(11);
+        $display("CreditCounterTB: all checks passed");
+        $finish;
+    }
+}

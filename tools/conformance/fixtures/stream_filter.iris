@@ -1,0 +1,38 @@
+/// ストリームフィルタ（条件で通過・破棄）
+///
+/// `keep`が1の要素はそのまま下流へ通し、0の要素は消費して捨てる（下流へ出さない）。
+/// 不要なパケットの除去、条件に合う要素だけを次段へ渡す用途に使う。組み合わせのみ。
+///
+/// 通過時は`out_valid = in_valid`で下流の`out_ready`に従い、破棄時は`out_valid`を下げつつ
+/// `in_ready`を常に1にして入力を吸い込む（捨てる）。`keep`は`in_data`と同じタイミングで与える。
+///
+/// ジェネリックパラメータ:
+/// - Width: データのビット幅（既定8、1以上）
+///
+/// ポート:
+/// - in_valid／in_data／in_ready: 入力側ハンドシェイク
+/// - keep: 1でこの要素を通す、0で捨てる（in_dataと同期）
+/// - out_valid／out_data／out_ready: 出力側ハンドシェイク
+mod StreamFilter[Width: uint = 8]
+where
+    Width >= 1,
+(
+    in  in_valid: bit,
+    in  in_data: bit[Width],
+    in  keep: bit,
+    out in_ready: bit,
+    out out_valid: bit,
+    out out_data: bit[Width],
+    in  out_ready: bit,
+) {
+    comb {
+        out_valid = in_valid & keep;
+        out_data = in_data;
+        // 通過時は下流に従い、破棄時は常に受けて捨てる
+        if keep == 1 {
+            in_ready = out_ready;
+        } else {
+            in_ready = 1;
+        }
+    }
+}
