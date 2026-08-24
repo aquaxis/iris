@@ -1,0 +1,59 @@
+/// FifoSyncのテストベンチ
+///
+/// 既定のFIFO（Width=8、Depth=4）に10・20・30・40を書き、満杯を確かめてから
+/// 読み出し、先入れ先出しの順序（10→20→30→40）とempty／fullを確かめる。
+/// 駆動も検査もsyncで行い、seqとの競合を避ける。既知のサイクルで読む。
+test FifoSyncTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var wr_en: bit = 0;
+    var rd_en: bit = 0;
+    var wr_data: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = FifoSync {
+        clk: clk,
+        rst: rst,
+        wr_en: wr_en,
+        wr_data: wr_data,
+        rd_en: rd_en,
+    };
+
+    // 4語書き、そのあと4語読む。
+    sync(clk.posedge) {
+        step = step + 1;
+        wr_en = 0;
+        rd_en = 0;
+        if step == 8'd6 { wr_en = 1; wr_data = 8'd10; }
+        if step == 8'd7 { wr_en = 1; wr_data = 8'd20; }
+        if step == 8'd8 { wr_en = 1; wr_data = 8'd30; }
+        if step == 8'd9 { wr_en = 1; wr_data = 8'd40; }
+        if step == 8'd12 { rd_en = 1; }
+        if step == 8'd13 { rd_en = 1; }
+        if step == 8'd14 { rd_en = 1; }
+        if step == 8'd15 { rd_en = 1; }
+    }
+
+    // 安定した点で確かめる。
+    sync(clk.posedge) {
+        if step == 8'd5 {
+            assert dut.empty == 1, "empty at start";
+            assert dut.full == 0, "not full at start";
+        }
+        if step == 8'd11 {
+            assert dut.full == 1, "full after four writes";
+            assert dut.empty == 0, "not empty when full";
+            assert dut.rd_data == 8'd10, "head is the first written";
+        }
+        if step == 8'd14 { assert dut.rd_data == 8'd20, "second out is 20"; }
+        if step == 8'd15 { assert dut.rd_data == 8'd30, "third out is 30"; }
+        if step == 8'd16 { assert dut.rd_data == 8'd40, "fourth out is 40"; }
+        if step == 8'd17 { assert dut.empty == 1, "empty after draining"; }
+    }
+
+    seq {
+        await clk.cycles(20);
+        $display("FifoSyncTB: all checks passed");
+        $finish;
+    }
+}

@@ -148,6 +148,7 @@ iris/
 │   ├── schematic/         # ブロック図ビューア（フロントエンドのみ）
 │   ├── surfer-plugin/     # Surferの翻訳プラグイン
 │   └── veryl2iris/        # VerylとIRISの相互変換
+├── lib/                   # IRISで書いた再利用可能なRTL標準ライブラリ
 ├── example/
 │   ├── async_fifo/        # 非同期FIFO（2クロックドメイン、SystemVerilog変換つき）
 │   ├── riscv/             # RV32Iプロセッサ（単サイクル、40命令）
@@ -497,6 +498,7 @@ CLIツール（`sim`／`compile`／`formal`／`veryl`／`sv`／`from-sv`／`fmt`
 | [Surferでの波形表示](./doc/surfer_plugin.md) | 波形を読み、`mem`を要素ごとに展開する |
 | [エディタ支援](./doc/editor.md) | VSCodeのSyntax HighlightとLanguage Server |
 | [irisコマンド](./doc/iris.md) | ツールを束ねる統合コマンド |
+| [標準ライブラリ](./doc/library.md) | 再利用できるRTL部品の全体像と、書ける／書けないの線引き |
 
 リポジトリ直下の`report_*.md`は資料ではなく**作業の記録**です。
 経緯、測定、判断、そこで出た誤りを残しています。

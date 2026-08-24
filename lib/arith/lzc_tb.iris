@@ -1,0 +1,32 @@
+/// Lzcのテストベンチ
+///
+/// いくつかの入力に対して先頭ゼロ数を確かめる。
+/// 組み合わせなので、入力を変えて次のサイクルで結果を読む。
+test LzcTB {
+    let clk: clock(period: 10ns);
+    var d: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Lzc { d: d };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { d = 8'b00010000; }  // bit4が最上位。先頭ゼロ3
+        if step == 8'd2 { d = 8'b10000000; }  // bit7。先頭ゼロ0
+        if step == 8'd3 { d = 8'b00000001; }  // bit0。先頭ゼロ7
+        if step == 8'd4 { d = 8'b00000000; }  // 全ゼロ。先頭ゼロ8
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.count == 4'd3, "three leading zeros"; }
+        if step == 8'd3 { assert dut.count == 4'd0, "no leading zeros"; }
+        if step == 8'd4 { assert dut.count == 4'd7, "seven leading zeros"; }
+        if step == 8'd5 { assert dut.count == 4'd8, "all zero gives Width"; }
+    }
+
+    seq {
+        await clk.cycles(8);
+        $display("LzcTB: all checks passed");
+        $finish;
+    }
+}

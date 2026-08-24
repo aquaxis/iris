@@ -1,0 +1,36 @@
+/// 整数分周器（ティック生成）
+///
+/// 入力クロックをDivサイクルごとに1サイクル幅のティック`tick`で分周する。
+/// クロックをゲーティングする代わりに、クロックイネーブル（ティック）を出す方式で、
+/// 合成に優しい（下流はこのtickで動く）。
+///
+/// ジェネリックパラメータ:
+/// - Div:        分周比（既定2、2以上）
+/// - CountWidth: カウンタ幅（既定`$clog2(Div)`、0からDiv-1を数える）
+///
+/// リセットは非同期assert・同期deassert、能動High。0で始まる。
+mod ClkDivider[
+    Div: uint = 2,
+    CountWidth: uint = $clog2(Div),
+]
+where
+    Div >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    out tick: bit,
+) {
+    var count: bit[CountWidth] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if count == Div - 1 {
+            count = 0;
+        } else {
+            count = count + 1;
+        }
+    }
+
+    comb {
+        tick = count == Div - 1;
+    }
+}

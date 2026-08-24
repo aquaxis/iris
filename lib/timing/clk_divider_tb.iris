@@ -1,0 +1,26 @@
+/// ClkDividerのテストベンチ
+///
+/// Div=3で、tickが3サイクルに1回・1サイクル幅で立つことを確かめる。
+test ClkDividerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var step: bit[8] = 0;
+
+    inst dut = ClkDivider[Div: 3] { clk: clk, rst: rst };
+
+    sync(clk.posedge) { step = step + 1; }
+
+    sync(clk.posedge) {
+        if step == 8'd7 { assert dut.tick == 1, "tick fires"; }
+        if step == 8'd8 { assert dut.tick == 0, "one cycle wide"; }
+        if step == 8'd9 { assert dut.tick == 0, "stays low"; }
+        if step == 8'd10 { assert dut.tick == 1, "tick every three cycles"; }
+        if step == 8'd13 { assert dut.tick == 1, "tick every three cycles"; }
+    }
+
+    seq {
+        await clk.cycles(16);
+        $display("ClkDividerTB: all checks passed");
+        $finish;
+    }
+}

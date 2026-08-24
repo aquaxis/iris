@@ -1,0 +1,81 @@
+/// MacSerialのテストベンチ
+///
+/// まずゴミ積（100*100を2回）を積み、clearで0に戻してから、内積
+/// (2,3)+(4,5)+(6,7)+(8,9) = 6+20+42+72 = 140 を積んで確かめる。
+/// clearが効くこと、2サイクル遅延で正しく積算されること、valid_outが
+/// enの回数（6回）だけ立つことを見る。
+///
+/// 併せて符号付きモード（Signed:1）を、負の積を含む内積で確かめる。
+/// (-2,3)+(-4,5)+(6,-7) = -6-20-42 = -68 を、同じ入力（2の補数）で流す。
+test MacSerialTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var clear: bit = 0;
+    var en: bit = 0;
+    var a: bit[8] = 0;
+    var b: bit[8] = 0;
+    var vcnt: bit[8] = 0;
+
+    // 符号付きモードのDUTと入力
+    var sa: bit[8] = 0;
+    var sb: bit[8] = 0;
+    var sen: bit = 0;
+
+    inst dut = MacSerial {
+        clk: clk, rst: rst,
+        clear: clear, en: en, a: a, b: b,
+    };
+    inst dut_s = MacSerial[Signed: 1] {
+        clk: clk, rst: rst,
+        clear: clear, en: sen, a: sa, b: sb,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            clear = 0;
+            en = 0;
+            vcnt = 0;
+        } else {
+            step = step + 1;
+            clear = 0;
+            en = 0;
+            sen = 0;
+
+            // ゴミ積（clearで消えることの確認用）
+            if step == 2 { en = 1; a = 100; b = 100; }
+            if step == 3 { en = 1; a = 100; b = 100; }
+
+            // 累算器を0へ戻す
+            if step == 8 { clear = 1; }
+
+            // 内積の対を1つずつ流す（符号なし）
+            if step == 12 { en = 1; a = 2; b = 3; }
+            if step == 13 { en = 1; a = 4; b = 5; }
+            if step == 14 { en = 1; a = 6; b = 7; }
+            if step == 15 { en = 1; a = 8; b = 9; }
+
+            // 符号付き：clear後に負の積を含む内積を流す
+            //   -2=0xFE、-4=0xFC、-7=0xF9
+            if step == 20 { sen = 1; sa = 8'hFE; sb = 8'd3; }
+            if step == 21 { sen = 1; sa = 8'hFC; sb = 8'd5; }
+            if step == 22 { sen = 1; sa = 8'd6;  sb = 8'hF9; }
+
+            // valid_outの回数を数える
+            if dut.valid_out {
+                vcnt = vcnt + 1;
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(40);
+        assert dut.acc == 24'd140, "dot product (2,3)+(4,5)+(6,7)+(8,9) = 140 after clear";
+        assert vcnt == 8'd6, "valid_out pulsed once per en (2 junk + 4 real)";
+        assert dut_s.acc.signed() == -68, "signed dot product (-2*3)+(-4*5)+(6*-7) = -68";
+        $display("MacSerialTB: all checks passed");
+        $finish;
+    }
+}

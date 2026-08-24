@@ -1,0 +1,51 @@
+/// CRC（巡回冗長検査、ビット直列）
+///
+/// 1サイクルに1ビットを取り込み、多項式`poly`でCRCレジスタを更新する（MSB先頭）。
+/// フィードバック（レジスタ最上位とビット入力のXOR）が1なら、左シフト後に`poly`をXORする。
+/// 並列CRC（1バイト同時）はXORの畳み込みが要り、現状のIRISのcombでは書けないので直列にする。
+///
+/// ジェネリックパラメータ:
+/// - Width: CRC幅（既定8、2以上）
+///
+/// ポート:
+/// - clear:  1で検査レジスタを0に戻す（ストリームの区切り）
+/// - en:     1のとき`bit_in`を取り込む
+/// - bit_in: 直列のビット入力
+/// - poly:   生成多項式（幅ごとに異なるので入力ポート）
+/// - crc:    現在の検査レジスタ
+///
+/// リセットは非同期assert・同期deassert、能動High。0で始まる。
+mod Crc[
+    Width: uint = 8,
+]
+where
+    Width >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  clear: bit,
+    in  en: bit,
+    in  bit_in: bit,
+    in  poly: bit[Width],
+    out crc: bit[Width],
+) {
+    var crc_r: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if clear {
+            crc_r = 0;
+        } else {
+            if en {
+                if (crc_r[Width - 1] ^ bit_in) {
+                    crc_r = (crc_r << 1) ^ poly;
+                } else {
+                    crc_r = crc_r << 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        crc = crc_r;
+    }
+}

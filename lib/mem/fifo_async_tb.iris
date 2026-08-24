@@ -1,0 +1,60 @@
+/// FifoAsyncのテストベンチ
+///
+/// 書き込み10ns・読み出し14nsの2つのクロックで駆動する。
+/// 上流は100から107まで（8語）を満杯でないときに書き、下流は空でないときに読む。
+/// 受け取った値が順序どおり（100,101,…）であること、8語すべて受け取ることを確かめる。
+/// リセットは能動Low。
+test FifoAsyncTB {
+    let wr_clk: clock(period: 10ns);
+    let rd_clk: clock(period: 14ns);
+    let wr_rst_n: reset(active_low: true);
+    let rd_rst_n: reset(active_low: true);
+    var wr_en: bit = 0;
+    var wr_data: bit[8] = 8'd100;
+    var rd_en: bit = 0;
+    var expected: bit[8] = 8'd100;
+    var count: bit[8] = 0;
+
+    inst dut = FifoAsync {
+        wr_clk: wr_clk, wr_rst_n: wr_rst_n, wr_en: wr_en, wr_data: wr_data,
+        rd_clk: rd_clk, rd_rst_n: rd_rst_n, rd_en: rd_en,
+    };
+
+    // 上流：100..107を満杯でないとき送る。
+    sync(wr_clk.posedge, wr_rst_n.async) {
+        if ~wr_rst_n {
+            wr_en = 0;
+            wr_data = 8'd100;
+        } else {
+            if wr_en & ~dut.full {
+                wr_data = wr_data + 1;
+            }
+            wr_en = wr_data <= 8'd107;
+        }
+    }
+
+    // 下流：空でないとき読み、順序を確かめる。
+    sync(rd_clk.posedge, rd_rst_n.async) {
+        if ~rd_rst_n {
+            rd_en = 0;
+            expected = 8'd100;
+            count = 0;
+        } else {
+            rd_en = 1;
+            if rd_en & ~dut.empty {
+                assert dut.rd_data == expected, "received in order across domains";
+                expected = expected + 1;
+                count = count + 1;
+            }
+        }
+    }
+
+    seq {
+        // 正しさは1語ごとの順序assertが保証する（欠落・重複・並び替えを捕まえる）。
+        // ここでは複数語がドメインを跨いで確かに流れたことだけを確かめる。
+        await wr_clk.cycles(60);
+        assert count >= 8'd8, "a multi-word stream crossed the domains in order";
+        $display("FifoAsyncTB: all checks passed");
+        $finish;
+    }
+}

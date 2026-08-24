@@ -563,6 +563,11 @@ fn type_to_sv(ty: &Type) -> Result<String, String> {
         Type::Named(name) => name.clone(),
         // A parametric width: `bit[DataWidth]` -> `logic [DataWidth-1:0]`.
         Type::BitVecExpr { expr } => format!("logic [{}-1:0]", emit_expr(expr)),
+        // A parametric signed/unsigned integer: `int[W]` -> `logic signed [W-1:0]`.
+        Type::IntExpr { expr, signed: true } => {
+            format!("logic signed [{}-1:0]", emit_expr(expr))
+        }
+        Type::IntExpr { expr, signed: false } => format!("logic [{}-1:0]", emit_expr(expr)),
         // IEEE-754 floats map to SystemVerilog's real types.
         Type::Float { bits: 32 } => "shortreal".to_string(),
         Type::Float { bits: 64 } => "real".to_string(),
@@ -587,6 +592,7 @@ fn cast_width(ty: &Type) -> Option<String> {
         Type::BitVec { width } => Some(width.to_string()),
         Type::Int { width, .. } => Some(width.to_string()),
         Type::BitVecExpr { expr } => Some(emit_expr(expr)),
+        Type::IntExpr { expr, .. } => Some(emit_expr(expr)),
         _ => None,
     }
 }
@@ -665,6 +671,25 @@ fn emit_stmt(
                     s.push_str(&emit_branch(els, indent, nb, widths)?);
                 }
             }
+            Ok(s)
+        }
+        Statement::For { var, range, body } => {
+            // A range loop with static bounds becomes a SystemVerilog `for`,
+            // which is synthesisable in always_comb/always_ff when the bounds
+            // are constant (as they are for a generic-width library part).
+            let cmp = if range.inclusive { "<=" } else { "<" };
+            let mut s = format!(
+                "{}for (int {} = {}; {} {} {}; {} = {} + 1) ",
+                pad,
+                var,
+                emit_expr(&range.start),
+                var,
+                cmp,
+                emit_expr(&range.end),
+                var,
+                var
+            );
+            s.push_str(&emit_branch(body, indent, nb, widths)?);
             Ok(s)
         }
         Statement::SysCall(expr) => Ok(format!("{}{};", pad, emit_expr(expr))),
@@ -845,6 +870,10 @@ fn method_to_sv(receiver: &Expression, method: &str, args: &[Expression]) -> Str
         "extend" | "truncate" => format!("{}'({})", width(), r),
         "signed" => format!("$signed({})", r),
         "unsigned" => format!("$unsigned({})", r),
+        // Reductions become SystemVerilog unary reduction operators.
+        "and_reduce" => format!("(&{})", r),
+        "or_reduce" => format!("(|{})", r),
+        "xor_reduce" => format!("(^{})", r),
         // A no-argument call is a member access: an instance output or an
         // interface signal. A wired instance output becomes its wire name; a
         // cross-file one stays a hierarchical reference (`rf.rdata1`).

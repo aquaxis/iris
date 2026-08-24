@@ -1,0 +1,25 @@
+/// MinMaxのテストベンチ
+///
+/// 符号なしの最小/最大、符号付きの最小/最大を確かめる。
+/// 符号付きでは 0xFB(-5) < 0x03(3) なので、符号付きの最小は -5、最大は 3 になる。
+/// 符号なしでは 0xFB(251) > 0x03(3) なので、符号なしの最小は 3、最大は 251 になる。
+test MinMaxTB {
+    let clk: clock(period: 10ns);
+    var a: bit[8] = 8'hFB;   // 251 / -5
+    var b: bit[8] = 8'h03;   // 3
+
+    inst umin = MinMax { a: a, b: b };                       // 符号なし最小
+    inst umax = MinMax[Max: 1] { a: a, b: b };               // 符号なし最大
+    inst smin = MinMax[Signed: 1] { a: a, b: b };            // 符号付き最小
+    inst smax = MinMax[Signed: 1, Max: 1] { a: a, b: b };    // 符号付き最大
+
+    seq {
+        await clk.cycles(2);
+        assert umin.out_val == 8'h03, "unsigned min(251,3) = 3";
+        assert umax.out_val == 8'hFB, "unsigned max(251,3) = 251";
+        assert smin.out_val == 8'hFB, "signed min(-5,3) = -5";
+        assert smax.out_val == 8'h03, "signed max(-5,3) = 3";
+        $display("MinMaxTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,78 @@
+/// 直列乗算器（シフト加算、符号なし）
+///
+/// `start`で`a * b`の計算を始め、Widthサイクルで全幅（2*Width）の積を求める。
+/// 乗算器`b`のLSBを見て、1なら被乗数`a`を部分和に足し、{部分和, 乗数}を右へ1ビット
+/// シフトする（シフト加算法）。IRISの`*`はオペランド幅に切り詰められるが、この直列
+/// 乗算器は全幅の積をそのまま出す。
+///
+/// 桁上げを含めるため、加算は上位側をWidth+1ビットで行い、シフトで畳み込む。
+/// syncは非ブロッキングなので、各ステップの新しい`pr`は前サイクルの`pr`から式で作る。
+///
+/// ジェネリックパラメータ:
+/// - Width:    入力のビット幅（既定8、1以上）
+/// - PWidth:   積の幅（導出＝Width+Width）
+/// - CntWidth: ステップ計数の幅（導出＝$clog2(Width)+1）
+///
+/// ポート:
+/// - start:   1で計算開始（busyでないとき）
+/// - a／b:    被乗数・乗数
+/// - product: 積（2*Widthビット、done後に有効）
+/// - busy:    計算中は1
+/// - done:    計算完了の次に1サイクルだけ1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod MulSerial[
+    Width: uint = 8,
+    PWidth: uint = Width + Width,
+    CntWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  a: bit[Width],
+    in  b: bit[Width],
+    out product: bit[PWidth],
+    out busy: bit,
+    out done: bit,
+) {
+    var st: bit = 0;
+    var pr: bit[PWidth] = 0;   // {部分和(上位W), 乗数(下位W)}
+    var areg: bit[Width] = 0;  // 被乗数を保持
+    var cnt: bit[CntWidth] = 0;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if st == 0 {
+            if start {
+                pr = b;        // 下位Wに乗数、上位Wは0（代入で零拡張）
+                areg = a;
+                cnt = 0;
+                st = 1;
+            }
+        } else {
+            // 1ステップ：LSBが1なら上位に加算し、全体を右へ1シフトする。
+            if pr[0] {
+                // 上位W＋areg は桁上げでW+1ビットになるので、先に1ビット零拡張して足す
+                // （加算の結果幅はオペランドの最大幅なので、拡張しないと桁上げが落ちる）。
+                pr = ({ ({ 1'b0, pr[PWidth - 1 : Width] } + areg), pr[Width - 1 : 0] }) >> 1;
+            } else {
+                pr = pr >> 1;
+            }
+            cnt = cnt + 1;
+            if cnt == Width - 1 {
+                st = 0;
+                done_r = 1;
+            }
+        }
+    }
+
+    comb {
+        product = pr;
+        busy = st != 0;
+        done = done_r;
+    }
+}

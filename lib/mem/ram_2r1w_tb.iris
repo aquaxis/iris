@@ -1,0 +1,50 @@
+/// Ram2r1wのテストベンチ
+///
+/// Depth=4で、addr0..3に10/20/30/40を書き、2つの読み出しポートで同時に別アドレスを読む。
+/// 読み出しは2サイクル遅れ（TBのraddrレジスタで1、RAMの同期読み出しで1）。
+test Ram2r1wTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var we: bit = 0;
+    var waddr: bit[2] = 0;
+    var din: bit[8] = 0;
+    var raddr0: bit[2] = 0;
+    var raddr1: bit[2] = 0;
+
+    var a: bit[8] = 0;
+    var b: bit[8] = 0;
+
+    inst dut = Ram2r1w[Width: 8, Depth: 4] {
+        clk: clk, rst: rst, we: we, waddr: waddr, din: din,
+        raddr0: raddr0, raddr1: raddr1,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            we = 0;
+        } else {
+            step = step + 1;
+            we = 0;
+
+            if step == 1 { we = 1; waddr = 0; din = 10; }
+            if step == 2 { we = 1; waddr = 1; din = 20; }
+            if step == 3 { we = 1; waddr = 2; din = 30; }
+            if step == 4 { we = 1; waddr = 3; din = 40; }
+
+            // 2ポート同時読み：port0=addr3(40)、port1=addr1(20)
+            if step == 6 { raddr0 = 3; raddr1 = 1; }
+            if step == 8 { a = dut.rdata0; b = dut.rdata1; }
+        }
+    }
+
+    seq {
+        await clk.cycles(14);
+        assert a == 8'd40, "read port 0 gets addr3 = 40";
+        assert b == 8'd20, "read port 1 gets addr1 = 20";
+        $display("Ram2r1wTB: all checks passed");
+        $finish;
+    }
+}

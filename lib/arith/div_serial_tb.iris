@@ -1,0 +1,54 @@
+/// DivSerialのテストベンチ
+///
+/// 3つの割り算を順に流して商と剰余を確かめる。
+///   200 / 7  = 28 余り 4
+///   255 / 16 = 15 余り 15
+///   100 / 10 = 10 余り 0
+test DivSerialTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var start: bit = 0;
+    var dividend: bit[8] = 0;
+    var divisor: bit[8] = 0;
+
+    var q1: bit[8] = 0; var r1: bit[8] = 0;
+    var q2: bit[8] = 0; var r2: bit[8] = 0;
+    var q3: bit[8] = 0; var r3: bit[8] = 0;
+
+    inst dut = DivSerial {
+        clk: clk, rst: rst, start: start, dividend: dividend, divisor: divisor,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            start = 0;
+        } else {
+            step = step + 1;
+            start = 0;
+
+            if step == 1  { start = 1; dividend = 8'd200; divisor = 8'd7; }
+            if step == 15 { q1 = dut.quotient; r1 = dut.remainder; }
+
+            if step == 20 { start = 1; dividend = 8'd255; divisor = 8'd16; }
+            if step == 34 { q2 = dut.quotient; r2 = dut.remainder; }
+
+            if step == 40 { start = 1; dividend = 8'd100; divisor = 8'd10; }
+            if step == 54 { q3 = dut.quotient; r3 = dut.remainder; }
+        }
+    }
+
+    seq {
+        await clk.cycles(60);
+        assert q1 == 8'd28, "200/7 quotient 28";
+        assert r1 == 8'd4,  "200/7 remainder 4";
+        assert q2 == 8'd15, "255/16 quotient 15";
+        assert r2 == 8'd15, "255/16 remainder 15";
+        assert q3 == 8'd10, "100/10 quotient 10";
+        assert r3 == 8'd0,  "100/10 remainder 0";
+        $display("DivSerialTB: all checks passed");
+        $finish;
+    }
+}

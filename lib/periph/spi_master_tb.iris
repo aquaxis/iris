@@ -1,0 +1,43 @@
+/// SpiMasterのテストベンチ
+///
+/// MISOをMOSIに折り返して（loopback）0xA5を送ると、受信data_outが0xA5になる
+/// （全二重のシフトが送受とも正しい）ことを確かめる。cs_nが完了後にアイドル(1)へ戻ることも見る。
+test SpiMasterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var start: bit = 0;
+    var data_in: bit[8] = 8'hA5;
+    var step: bit[8] = 0;
+    var rcv: bit[8] = 0;
+    var got: bit = 0;
+
+    inst dut = SpiMaster {
+        clk: clk,
+        rst: rst,
+        start: start,
+        data_in: data_in,
+        miso: dut.mosi,
+    };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        start = 0;
+        if step == 8'd6 { start = 1; }
+    }
+
+    sync(clk.posedge) {
+        if dut.done {
+            rcv = dut.data_out;
+            got = 1;
+        }
+    }
+
+    seq {
+        await clk.cycles(60);
+        assert got == 1, "the transfer completed";
+        assert rcv == 8'hA5, "loopback echoes the sent byte (full-duplex works)";
+        assert dut.cs_n == 1, "chip select is idle after the transfer";
+        $display("SpiMasterTB: all checks passed");
+        $finish;
+    }
+}

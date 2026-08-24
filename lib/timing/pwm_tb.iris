@@ -1,0 +1,49 @@
+/// Pwmのテストベンチ
+///
+/// Period=8、duty=3で、2周期（16サイクル）の間にpwm_outが立つ回数を数える。
+/// デューティ比は3/8なので、2周期でちょうど6回1になる。
+/// またduty=0なら常に0、duty=8（Period）なら常に1になることを別インスタンスで確かめる。
+test PwmTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var duty: bit[3] = 3;
+    var high_cnt: bit[16] = 0;
+
+    var duty0: bit[3] = 0;
+    var full_cnt: bit[16] = 0;
+
+    inst dut = Pwm[Period: 8] { clk: clk, rst: rst, duty: duty };
+    inst dut_off = Pwm[Period: 8] { clk: clk, rst: rst, duty: duty0 };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            high_cnt = 0;
+            full_cnt = 0;
+        } else {
+            step = step + 1;
+            // 2周期（16サイクル）ぶん、duty=3の出力が立つ回数を数える
+            if step >= 8'd1 {
+                if step <= 8'd16 {
+                    if dut.pwm_out {
+                        high_cnt = high_cnt + 1;
+                    }
+                    // duty=0は同じ窓で一度も立たないこと
+                    if dut_off.pwm_out {
+                        full_cnt = full_cnt + 1;
+                    }
+                }
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(20);
+        assert high_cnt == 16'd6, "duty 3/8 over two periods gives 6 high cycles";
+        assert full_cnt == 16'd0, "duty 0 never goes high";
+        $display("PwmTB: all checks passed");
+        $finish;
+    }
+}

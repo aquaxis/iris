@@ -1,0 +1,40 @@
+/// Rotatorのテストベンチ
+///
+/// 左回転と右回転を、いくつかの回転量で確かめる。組み合わせなので入力を変えて次のサイクルで読む。
+/// 回転量0はそのまま、あふれたビットは反対側へ回り込む。
+test RotatorTB {
+    let clk: clock(period: 10ns);
+    var data: bit[8] = 0;
+    var amt: bit[3] = 0;
+    var step: bit[8] = 0;
+
+    inst dl = Rotator { data: data, amt: amt };          // 左回転（既定）
+    inst dr = Rotator[Right: 1] { data: data, amt: amt };  // 右回転
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 1 { data = 8'b00010011; amt = 0; }  // 回転0
+        if step == 2 { data = 8'b00010011; amt = 1; }  // 左1 -> 00100110、右1 -> 10001001
+        if step == 3 { data = 8'b10000001; amt = 1; }  // 左1 -> 00000011、右1 -> 11000000
+        if step == 4 { data = 8'b00010011; amt = 4; }  // 左4 -> 00110001
+    }
+
+    sync(clk.posedge) {
+        if step == 2 { assert dl.result == 8'b00010011, "rotate by 0 is identity"; }
+        if step == 3 {
+            assert dl.result == 8'b00100110, "left rotate 1";
+            assert dr.result == 8'b10001001, "right rotate 1";
+        }
+        if step == 4 {
+            assert dl.result == 8'b00000011, "left rotate 1 wraps the msb";
+            assert dr.result == 8'b11000000, "right rotate 1 wraps the lsb";
+        }
+        if step == 5 { assert dl.result == 8'b00110001, "left rotate 4"; }
+    }
+
+    seq {
+        await clk.cycles(8);
+        $display("RotatorTB: all checks passed");
+        $finish;
+    }
+}

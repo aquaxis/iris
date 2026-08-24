@@ -1,0 +1,26 @@
+/// RstSyncのテストベンチ
+///
+/// リセット中はrst_outが立ち（非同期assert）、解除後2サイクルで落ちる（同期deassert）
+/// ことを確かめる。クロックとリセットはテストが自動で駆動する（既定で先頭5サイクル）。
+test RstSyncTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var step: bit[8] = 0;
+
+    inst dut = RstSync { clk: clk, rst_in: rst };
+
+    sync(clk.posedge) {
+        step = step + 1;
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd3 { assert dut.rst_out == 1, "asserted during reset"; }
+        if step == 8'd9 { assert dut.rst_out == 0, "deasserted after release"; }
+    }
+
+    seq {
+        await clk.cycles(14);
+        $display("RstSyncTB: all checks passed");
+        $finish;
+    }
+}

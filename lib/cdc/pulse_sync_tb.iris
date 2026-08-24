@@ -1,0 +1,53 @@
+/// PulseSyncのテストベンチ
+///
+/// 送信ドメイン（10ns）で1パルスを送り、受信ドメイン（14ns）でちょうど1パルスが
+/// 出ることを確かめる。トグル＋2段同期＋エッジ検出でパルスがドメインを跨ぐ。
+test PulseSyncTB {
+    let src_clk: clock(period: 10ns);
+    let dst_clk: clock(period: 14ns);
+    let src_rst: reset;
+    let dst_rst: reset;
+    var pulse_in: bit = 0;
+    var sstep: bit[8] = 0;
+    var sent: bit[8] = 0;
+    var got: bit[8] = 0;
+
+    inst dut = PulseSync {
+        src_clk: src_clk, src_rst: src_rst, pulse_in: pulse_in,
+        dst_clk: dst_clk, dst_rst: dst_rst,
+    };
+
+    sync(src_clk.posedge, src_rst.async) {
+        if src_rst {
+            pulse_in = 0;
+            sstep = 0;
+            sent = 0;
+        } else {
+            sstep = sstep + 1;
+            pulse_in = 0;
+            if sstep == 8'd8 {
+                pulse_in = 1;
+                sent = sent + 1;
+            }
+        }
+    }
+
+    sync(dst_clk.posedge, dst_rst.async) {
+        if dst_rst {
+            got = 0;
+        } else {
+            if dut.pulse_out {
+                got = got + 1;
+            }
+        }
+    }
+
+    seq {
+        // 遅い受信ドメイン（14ns）と2段同期の遅れがあるので、十分に待つ。
+        await src_clk.cycles(60);
+        assert sent == 8'd1, "exactly one pulse was sent";
+        assert got == 8'd1, "exactly one pulse crossed to the destination";
+        $display("PulseSyncTB: all checks passed");
+        $finish;
+    }
+}

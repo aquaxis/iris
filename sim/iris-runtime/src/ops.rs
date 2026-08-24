@@ -118,6 +118,12 @@ fn signed_binop(
     let (lv, rv) = (lhs.to_i64()?, rhs.to_i64()?);
     let one = |b: bool| SignalValue::from_u64(b as u64, 1);
     match op {
+        // Equality on signed operands compares by value, so a narrow signed
+        // value equals a wider one of the same value (e.g. `int[8] -7 == -7`,
+        // where the literal is a 32-bit signed value). Same-width operands are
+        // unaffected: unsigned-equal and signed-equal coincide there.
+        BinOp::Eq => Some(one(lv == rv)),
+        BinOp::Ne => Some(one(lv != rv)),
         BinOp::Lt => Some(one(lv < rv)),
         BinOp::Le => Some(one(lv <= rv)),
         BinOp::Gt => Some(one(lv > rv)),

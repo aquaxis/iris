@@ -1,0 +1,28 @@
+/// Sync2ffのテストベンチ
+///
+/// 単ビットのdを立ち上げ、2段のFFを通ってqが2サイクル後に追従することを確かめる。
+test Sync2ffTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var d: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Sync2ff { clk: clk, rst: rst, d: d };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd8 { d = 1; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd6 { assert dut.q == 0, "q low before d rises"; }
+        if step == 8'd10 { assert dut.q == 0, "not through both flops yet"; }
+        if step == 8'd11 { assert dut.q == 1, "q follows d after two flops"; }
+    }
+
+    seq {
+        await clk.cycles(14);
+        $display("Sync2ffTB: all checks passed");
+        $finish;
+    }
+}

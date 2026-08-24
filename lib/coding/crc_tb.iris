@@ -1,0 +1,39 @@
+/// Crcのテストベンチ
+///
+/// 多項式0x07（CRC-8）でビットを直列に取り込み、検査レジスタが決められた通りに
+/// 進むこと、clearで0に戻ることを確かめる。
+test CrcTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 0;
+    var bit_in: bit = 0;
+    var clr: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Crc { clk: clk, rst: rst, clear: clr, en: en, bit_in: bit_in, poly: 8'h07 };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        en = 0;
+        clr = 0;
+        if step == 8'd6 { en = 1; bit_in = 1; }
+        if step == 8'd7 { en = 1; bit_in = 1; }
+        if step == 8'd8 { en = 1; bit_in = 0; }
+        if step == 8'd9 { en = 1; bit_in = 1; }
+        if step == 8'd15 { clr = 1; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd8 { assert dut.crc == 8'd7, "first bit: 0 -> 0x07"; }
+        if step == 8'd9 { assert dut.crc == 8'd9, "second bit: 0x07 -> 0x09"; }
+        if step == 8'd10 { assert dut.crc == 8'd18, "third bit shifts: 0x12"; }
+        if step == 8'd11 { assert dut.crc == 8'd35, "fourth bit: 0x23"; }
+        if step == 8'd17 { assert dut.crc == 8'd0, "clear resets the register"; }
+    }
+
+    seq {
+        await clk.cycles(20);
+        $display("CrcTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,51 @@
+/// デバウンス（チャタリング除去・グリッチフィルタ）
+///
+/// 入力`d`が`Count`サイクル連続して現在の出力と異なったときだけ、出力`q`を切り替える。
+/// それより短いグリッチは無視する。押しボタンなど、ばたつく入力を安定させるのに使う。
+///
+/// 非同期な入力にそのまま使わず、先に`Sync2ff`で同期させてから入れること
+/// （この部品はメタステーブル対策ではなく、あくまで時間方向のフィルタである）。
+///
+/// ジェネリックパラメータ:
+/// - Count: 切り替えに要する連続一致サイクル数（既定16、2以上）
+/// - Width: カウンタ幅（導出＝$clog2(Count)）
+///
+/// ポート:
+/// - d: 生の（ばたつく）入力
+/// - q: 安定化した出力
+///
+/// リセットは非同期assert・同期deassert、能動High。`q`は0で始まる。
+mod Debounce[
+    Count: uint = 16,
+    Width: uint = $clog2(Count),
+]
+where
+    Count >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  d: bit,
+    out q: bit,
+) {
+    var stable: bit = 0;
+    var cnt: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if d == stable {
+            // 現在の安定値と同じなら、数え直す。
+            cnt = 0;
+        } else {
+            // 異なる状態が続くあいだ数え、Countサイクル続いたら切り替える。
+            if cnt == Count - 1 {
+                stable = d;
+                cnt = 0;
+            } else {
+                cnt = cnt + 1;
+            }
+        }
+    }
+
+    comb {
+        q = stable;
+    }
+}

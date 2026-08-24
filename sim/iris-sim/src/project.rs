@@ -1033,6 +1033,18 @@ impl Project {
                     }
                 }
             }
+            Type::IntExpr { expr, signed } => {
+                let signed = *signed;
+                Self::substitute_expr(expr, env);
+                if let Some(value) = Self::eval_const(expr, env) {
+                    if value > 0 {
+                        *ty = Type::Int {
+                            width: value as usize,
+                            signed,
+                        };
+                    }
+                }
+            }
             Type::Array { element, .. } => Self::substitute_type(element, env),
             _ => {}
         }

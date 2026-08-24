@@ -1785,6 +1785,25 @@ impl HierarchicalSimulator {
                 None => "x".to_string(),
             }
         };
+        // `%d` prints a signed value with its sign (`int[N]`/`iN`); an unsigned
+        // value prints as-is. `%h`/`%b` always show the raw bits.
+        let show_dec = |arg: Option<&SysFuncArg>| -> String {
+            let sv = match arg {
+                Some(SysFuncArg::Expr(e)) => self.eval_in(e, prefix),
+                _ => None,
+            };
+            match sv {
+                Some(v) if v.is_signed() => match v.to_i64() {
+                    Some(i) => i.to_string(),
+                    None => "x".to_string(),
+                },
+                Some(v) => match v.to_u64() {
+                    Some(u) => u.to_string(),
+                    None => "x".to_string(),
+                },
+                None => "x".to_string(),
+            }
+        };
 
         let mut out = String::new();
         let mut chars = format.chars().peekable();
@@ -1799,7 +1818,7 @@ impl HierarchicalSimulator {
             }
             match chars.next() {
                 Some('%') => out.push('%'),
-                Some('d') => out.push_str(&show(rest.next(), 10)),
+                Some('d') => out.push_str(&show_dec(rest.next())),
                 Some('h') | Some('x') => {
                     out.push_str(&show(rest.next(), 16))
                 }

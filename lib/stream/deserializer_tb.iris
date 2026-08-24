@@ -1,0 +1,50 @@
+/// Deserializerのテストベンチ
+///
+/// 0xB4のビットをLSB先頭で8サイクル流し込み、`valid`で`dout==0xB4`になることを確かめる。
+/// 0xB4=1011_0100、LSB先頭の並びは 0,0,1,0,1,1,0,1。
+test DeserializerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var en: bit = 0;
+    var din: bit = 0;
+    var got: bit[8] = 0;
+    var valid_seen: bit = 0;
+
+    inst dut = Deserializer { clk: clk, rst: rst, en: en, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            en = 0;
+            got = 0;
+            valid_seen = 0;
+        } else {
+            step = step + 1;
+            en = 0;
+            // 8ビットをLSB先頭で流す（0xB4）
+            if step == 1 { en = 1; din = 0; }
+            if step == 2 { en = 1; din = 0; }
+            if step == 3 { en = 1; din = 1; }
+            if step == 4 { en = 1; din = 0; }
+            if step == 5 { en = 1; din = 1; }
+            if step == 6 { en = 1; din = 1; }
+            if step == 7 { en = 1; din = 0; }
+            if step == 8 { en = 1; din = 1; }
+
+            if dut.valid {
+                got = dut.dout;
+                valid_seen = 1;
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(14);
+        assert valid_seen == 1, "valid pulsed after 8 bits";
+        assert got == 8'hB4, "deserialized byte is 0xB4 (LSB first)";
+        $display("DeserializerTB: all checks passed");
+        $finish;
+    }
+}

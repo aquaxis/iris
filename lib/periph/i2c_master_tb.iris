@@ -1,0 +1,46 @@
+/// I2cMasterのテストベンチ
+///
+/// sda_i=0（スレーブがSDAを低に保つ＝ACK）で0xA5を1バイト書く。
+/// START（SCL高でSDAが低）を確かめ、最後にACKを捕らえてSTOP・doneに至ることを見る。
+test I2cMasterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var start: bit = 0;
+    var data_in: bit[8] = 8'hA5;
+    var step: bit[8] = 0;
+    var done_seen: bit = 0;
+    var ack_seen: bit = 0;
+
+    inst dut = I2cMaster {
+        clk: clk,
+        rst: rst,
+        start: start,
+        data_in: data_in,
+        sda_i: 0,
+    };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        start = 0;
+        if step == 8'd6 { start = 1; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd10 {
+            assert dut.busy == 1, "busy after start";
+            assert (dut.scl == 1) & (dut.sda_oe == 1), "START: SDA driven low while SCL high";
+        }
+        if dut.done {
+            done_seen = 1;
+            ack_seen = dut.ack;
+        }
+    }
+
+    seq {
+        await clk.cycles(110);
+        assert done_seen == 1, "the transfer completed with a STOP";
+        assert ack_seen == 1, "ACK was captured (slave held SDA low)";
+        $display("I2cMasterTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,33 @@
+/// Decoderのテストベンチ
+///
+/// selを変えてone-hot出力を確かめる。組み合わせなので入力を変えて次のサイクルで読む。
+/// enが0のときは全0になることも確かめる。
+test DecoderTB {
+    let clk: clock(period: 10ns);
+    var sel: bit[3] = 0;
+    var en: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = Decoder { sel: sel, en: en };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { sel = 3'd0; en = 1; }
+        if step == 8'd2 { sel = 3'd3; en = 1; }
+        if step == 8'd3 { sel = 3'd7; en = 1; }
+        if step == 8'd4 { sel = 3'd5; en = 0; }  // en=0なら全0
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.onehot == 8'b00000001, "sel=0 -> bit0"; }
+        if step == 8'd3 { assert dut.onehot == 8'b00001000, "sel=3 -> bit3"; }
+        if step == 8'd4 { assert dut.onehot == 8'b10000000, "sel=7 -> bit7"; }
+        if step == 8'd5 { assert dut.onehot == 8'b00000000, "en=0 -> all zero"; }
+    }
+
+    seq {
+        await clk.cycles(8);
+        $display("DecoderTB: all checks passed");
+        $finish;
+    }
+}
