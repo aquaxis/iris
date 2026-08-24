@@ -1,0 +1,43 @@
+/// Scrambler／Descramblerのテストベンチ
+///
+/// スクランブラの出力をデスクランブラへ直結し、元のビット列が2サイクル遅れで復元される
+/// ことを確かめる（両方の状態は0から始まり同期している）。入力はdinを2段遅らせた参照と照合。
+test ScramblerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var din: bit = 0;
+    var poly: bit[7] = 7'b1100000;   // x^7 + x^6 + 1
+    var pat: bit[8] = 8'b1011_0010;
+    var d1: bit = 0;                  // din 1サイクル遅れ
+    var d2: bit = 0;                  // din 2サイクル遅れ（デスクランブラ出力と同相）
+    var step: bit[8] = 0;
+
+    inst sc = Scrambler { clk: clk, rst: rst, en: en, din: din, poly: poly };
+    inst ds = Descrambler { clk: clk, rst: rst, en: en, din: sc.dout, poly: poly };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; d1 = 0; d2 = 0; } else {
+            step = step + 1;
+            din = pat[0];
+            pat = pat >> 1;
+            d2 = d1;
+            d1 = din;
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            // 立ち上がり後（両状態は0で同期）、デスクランブラ出力=2サイクル前のdin
+            if step >= 8'd4 {
+                assert ds.dout == d2, "descrambled == original (2-cycle delay)";
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(10);
+        $display("ScramblerTB: all checks passed");
+        $finish;
+    }
+}

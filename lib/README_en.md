@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-58 parts in 10 categories. Every part passes three checks: an `iris-sim`
+60 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 482/0 (54 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 494/0 (56 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -17,11 +17,11 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
-| `coding/` | 5 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum` |
+| `coding/` | 7 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 58 | |
+| Total | 60 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -395,6 +395,19 @@ result is order-independent; `clear` resets it. A single addition cannot double-
 so one fold is exact. The sum is formed in `comb` (reading a var written in the same
 `sync` block would give last cycle's value) and registered into `acc`; the
 transmitted checksum is the one's complement of `sum` (`~sum`). Bit-serial, like `Crc`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Scrambler` | scrambler (self-synchronizing, bit-serial, LFSR) | `Width` (LFSR length, default 7, >= 2); polynomial `poly` is an input port |
+| `Descrambler` | descrambler (the dual of `Scrambler`, self-synchronizing) | same |
+
+`Scrambler` whitens the input with a `poly` LFSR: feedback is
+`(sr & poly).xor_reduce()`, the output is `scr = din ^ feedback`, and the state `sr`
+shifts in the **transmitted `scr`** (the self-synchronizing key). `Descrambler` uses
+the same `poly`, outputs `din ^ feedback`, and shifts the **received `din`** into
+`sr`. Being self-synchronizing it needs no seed exchange — it locks within a few
+bits and recovers the original stream (round-trip verified). Use it to break up runs
+of 0/1 and keep DC balance (line coding).
 
 ### periph
 
