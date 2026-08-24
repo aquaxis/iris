@@ -94,6 +94,15 @@ iris sv      <category>/<name>.iris -o out/          # converts to SystemVerilog
 iris lint    <category>/<name>.iris                  # follows the naming rules
 ```
 
+To run every part's testbench (behavior / asserts) at once, use the runner below.
+Where `tools/conformance/run.sh` guards conversion, round-trip and Verilator, this
+runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits 1
+on an assertion failure).
+
+```
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 64/0)
+```
+
 ## Parts
 
 ### timing
