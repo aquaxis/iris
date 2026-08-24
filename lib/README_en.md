@@ -5,15 +5,15 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-70 parts in 10 categories. Every part passes three checks: an `iris-sim`
+71 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 554/0 (66 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 560/0 (67 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 11 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog`, `JohnsonCounter` |
 | `arith/` | 16 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator` |
-| `mem/` | 7 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer` |
+| `mem/` | 8 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer`, `Lifo` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
 | `cdc/` | 4 | `Sync2ff`, `RstSync`, `PulseSync`, `HandshakeSync` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 4 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco` |
 | `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 70 | |
+| Total | 71 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 70/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 71/0)
 ```
 
 ## Parts
@@ -324,6 +324,16 @@ delay). It exposes `wptr` so relative addressing is computed from `wp` by the us
 Use it for FIR delay lines, line buffers, or history — unlike a FIFO's sequential
 front-read, the write auto-advances and the read is absolute-addressed. Contents are
 not reset (`mem`).
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Lifo` | LIFO (stack, last-in first-out) | `Width` (default 8, >= 1), `Depth` (default 8, >= 2), `AddrWidth`/`PtrWidth` (derived) |
+
+`Lifo` pushes `din` to `storage[sp]` and increments `sp` on `push`, and reads the
+top `storage[sp-1]` and decrements `sp` on `pop` (registered read, one-cycle delay);
+`sp` is the element count and `push` takes priority (issue one at a time). The FIFO's
+counterpart — for save/restore, bracket matching, backtracking, or reversal. Contents
+are not reset (`mem`).
 
 ### arbiter
 

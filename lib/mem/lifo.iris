@@ -1,0 +1,72 @@
+/// LIFO（スタック、後入れ先出し）
+///
+/// `push`で`din`を積み、`pop`で最後に積んだ値を`dout`へ取り出す（後入れ先出し）。
+/// 関数呼び出しの退避、括弧の対応付け、バックトラッキング、逆順処理などに使う。
+/// FIFO（先入れ先出し）と対になる。
+///
+/// スタックポインタ`sp`＝要素数（0〜Depth）。`push`で`storage[sp]`へ書き`sp`を+1、
+/// `pop`で`storage[sp-1]`（現在の最上段）を読み`sp`を-1（登録読み出し、1サイクル遅れ）。
+/// `push`と`pop`が同時のときは`push`を優先する（同時発行せず片方ずつ出すのが前提）。
+///
+/// ジェネリックパラメータ:
+/// - Width:     語のビット幅（既定8、1以上）
+/// - Depth:     段数（既定8、2以上）
+/// - AddrWidth: アドレス幅（導出＝$clog2(Depth)）
+/// - PtrWidth:  スタックポインタ幅（導出＝$clog2(Depth)+1、0〜Depthを表せる）
+///
+/// ポート:
+/// - push: 1で`din`を積む（fullでないとき）
+/// - pop:  1で最上段を`dout`へ取り出す（emptyでないとき）
+/// - din:  積む値
+/// - dout: 取り出した値（1サイクル遅れ）
+/// - full: 満杯（sp==Depth）
+/// - empty:空（sp==0）
+///
+/// 中身はリセットしない（`mem`）。リセットは`sp`と出力レジスタを0に戻す
+/// （非同期assert・同期deassert、能動High）。
+mod Lifo[
+    Width: uint = 8,
+    Depth: uint = 8,
+    AddrWidth: uint = $clog2(Depth),
+    PtrWidth: uint = $clog2(Depth) + 1,
+]
+where
+    Width >= 1,
+    Depth >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  push: bit,
+    in  pop: bit,
+    in  din: bit[Width],
+    out dout: bit[Width],
+    out full: bit,
+    out empty: bit,
+) {
+    mem storage: bit[Width][Depth];
+    var sp: bit[PtrWidth] = 0;
+    var dout_r: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            sp = 0;
+            dout_r = 0;
+        } else if push == 1 {
+            if sp != Depth {
+                storage[sp] = din;
+                sp = sp + 1;
+            }
+        } else if pop == 1 {
+            if sp != 0 {
+                dout_r = storage[sp - 1];
+                sp = sp - 1;
+            }
+        }
+    }
+
+    comb {
+        empty = sp == 0;
+        full = sp == Depth;
+        dout = dout_r;
+    }
+}

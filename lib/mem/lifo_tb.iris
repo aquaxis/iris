@@ -1,0 +1,42 @@
+/// Lifoのテストベンチ
+///
+/// A0,B1,C2 を積み、pop で C2,B1,A0 の順（後入れ先出し）に取り出せること、
+/// 全部出すと empty になることを確かめる。
+test LifoTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var push: bit = 0;
+    var pop: bit = 0;
+    var din: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Lifo { clk: clk, rst: rst, push: push, pop: pop, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            push = 0; pop = 0;
+            if step == 8'd1 { push = 1; din = 8'hA0; }
+            if step == 8'd2 { push = 1; din = 8'hB1; }
+            if step == 8'd3 { push = 1; din = 8'hC2; }
+            if step == 8'd5 { pop = 1; }
+            if step == 8'd6 { pop = 1; }
+            if step == 8'd7 { pop = 1; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd4 { assert dut.empty == 0, "not empty after pushes"; }
+            if step == 8'd7 { assert dut.dout == 8'hC2, "LIFO pop 1 = C2"; }
+            if step == 8'd8 { assert dut.dout == 8'hB1, "LIFO pop 2 = B1"; }
+            if step == 8'd9 { assert dut.dout == 8'hA0, "LIFO pop 3 = A0"; assert dut.empty == 1, "empty after all pops"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(12);
+        $display("LifoTB: all checks passed");
+        $finish;
+    }
+}
