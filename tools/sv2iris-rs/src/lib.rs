@@ -183,6 +183,17 @@ fn qs(stmt: &Stmt, map: &HashMap<String, String>) -> Stmt {
                 .collect(),
         },
         Stmt::Return(e) => Stmt::Return(qe(e, map)),
+        Stmt::For {
+            var,
+            start,
+            limit,
+            body,
+        } => Stmt::For {
+            var: var.clone(),
+            start: qe(start, map),
+            limit: qe(limit, map),
+            body: body.iter().map(|s| qs(s, map)).collect(),
+        },
     }
 }
 

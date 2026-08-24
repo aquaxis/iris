@@ -1,0 +1,33 @@
+/// プライオリティエンコーダ
+///
+/// 入力`d`の1が立っている最下位の添字を`idx`に出す。
+/// どのビットも立っていなければ`valid`を0にする（`idx`は0）。
+///
+/// ジェネリックパラメータ:
+/// - Width:    入力ビット幅（既定8、2以上）
+/// - IdxWidth: 添字の幅（既定`$clog2(Width)`。呼び出し側は通常触らない）
+///
+/// 実装は組み合わせ。高い添字から低い添字へ回し、最後に勝った代入が残る
+/// （IRISのcombは同一信号への後の代入が優先されるので、最下位の1が残る）。
+mod PriorityEncoder[
+    Width: uint = 8,
+    IdxWidth: uint = $clog2(Width),
+]
+where
+    Width >= 2,
+(
+    in  d: bit[Width],
+    out valid: bit,
+    out idx: bit[IdxWidth],
+) {
+    comb {
+        valid = 0;
+        idx = 0;
+        for i in 0..Width {
+            if d[Width - 1 - i] {
+                valid = 1;
+                idx = Width - 1 - i;
+            }
+        }
+    }
+}

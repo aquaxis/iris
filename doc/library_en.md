@@ -47,7 +47,7 @@ iris lint    <category>/<name>.iris
 ```
 
 All 38 testbenches pass under `iris-sim`.
-`tools/conformance/run.sh` stays at 218/0 (10 representative parts registered as fixtures).
+`tools/conformance/run.sh` stays at 242/0 (14 representative parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 

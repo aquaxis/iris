@@ -58,6 +58,15 @@ pub enum Stmt {
     },
     /// `return expr;`
     Return(Expr),
+    /// The canonical counting `for` loop iris2sv emits:
+    /// `for (int v = start; v < limit; v = v + 1) body`, lowered to IRIS
+    /// `for v in start..limit { body }`.
+    For {
+        var: String,
+        start: Expr,
+        limit: Expr,
+        body: Vec<Stmt>,
+    },
 }
 
 #[derive(Debug, Clone)]

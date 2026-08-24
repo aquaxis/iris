@@ -1,0 +1,31 @@
+/// 先頭ゼロ数（Leading Zero Count）
+///
+/// 入力`d`の最上位側から数えて、最初の1に達するまでの0の個数を出す。
+/// どのビットも立っていなければ`Width`を返す。
+///
+/// ジェネリックパラメータ:
+/// - Width:      入力ビット幅（既定8、1以上）
+/// - CountWidth: 出力幅（既定`$clog2(Width) + 1`。0からWidthまで表せる）
+///
+/// 実装は組み合わせ。低い添字から高い添字へ回し、1のたびに
+/// `count = Width - 1 - i`を代入する。最後に勝つのは最上位の1なので、
+/// それが先頭ゼロ数になる。1が無ければ既定の`Width`が残る。
+mod Lzc[
+    Width: uint = 8,
+    CountWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+(
+    in  d: bit[Width],
+    out count: bit[CountWidth],
+) {
+    comb {
+        count = Width;
+        for i in 0..Width {
+            if d[i] {
+                count = Width - 1 - i;
+            }
+        }
+    }
+}
