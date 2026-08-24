@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-73 parts in 10 categories. Every part passes three checks: an `iris-sim`
+74 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 578/0 (69 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 584/0 (70 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -19,9 +19,9 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `cdc/` | 4 | `Sync2ff`, `RstSync`, `PulseSync`, `HandshakeSync` |
 | `coding/` | 7 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
-| `dsp/` | 4 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco` |
+| `dsp/` | 5 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco`, `ComplexMult` |
 | `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 73 | |
+| Total | 74 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -102,7 +102,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 73/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 74/0)
 ```
 
 ## Parts
@@ -599,6 +599,20 @@ last stage of an `N`-deep delay line (a packed vector). With `N` a power of two 
 mean is `sum >> LogN`. After reset the delay line is 0, so it ramps up correctly
 over the first `N` cycles — the same "unroll a convolution over time" approach as
 `FirSerial`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `ComplexMult` | complex multiply ((ar+j*ai)*(br+j*bi), signed, combinational) | `Width` (input real/imag width, default 8, >= 1), `OutWidth` (derived = 2*Width+1) |
+
+`ComplexMult` computes the product of two complex numbers in one combinational
+cycle (real = ar*br - ai*bi, imag = ar*bi + ai*br) — the core of a mixer, an FFT
+butterfly, or a complex correlator. IRIS's `*` truncates to the operand width, so
+each input is sign-extended to the result width with `.signed().sign_extend[OutWidth]()`
+before the multiply; the full product then lands in the low bits, and the difference
+and sum are correct in two's complement. `comb` cannot re-read a variable updated in
+the same block, so it uses no intermediates and writes the expressions directly. The
+output is signed (read with `.signed()`). Checked against `(3+2j)(4+5j)=2+23j` and
+`(-3+2j)(4-5j)=-2+23j`.
 
 ### util
 

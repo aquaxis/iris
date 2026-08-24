@@ -1,0 +1,35 @@
+/// ComplexMultのテストベンチ
+///
+/// (3+2j)(4+5j) = 12 -10 + (15+8)j = 2 + 23j を確かめる。
+/// 負の項を含む (-3+2j)(4-5j) = -12+10 + (15+8)j = -2 + 23j も確かめる
+/// （符号付きの積と差が正しいこと）。
+///
+/// 出力は符号付きOutWidth幅（Width=8なら17ビット）。負値は`.signed()`で読む。
+test ComplexMultTB {
+    let clk: clock(period: 10ns);
+
+    // 正の例：(3+2j)(4+5j) = 2 + 23j
+    var ar: bit[8] = 3;
+    var ai: bit[8] = 2;
+    var br: bit[8] = 4;
+    var bi: bit[8] = 5;
+
+    // 負の項を含む例：(-3+2j)(4-5j) = -2 + 23j
+    var nar: bit[8] = 8'hFD;   // -3
+    var nai: bit[8] = 2;
+    var nbr: bit[8] = 4;
+    var nbi: bit[8] = 8'hFB;   // -5
+
+    inst p = ComplexMult { ar: ar, ai: ai, br: br, bi: bi };
+    inst n = ComplexMult { ar: nar, ai: nai, br: nbr, bi: nbi };
+
+    seq {
+        await clk.cycles(2);
+        assert p.out_re.signed() == 2,  "(3+2j)(4+5j) real = 2";
+        assert p.out_im.signed() == 23, "(3+2j)(4+5j) imag = 23";
+        assert n.out_re.signed() == -2, "(-3+2j)(4-5j) real = -2";
+        assert n.out_im.signed() == 23, "(-3+2j)(4-5j) imag = 23";
+        $display("ComplexMultTB: all checks passed");
+        $finish;
+    }
+}
