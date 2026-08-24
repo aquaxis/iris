@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-52 parts in 10 categories. Every part passes three checks: an `iris-sim`
+54 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 446/0 (48 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 458/0 (50 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -15,13 +15,13 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `arith/` | 12 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck` |
 | `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
-| `stream/` | 5 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux` |
+| `stream/` | 7 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 5 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 52 | |
+| Total | 54 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -301,6 +301,18 @@ before the multiply so `sel*Width` does not overflow (IRIS multiply wraps to the
 operand width). `VecDemux` fills `data` with 0 first, then overwrites the chosen
 element with a part-select write (combinational partial writes accumulate).
 Combinational only.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `StreamDownsizer` | width conversion (one wide word -> N narrow words, ready/valid) | `Width` (default 8, >= 1), `N` (default 4, >= 2), `Total`/`CntWidth`/`IdxWidth` (derived) |
+| `StreamUpsizer` | width conversion (N narrow words -> one wide word, ready/valid) | same |
+
+`StreamDownsizer` latches one `Width*N` word into a holding register and emits it
+one `Width`-bit element at a time (LSB-first) on each `out_ready`, dropping
+`in_ready` while busy. `StreamUpsizer` is the reverse: it gathers N narrow words
+into one wide word and raises `out_valid` when full. The element position is
+`cnt` widened to `IdxWidth` times `Width`, read/written with a part-select (the
+same technique as `VecMux`/`VecDemux`). Both honor ready/valid backpressure.
 
 ### cdc
 

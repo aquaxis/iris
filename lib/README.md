@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在52部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は446/0を保つ（lib部品48個を検体に登録）。
+現在54部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は458/0を保つ（lib部品50個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -14,13 +14,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `arith/` | 12 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck` |
 | `mem/` | 6 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
-| `stream/` | 5 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux` |
+| `stream/` | 7 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 5 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 52 | |
+| 合計 | 54 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -269,6 +269,16 @@ Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを
 `sel`は積`sel*Width`が桁あふれしないよう`IdxWidth`へ拡張してから掛ける（IRISの積は
 オペランド幅に丸める）。`VecDemux`は`data`を先に0で埋め、選んだ要素だけ部分書き込みで
 上書きする（comb部分書き込みは累積する）。組み合わせのみ。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `StreamDownsizer` | 幅変換（広い語→狭い語N個、ready/valid） | `Width`（既定8、1以上）、`N`（既定4、2以上）、`Total`／`CntWidth`／`IdxWidth`（導出） |
+| `StreamUpsizer` | 幅変換（狭い語N個→広い語、ready/valid） | 同上 |
+
+`StreamDownsizer`は幅`Width*N`の1語を保持レジスタに取り込み、`out_ready`のたびにLSB側の要素から
+1つずつ出す（取り込み中は`in_ready`を下げる）。`StreamUpsizer`はその逆で、狭い語をN個集めて
+1語にまとめ、そろったら`out_valid`を上げる。要素位置は`cnt`を`IdxWidth`へ拡張して`*Width`し、
+部分選択で読み書きする（`VecMux`／`VecDemux`と同じ手筋）。ready/validでバックプレッシャに従う。
 
 ### cdc
 
