@@ -31,8 +31,9 @@ written directly in IRIS. A multi-stream mux/demux is also expressible, using a
 `VecMux` and `VecDemux` are the examples, widening `sel` before the multiply so the
 index does not overflow. A combinational sum-fold (popcount, a parallel-CRC XOR tree) is not expressible in
 `comb`, but **is expressible serially over time** (`PopcountSerial` is the example).
-The `bit[W][N]` array-port syntax itself, and generic functions (a general
-math library) are not expressible today. (An XOR fold is expressible with
+Generic functions `fn f[W](...)` are also expressible (inlined at call sites, so a
+function whose body needs no numeric width — e.g. `max2` — works at any width; iris sv
+inlines them). The `bit[W][N]` array-port syntax itself is not expressible today. (An XOR fold is expressible with
 `.xor_reduce()` and per-bit assignment — `Parity` and `Gray2Bin` are the
 examples.) Each part's description and the "Implementation notes" record what
 could not be done, and why.

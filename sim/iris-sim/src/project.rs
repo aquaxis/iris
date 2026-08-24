@@ -2016,6 +2016,20 @@ where
 /// How deep a function may call into others before we give up
 const MAX_INLINE_DEPTH: usize = 16;
 
+/// Inline calls to the given functions inside a single module, in place.
+///
+/// Exposed for tools that emit code directly from the parse tree (e.g. iris2sv)
+/// and need to inline only a subset of functions — a generic function has no
+/// fixed-width SystemVerilog `function` form, so its call sites are inlined
+/// while ordinary functions are still emitted as `function` definitions. Only
+/// calls whose name appears in `functions` are inlined.
+pub fn inline_functions_in_module(module: &mut Module, functions: &HashMap<String, FnDecl>) {
+    if functions.is_empty() {
+        return;
+    }
+    rewrite_module_exprs(module, &mut |expr| inline_call(expr, functions, 0));
+}
+
 /// Replace a call with the function's body, parameters substituted
 fn inline_call(expr: &mut Expression, functions: &HashMap<String, FnDecl>, depth: usize) {
     let Expression::Call { name, args } = expr else {
