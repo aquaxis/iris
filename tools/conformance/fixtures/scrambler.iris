@@ -1,0 +1,47 @@
+/// スクランブラ（自己同期型、ビット直列、LFSR）
+///
+/// 入力ビット列を多項式`poly`のLFSRで撹拌して出す（自己同期型＝送出したビットを帰還に使う）。
+/// 連続する0や1を散らしてDCバランスや遷移を確保する用途（ラインコーディング）に使う。
+/// `Descrambler`と対で使い、同じ`poly`を与える。受信側は種の同期不要（数ビットで自動的に整合）。
+///
+/// 帰還は`(sr & poly).xor_reduce()`（タップしたビットのXOR）。出力`scr = din ^ 帰還`とし、
+/// 状態レジスタ`sr`には**送出した`scr`**をシフトインする（これが自己同期の要）。
+///
+/// ジェネリックパラメータ:
+/// - Width: LFSR（状態）のビット長（既定7、2以上）
+///
+/// ポート:
+/// - en:   1でこのビットを処理する
+/// - din:  入力ビット
+/// - poly: 帰還多項式（タップ位置に1、`sr`と同じ幅）
+/// - dout: スクランブルした出力ビット（1サイクル遅れ）
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Scrambler[Width: uint = 7]
+where
+    Width >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  din: bit,
+    in  poly: bit[Width],
+    out dout: bit,
+) {
+    var sr: bit[Width] = 0;
+    var d_out: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            sr = 0;
+            d_out = 0;
+        } else if en {
+            d_out = din ^ (sr & poly).xor_reduce();
+            sr = { sr[Width - 2 : 0], din ^ (sr & poly).xor_reduce() };
+        }
+    }
+
+    comb {
+        dout = d_out;
+    }
+}

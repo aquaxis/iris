@@ -1,0 +1,46 @@
+/// デスクランブラ（自己同期型、ビット直列、LFSR）
+///
+/// `Scrambler`で撹拌したビット列を元に戻す。同じ多項式`poly`を与える。自己同期型なので
+/// 種の同期は不要で、受信開始から数ビット（Widthビット）で自動的に整合し、以降は元データを復元する。
+///
+/// 帰還は`(sr & poly).xor_reduce()`。出力`dout = din ^ 帰還`（`din`は受信したスクランブル済みビット）。
+/// 状態レジスタ`sr`には**受信した`din`**をシフトインする（送信側と同じ列が入るので状態が一致する）。
+///
+/// ジェネリックパラメータ:
+/// - Width: LFSR（状態）のビット長（既定7、2以上、Scramblerと一致させる）
+///
+/// ポート:
+/// - en:   1でこのビットを処理する
+/// - din:  受信したスクランブル済みビット
+/// - poly: 帰還多項式（Scramblerと同じ）
+/// - dout: 復元した出力ビット（1サイクル遅れ）
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Descrambler[Width: uint = 7]
+where
+    Width >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  din: bit,
+    in  poly: bit[Width],
+    out dout: bit,
+) {
+    var sr: bit[Width] = 0;
+    var d_out: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            sr = 0;
+            d_out = 0;
+        } else if en {
+            d_out = din ^ (sr & poly).xor_reduce();
+            sr = { sr[Width - 2 : 0], din };
+        }
+    }
+
+    comb {
+        dout = d_out;
+    }
+}

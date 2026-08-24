@@ -1,0 +1,42 @@
+/// Descramblerのテストベンチ
+///
+/// Scramblerで撹拌した列をDescramblerへ通し、元のビット列が2サイクル遅れで復元される
+/// ことを確かめる（自己同期。両状態は0から同期して始まる）。
+test DescramblerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var din: bit = 0;
+    var poly: bit[7] = 7'b1100000;   // x^7 + x^6 + 1
+    var pat: bit[8] = 8'b1100_1011;
+    var d1: bit = 0;
+    var d2: bit = 0;
+    var step: bit[8] = 0;
+
+    inst sc = Scrambler { clk: clk, rst: rst, en: en, din: din, poly: poly };
+    inst dut = Descrambler { clk: clk, rst: rst, en: en, din: sc.dout, poly: poly };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; d1 = 0; d2 = 0; } else {
+            step = step + 1;
+            din = pat[0];
+            pat = pat >> 1;
+            d2 = d1;
+            d1 = din;
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step >= 8'd4 {
+                assert dut.dout == d2, "recovered == original (2-cycle delay)";
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(10);
+        $display("DescramblerTB: all checks passed");
+        $finish;
+    }
+}
