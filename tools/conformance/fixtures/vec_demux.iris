@@ -1,0 +1,41 @@
+/// ベクタデマルチプレクサ（1入力N出力、パックドベクタ選択）
+///
+/// `din`（Widthビット）を`sel`で選んだ要素位置に置き、それ以外を0にしたパックドベクタ`data`を出す
+/// （要素iは`data[i*Width +: Width]`）。1本のストリームを複数チャネルへ振り分ける用途、
+/// クロスバの片側、ワンホット化などに使う。組み合わせのみ。
+///
+/// IRISは配列ポートを持たないが、要素を連結したパックドベクタと部分選択で同じ働きを表せる。
+/// `data`は先に0で埋め、選んだ要素だけを部分書き込みで上書きする（comb部分書き込みは累積する）。
+/// `sel`は積`sel*Width`が桁あふれしないようIdxWidthへ拡張してから掛ける。
+///
+/// ジェネリックパラメータ:
+/// - Width:    要素のビット幅（既定8、1以上）
+/// - N:        要素数（既定4、2以上）
+/// - SelWidth: 選択線の幅（導出＝$clog2(N)）
+/// - IdxWidth: ビット位置計算の幅（導出＝$clog2(Width*N)+1）
+/// - Total:    パックドベクタの総幅（導出＝Width*N）
+///
+/// ポート:
+/// - din:  入力（Widthビット）
+/// - sel:  出力先の要素番号（0..N-1）
+/// - data: 出力ベクタ（選んだ要素にdin、他は0）
+mod VecDemux[
+    Width: uint = 8,
+    N: uint = 4,
+    SelWidth: uint = $clog2(N),
+    IdxWidth: uint = $clog2(Width * N) + 1,
+    Total: uint = Width * N,
+]
+where
+    Width >= 1,
+    N >= 2,
+(
+    in  din:  bit[Width],
+    in  sel:  bit[SelWidth],
+    out data: bit[Total],
+) {
+    comb {
+        data = 0;
+        data[sel.resize(IdxWidth) * Width +: Width] = din;
+    }
+}

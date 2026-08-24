@@ -1,0 +1,31 @@
+/// VecDemuxのテストベンチ
+///
+/// dinをselで選んだ要素位置へ振り分け、他が0になることを確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test VecDemuxTB {
+    let clk: clock(period: 10ns);
+    var din: bit[8] = 8'hA5;
+    var sel: bit[2] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = VecDemux { din: din, sel: sel };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { sel = 2'd0; }
+        if step == 8'd2 { sel = 2'd2; }
+        if step == 8'd3 { sel = 2'd3; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.data == 32'h000000A5, "sel=0 -> el0"; }
+        if step == 8'd3 { assert dut.data == 32'h00A50000, "sel=2 -> el2"; }
+        if step == 8'd4 { assert dut.data == 32'hA5000000, "sel=3 -> el3"; }
+    }
+
+    seq {
+        await clk.cycles(6);
+        $display("VecDemuxTB: all checks passed");
+        $finish;
+    }
+}

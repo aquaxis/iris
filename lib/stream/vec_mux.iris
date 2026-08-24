@@ -1,0 +1,39 @@
+/// ベクタマルチプレクサ（N入力1出力、パックドベクタ選択）
+///
+/// `data`はWidthビットの要素をN個パックした1本のベクタ（要素iは`[i*Width +: Width]`）。
+/// `sel`で選んだ要素を`dout`へ出す。複数ストリームの合流やレジスタバンクの読み出し、
+/// クロスバの片側などに使う。組み合わせのみ。
+///
+/// IRISは配列ポートを持たないが、要素を連結したパックドベクタと部分選択で
+/// 同じ働きを表せる。`sel`は積`sel*Width`が桁あふれしないようIdxWidthへ拡張してから掛ける。
+///
+/// ジェネリックパラメータ:
+/// - Width:    要素のビット幅（既定8、1以上）
+/// - N:        要素数（既定4、2以上）
+/// - SelWidth: 選択線の幅（導出＝$clog2(N)）
+/// - IdxWidth: ビット位置計算の幅（導出＝$clog2(Width*N)+1）
+/// - Total:    パックドベクタの総幅（導出＝Width*N）
+///
+/// ポート:
+/// - data: 入力ベクタ（要素iは`data[i*Width +: Width]`）
+/// - sel:  選択する要素番号（0..N-1）
+/// - dout: 選ばれた要素（Widthビット）
+mod VecMux[
+    Width: uint = 8,
+    N: uint = 4,
+    SelWidth: uint = $clog2(N),
+    IdxWidth: uint = $clog2(Width * N) + 1,
+    Total: uint = Width * N,
+]
+where
+    Width >= 1,
+    N >= 2,
+(
+    in  data: bit[Total],
+    in  sel:  bit[SelWidth],
+    out dout: bit[Width],
+) {
+    comb {
+        dout = data[sel.resize(IdxWidth) * Width +: Width];
+    }
+}

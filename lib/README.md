@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在38部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は362/0を保つ（lib部品34個を検体に登録）。
+現在40部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は374/0を保つ（lib部品36個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -14,18 +14,21 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `arith/` | 9 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial` |
 | `mem/` | 5 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
-| `stream/` | 3 | `SpillRegister`／`Serializer`／`Deserializer` |
+| `stream/` | 5 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 3 | `Crc`／`Parity`／`Secded` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 38 | |
+| 合計 | 40 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
 展開する積算（CRC・LFSR・直列DSP）はIRISで素直に書ける。
-一方、combでの総和の畳み込み（popcount／並列CRC）、ジェネリックな配列ポート
-（多ストリームのmux）、ジェネリック関数（汎用math）は現状のIRISでは書けない。
+多ストリームのmux／demuxも、要素を連結した**パックドベクタ**（`bit[Width*N]`）と
+部分選択（`data[i*Width +: Width]`）で書ける。`VecMux`／`VecDemux`が実例で、
+`sel`は積が桁あふれしないよう幅拡張してから掛ける。
+一方、combでの総和の畳み込み（popcount／並列CRC）、`bit[W][N]`という構文の配列ポートそのもの、
+ジェネリック関数（汎用math）は現状のIRISでは書けない。
 （XORの畳み込みは`.xor_reduce()`と部分ビット代入で書ける。`Parity`／`Gray2Bin`が実例。）
 詳しくは各部品の説明と「実装上の注意」に、できなかった理由まで残している。
 
@@ -216,6 +219,17 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 
 `Deserializer`はその対（SIPO）。`en`のたびに`din`を取り込み、Widthビットで`dout`＋`valid`を出す。
 
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `VecMux` | N入力1出力の選択（パックドベクタ） | `Width`（既定8、1以上）、`N`（既定4、2以上）、`SelWidth`／`IdxWidth`／`Total`（導出） |
+| `VecDemux` | 1入力N出力の振り分け（パックドベクタ） | 同上 |
+
+`VecMux`／`VecDemux`はIRISに配列ポートがなくても多ストリームのmux／demuxを表せる例。
+Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを`[i*Width +: Width]`で選ぶ。
+`sel`は積`sel*Width`が桁あふれしないよう`IdxWidth`へ拡張してから掛ける（IRISの積は
+オペランド幅に丸める）。`VecDemux`は`data`を先に0で埋め、選んだ要素だけ部分書き込みで
+上書きする（comb部分書き込みは累積する）。組み合わせのみ。
+
 ### cdc
 
 | 部品 | 機能 | パラメータ |
@@ -324,10 +338,12 @@ combで書ける。SECDEDのパリティ計算（ビット部分集合のXOR）�
 `iris2sv`は`.xor_reduce()`／`.and_reduce()`／`.or_reduce()`をSVの縮約演算子`(^d)`／`(&d)`／`(|d)`へ変換する。
 CRCは直列（毎サイクル1ビット）にすれば書ける（積算を時間に展開する）。
 
-**配列型のポート・var（生成境界に定数以外を使うもの）は書けない。**
+**`bit[W][N]`という構文の配列ポートは書けないが、パックドベクタで代替できる。**
 `in d: bit[Width][N]`や`var a: bit[W][N]`は「expected integer」で拒否される
-（`mem`だけは生成境界にジェネリックを許す）。このため**N本のストリームを束ねるmux／demux
-のような部品は、汎用の配列ポートでは書けない**（個別ポートやinterfaceが要る。今後の課題）。
+（`mem`だけは生成境界にジェネリックを許す）。ただし**N本のストリームを束ねるmux／demux
+は、要素を連結したパックドベクタ`bit[Width*N]`と部分選択`data[i*Width +: Width]`で書ける**
+（`VecMux`／`VecDemux`が実例）。添字は積が桁あふれしないよう`sel.resize(IdxWidth) * Width`と
+拡張してから掛ける。よくある用途はこれで足りる。真の`bit[W][N]`アンパックド配列ポートは今後の課題。
 
 **`iris2sv`は`for`ループに対応した。** 定数境界の`for`は、合成可能なSystemVerilogの
 `for`（`always_comb`／`always_ff`内）へ変換する。これにより上記の`for`ベースの部品も
@@ -371,15 +387,16 @@ IRIS側で書かず、変換後のSystemVerilogからインスタンス化して
 
 | 分野 | 流用先（OSS） | ライセンス | 使い方の要点 |
 |---|---|---|---|
-| AXI一式（xbar／dma／cdc／cut） | [pulp-platform/axi](https://github.com/pulp-platform/axi) | Solderpad 0.51 | 多マスタ/スレーブは配列ポートが要り現状のIRISでは書けない。SVで接続 |
+| AXI一式（xbar／dma／cdc／cut） | [pulp-platform/axi](https://github.com/pulp-platform/axi) | Solderpad 0.51 | データパスはパックドベクタmux（`VecMux`）で書けるが、多マスタ/スレーブのプロトコルと調停は規模が大きく実証が要る。SVで接続 |
 | 汎用セル（深いFIFO／可変段数同期化器ほか） | [pulp-platform/common_cells](https://github.com/pulp-platform/common_cells) | Solderpad 0.51 | 本libに無い変種はこちら（例：段数可変の`sync`、`fifo_v3`） |
 | 暗号（AES／SHA-2／PRNG） | [OpenTitan](https://github.com/lowRISC/opentitan) `hw/ip/*`／`prim_*` | Apache 2.0 | 正しさとSCA対策のため自作しない。ラウンド関数のXOR網はcomb畳み込みにも当たる |
 | 浮動小数点演算器 | [berkeley-hardfloat](https://github.com/ucb-bar/berkeley-hardfloat)／[pulp-platform/fpnew](https://github.com/pulp-platform/cvfpu) | BSD／Solderpad | IRISの`f32`/`f64`は模擬実行用。合成する演算器はこちら |
 | 周辺IF（Ethernet／PCIe／UART DMA等） | [alexforencich/verilog-*](https://github.com/alexforencich) | MIT | 本libの`uart`/`spi`/`i2c`は軽量版。本格版はこちら |
 | 大型DSP（FFT等） | 各ベンダ／OSS | 各条件 | 規模が大きく実証が要る |
 
-判断基準は、IRISのcombの限界（XOR畳み込み/積算不可）と配列ポート不可。
-直列にできるもの・FSMで書けるものはIRIS、重い/実証が要る/限界に当たるものはOSS。
+判断基準は、IRISのcombの総和畳み込みの限界（popcount／並列CRC不可）。
+直列にできるもの・FSMで書けるもの・パックドベクタで表せるものはIRIS、
+重い/実証が要る/限界に当たるものはOSS。
 
 ## IRISで表さないもの
 
