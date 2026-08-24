@@ -5,14 +5,14 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-60 parts in 10 categories. Every part passes three checks: an `iris-sim`
+62 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 494/0 (56 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 506/0 (58 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 9 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot` |
-| `arith/` | 12 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck` |
+| `arith/` | 14 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator` |
 | `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 60 | |
+| Total | 62 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -209,6 +209,17 @@ are built with per-bit assignment (set/clear just the MSB). Combinational only.
 `OneHotCheck` clears the lowest set bit with `din & (din - 1)`; if the result is 0
 and `din` is non-zero, `is_onehot` is 1 (no fold/popcount needed). `is_zero` is 1
 when all bits are 0. Combinational only.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Abs` | absolute value (signed two's complement) | `Width` (default 8, >= 2) |
+| `Accumulator` | accumulator (adds on `en`, clears on `clear`) | `Width` (default 16, >= 1) |
+
+`Abs` returns `~a + 1` when negative, `a` otherwise; the most-negative value
+(`0x80..`) has no same-width magnitude and wraps back to itself (documented).
+`Accumulator` does `acc += din` on each `en` and resets on `clear` — a plain
+accumulator with no multiply (use `MacSerial` for multiply-accumulate, or combine
+with `SatAdd` for saturation); the add wraps at `Width`.
 
 ### mem
 
