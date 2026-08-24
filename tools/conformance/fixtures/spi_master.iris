@@ -1,0 +1,98 @@
+/// SPIマスタ（モード0、MSB先頭、全二重）
+///
+/// `start`で`data_in`（Widthビット）をMSB先頭でMOSIに送りつつ、MISOを取り込む。
+/// モード0（CPOL=0：sclkのアイドルは0、CPHA=0：立上りで標本化・立下りで送出更新）。
+/// sclkは`clk`を分周して作る（半周期＝`ClkDiv`クロック、周期＝2*ClkDiv）。
+///
+/// ジェネリックパラメータ:
+/// - Width:    転送ビット数（既定8、1以上）
+/// - ClkDiv:   sclk半周期のクロック数（既定2、1以上）
+/// - CntWidth: 分周カウンタ幅（導出）
+/// - IdxWidth: ビット計数の幅（導出、0..Widthを数える）
+///
+/// ポート:
+/// - start:    1で転送開始（busyでないとき）
+/// - data_in:  送るデータ（MSB先頭）
+/// - miso:     スレーブからの入力
+/// - sclk／mosi／cs_n: SPI線（cs_nは能動Low）
+/// - data_out: 受信データ（転送後に有効）
+/// - busy:     転送中は1
+/// - done:     転送完了の次に1サイクルだけ1
+///
+/// リセットは非同期assert・同期deassert、能動High。sclk=0、cs_n=1で始まる。
+mod SpiMaster[
+    Width: uint = 8,
+    ClkDiv: uint = 2,
+    CntWidth: uint = $clog2(ClkDiv),
+    IdxWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+    ClkDiv >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  data_in: bit[Width],
+    in  miso: bit,
+    out sclk: bit,
+    out mosi: bit,
+    out cs_n: bit,
+    out data_out: bit[Width],
+    out busy: bit,
+    out done: bit,
+) {
+    var st: bit = 0;
+    var sclk_r: bit = 0;
+    var cs_r: bit = 1;
+    var mosi_r: bit = 0;
+    var shift: bit[Width] = 0;
+    var div_cnt: bit[CntWidth] = 0;
+    var bit_cnt: bit[IdxWidth] = 0;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if st == 0 {
+            sclk_r = 0;
+            cs_r = 1;
+            if start {
+                shift = data_in;
+                mosi_r = data_in[Width - 1];
+                cs_r = 0;
+                div_cnt = 0;
+                bit_cnt = 0;
+                st = 1;
+            }
+        } else {
+            if div_cnt == ClkDiv - 1 {
+                div_cnt = 0;
+                if ~sclk_r {
+                    sclk_r = 1;
+                    shift = { shift[Width - 2 : 0], miso };
+                    bit_cnt = bit_cnt + 1;
+                } else {
+                    sclk_r = 0;
+                    if bit_cnt == Width {
+                        cs_r = 1;
+                        st = 0;
+                        done_r = 1;
+                    } else {
+                        mosi_r = shift[Width - 1];
+                    }
+                }
+            } else {
+                div_cnt = div_cnt + 1;
+            }
+        }
+    }
+
+    comb {
+        sclk = sclk_r;
+        mosi = mosi_r;
+        cs_n = cs_r;
+        data_out = shift;
+        busy = st != 0;
+        done = done_r;
+    }
+}

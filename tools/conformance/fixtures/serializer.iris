@@ -1,0 +1,65 @@
+/// シリアライザ（パラレル入力・シリアル出力、PISO、LSB先頭）
+///
+/// `load`で`din`（Widthビット）を取り込み、Widthサイクルかけて1ビットずつ`dout`へ出す。
+/// LSB先頭。`valid`は出力が有効なあいだ1、`done`は最後のビットのサイクルに1。
+/// SPI／UART様のフレーミングやLVDSの送出などに使う。
+///
+/// ジェネリックパラメータ:
+/// - Width:    語のビット幅（既定8、1以上）
+/// - CntWidth: ビット計数の幅（導出＝$clog2(Width)+1）
+///
+/// ポート:
+/// - load:  1で`din`を取り込み送出を始める（busyでないとき）
+/// - din:   パラレル入力
+/// - dout:  シリアル出力（busyのあいだ有効、LSB先頭）
+/// - valid: 送出中は1
+/// - busy:  送出中は1
+/// - done:  最後のビットのサイクルに1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Serializer[
+    Width: uint = 8,
+    CntWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  load: bit,
+    in  din: bit[Width],
+    out dout: bit,
+    out valid: bit,
+    out busy: bit,
+    out done: bit,
+) {
+    var st: bit = 0;
+    var sr: bit[Width] = 0;
+    var cnt: bit[CntWidth] = 0;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if st == 0 {
+            if load {
+                sr = din;
+                cnt = 0;
+                st = 1;
+            }
+        } else {
+            sr = sr >> 1;
+            cnt = cnt + 1;
+            if cnt == Width - 1 {
+                st = 0;
+                done_r = 1;
+            }
+        }
+    }
+
+    comb {
+        dout = sr[0];
+        valid = st != 0;
+        busy = st != 0;
+        done = done_r;
+    }
+}

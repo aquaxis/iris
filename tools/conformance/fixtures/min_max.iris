@@ -1,0 +1,47 @@
+/// 2入力の最小/最大（符号なし・符号付き両対応）
+///
+/// `a`と`b`のうち小さい方（`Max`が0）または大きい方（`Max`が1）を出す。
+/// `Signed`が0なら符号なし比較、1なら符号付き比較（`.signed()`で解釈する）。
+///
+/// 組み合わせ回路である。まず`out = a`とし、条件に合えば`out = b`で上書きする
+/// （選択なのでcombで書ける。比較は入力を読むだけで、outは読まない）。
+///
+/// ジェネリックパラメータ:
+/// - Width:  ビット幅（既定8、1以上）
+/// - Signed: 0=符号なし、1=符号付き（既定0）
+/// - Max:    0=最小、1=最大（既定0）
+///
+/// ポート:
+/// - a／b: 入力
+/// - out:  選ばれた方
+mod MinMax[
+    Width: uint = 8,
+    Signed: uint = 0,
+    Max: uint = 0,
+]
+where
+    Width >= 1,
+(
+    in  a: bit[Width],
+    in  b: bit[Width],
+    out out_val: bit[Width],
+) {
+    comb {
+        out_val = a;
+        if Max == 1 {
+            // 大きい方を選ぶ：bがaより大きければb
+            if Signed == 1 {
+                if a.signed() < b.signed() { out_val = b; }
+            } else {
+                if a < b { out_val = b; }
+            }
+        } else {
+            // 小さい方を選ぶ：bがaより小さければb
+            if Signed == 1 {
+                if b.signed() < a.signed() { out_val = b; }
+            } else {
+                if b < a { out_val = b; }
+            }
+        }
+    }
+}

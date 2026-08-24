@@ -1,0 +1,28 @@
+/// リセット同期化器（非同期assert・同期deassert）
+///
+/// リセットの解除（deassert）だけをクロックに同期させる。assertは非同期で即座に効く。
+/// これにより、リセット解除の瞬間にメタステーブルを起こさない。
+///
+/// 1の列を2段のFFに流し込む。リセット中は両段が0なので出力は1（assert）。
+/// 解除後は2サイクルで出力が0に落ちる（sync deassert）。段数は定番の2段に固定。
+///
+/// 出力`rst_out`は能動High（1でリセット中）。
+///
+/// 注意: 同期化器と同じく、配置制約はIRISからは出せない。論理だけを与える。
+mod RstSync(
+    in  clk: clock,
+    in  rst_in: reset,
+    out rst_out: bit,
+) {
+    var s1: bit = 0;
+    var s2: bit = 0;
+
+    sync(clk.posedge, rst_in.async) {
+        s1 = 1;
+        s2 = s1;
+    }
+
+    comb {
+        rst_out = ~s2;
+    }
+}

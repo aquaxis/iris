@@ -1,0 +1,32 @@
+/// GRAY符号カウンタ
+///
+/// 2進カウンタを回し、その値をGRAY符号で出す（隣接値が1ビット差）。
+/// CDCを跨ぐポインタに使う。
+///
+/// ジェネリックパラメータ:
+/// - Width: 幅（既定8、1以上）
+///
+/// リセットは非同期assert・同期deassert、能動High。0で始まる。
+mod GrayCounter[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en: bit,
+    out gray: bit[Width],
+) {
+    var count: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if en {
+            count = count + 1;
+        }
+    }
+
+    comb {
+        gray = count ^ (count >> 1);
+    }
+}

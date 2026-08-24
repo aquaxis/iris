@@ -1,0 +1,41 @@
+/// パルス同期化器（クロック跨ぎ）
+///
+/// 送信ドメインの1サイクル幅パルスを、受信ドメインの1サイクル幅パルスに渡す。
+/// 送信側でトグルを反転し、受信側で2段同期＋エッジ検出して1パルスに戻す。
+/// レベルではなくトグルを渡すので、パルスが同期段で消えない。
+///
+/// 送信パルスの間隔は、同期の遅れ（受信側で数サイクル）より広いこと。
+/// 詰めて送るとトグルの反転が追いつかず、パルスが失われる。
+///
+/// リセットは非同期assert・同期deassert、能動High。
+///
+/// 注意: 同期段の配置制約（最大遅延SDC）はIRISから出せない。利用者の責任。
+mod PulseSync(
+    in  src_clk: clock,
+    in  src_rst: reset,
+    in  pulse_in: bit,
+    in  dst_clk: clock,
+    in  dst_rst: reset,
+    out pulse_out: bit,
+) {
+    var toggle: bit = 0;
+    var sync1: bit = 0;
+    var sync2: bit = 0;
+    var sync3: bit = 0;
+
+    sync(src_clk.posedge, src_rst.async) {
+        if pulse_in {
+            toggle = ~toggle;
+        }
+    }
+
+    sync(dst_clk.posedge, dst_rst.async) {
+        sync1 = toggle;
+        sync2 = sync1;
+        sync3 = sync2;
+    }
+
+    comb {
+        pulse_out = sync2 ^ sync3;
+    }
+}

@@ -6,7 +6,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 全体像
 
 現在38部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は242/0を保つ（代表14部品を検体に登録）。
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は362/0を保つ（lib部品34個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
