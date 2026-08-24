@@ -5,13 +5,13 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-50 parts in 10 categories. Every part passes three checks: an `iris-sim`
+52 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 434/0 (46 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 446/0 (48 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
-| `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
+| `timing/` | 9 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot` |
 | `arith/` | 12 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck` |
 | `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 50 | |
+| Total | 52 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -124,6 +124,20 @@ at the maximum (all ones) and the minimum (0). The maximum is detected with
 
 `EdgeDetect` registers the previous value and emits `rise = d & ~prev`,
 `fall = ~d & prev`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Timer` | periodic timer (down-counter, one-cycle `tick` at 0, auto-reload) | `Width` (default 16, >= 1) |
+| `OneShot` | one-shot / pulse stretcher (a `Len`-cycle pulse on a `trig` rising edge) | `Len` (pulse width, default 4, >= 1), `CntWidth` (derived `$clog2(Len)+1`) |
+
+`Timer` counts down from `reload` to 0 while `en`, pulses `tick` for one cycle at 0
+and reloads (period = `reload + 1`); `reload` is sampled every cycle, so it can
+change on the fly. Use it for a periodic interrupt or rate generation.
+
+`OneShot` detects a rising edge on `trig` (comparing against the previous value)
+and holds `pulse` high for `Len` cycles (counting down from `Len-1`). It stretches
+a short event into a fixed-width control signal; a re-trigger while running is
+ignored.
 
 ### arith
 

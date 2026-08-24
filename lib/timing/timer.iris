@@ -1,0 +1,52 @@
+/// 周期タイマ（ダウンカウンタ、0で1サイクルtick、自動リロード）
+///
+/// `en`のあいだ`reload`から0へ数え下げ、0に達したサイクルで`tick`を1サイクル出し、
+/// `reload`を読み直して繰り返す。周期は`reload + 1`サイクル。周期割り込み、
+/// タイムアウト、レート生成などに使う。`reload`は毎サイクル参照するので動的に変えられる。
+///
+/// カウンタは0開始で、最初に`en`が立った0のサイクルで即tickして`reload`を読み込む。
+/// 以降は`reload`→0を繰り返す（周期`reload+1`）。
+///
+/// ジェネリックパラメータ:
+/// - Width: カウンタ／リロード値のビット幅（既定16、1以上）
+///
+/// ポート:
+/// - en:     1のあいだ数え下げる（0なら保持）
+/// - reload: 0に達したとき読み込む再ロード値（周期＝reload+1）
+/// - tick:   0に達したサイクルに1（1サイクル幅）
+/// - count:  現在のカウンタ値
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Timer[Width: uint = 16]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  reload: bit[Width],
+    out tick: bit,
+    out count: bit[Width],
+) {
+    var cnt: bit[Width] = 0;
+    var tick_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        tick_r = 0;
+        if rst {
+            cnt = 0;
+        } else if en {
+            if cnt == 0 {
+                cnt = reload;
+                tick_r = 1;
+            } else {
+                cnt = cnt - 1;
+            }
+        }
+    }
+
+    comb {
+        count = cnt;
+        tick = tick_r;
+    }
+}
