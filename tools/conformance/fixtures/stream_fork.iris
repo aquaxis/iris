@@ -1,0 +1,45 @@
+/// ストリームフォーク（1入力→N出力への分配、全消費側が受けたら転送）
+///
+/// 1本の入力ストリームを、同じデータでN本の出力へ同時に配る（ブロードキャスト）。
+/// 入力の転送は全ての出力が`out_ready`のとき成立する（`in_ready = 全out_readyのAND`）。
+/// 1つのデータを複数の処理系へ同時に流すのに使う。組み合わせのみ。
+///
+/// `out_valid`は各出力に`in_valid`をそのまま配り、`out_data`は各要素に同じ`in_data`を置く
+/// （パックドベクタ`bit[Width*N]`、要素iは`[i*Width +: Width]`）。
+/// `in_ready`は`out_ready`のANDリダクション（全消費側が同時に受けられるときだけ成立）。
+///
+/// 注意: 出力ごとのバッファは持たない。全消費側が同じサイクルで`out_ready`を上げる必要がある
+/// （個別に受けてから待たせたい場合は各出力に`SpillRegister`を挟む）。
+///
+/// ジェネリックパラメータ:
+/// - Width: データのビット幅（既定8、1以上）
+/// - N:     出力数（既定2、2以上）
+/// - Total: 出力データの総幅（導出＝Width*N）
+///
+/// ポート:
+/// - in_valid／in_data／in_ready: 入力側ハンドシェイク
+/// - out_valid／out_data／out_ready: 出力側ハンドシェイク（N本、valid/readyはbit[N]）
+mod StreamFork[
+    Width: uint = 8,
+    N: uint = 2,
+    Total: uint = Width * N,
+]
+where
+    Width >= 1,
+    N >= 2,
+(
+    in  in_valid: bit,
+    in  in_data: bit[Width],
+    out in_ready: bit,
+    out out_valid: bit[N],
+    out out_data: bit[Total],
+    in  out_ready: bit[N],
+) {
+    comb {
+        in_ready = out_ready.and_reduce();
+        for i in 0..N {
+            out_valid[i] = in_valid;
+            out_data[i * Width +: Width] = in_data;
+        }
+    }
+}

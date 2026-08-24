@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在54部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は458/0を保つ（lib部品50個を検体に登録）。
+現在56部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は470/0を保つ（lib部品52個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -14,13 +14,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `arith/` | 12 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck` |
 | `mem/` | 6 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
-| `stream/` | 7 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer` |
+| `stream/` | 9 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 5 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 54 | |
+| 合計 | 56 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -279,6 +279,17 @@ Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを
 1つずつ出す（取り込み中は`in_ready`を下げる）。`StreamUpsizer`はその逆で、狭い語をN個集めて
 1語にまとめ、そろったら`out_valid`を上げる。要素位置は`cnt`を`IdxWidth`へ拡張して`*Width`し、
 部分選択で読み書きする（`VecMux`／`VecDemux`と同じ手筋）。ready/validでバックプレッシャに従う。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `StreamFork` | 1入力→N出力へ分配（全消費側が受けたら転送） | `Width`（既定8、1以上）、`N`（既定2、2以上）、`Total`（導出） |
+| `StreamJoin` | N入力→1出力へ同期合流（全入力が揃ったら転送） | 同上 |
+
+`StreamFork`は入力を同じデータでN本へ配り（`out_valid`は各出力に`in_valid`、`out_data`は各要素に
+`in_data`）、`in_ready`を`out_ready`のANDにする（全消費側が同時に受けられるとき転送）。
+`StreamJoin`はその逆で、`out_valid`を`in_valid`のANDにし、`in_ready[i]`を「全入力有効かつ`out_ready`」に
+する（全入力を同時に消費）。多方向のvalid/readyは`bit[N]`、データはパックドベクタ。組み合わせのみ。
+出力／入力ごとのバッファは持たない（個別に待たせたい場合は`SpillRegister`を挟む）。
 
 ### cdc
 
