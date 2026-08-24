@@ -5,14 +5,14 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-71 parts in 10 categories. Every part passes three checks: an `iris-sim`
+72 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 560/0 (67 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 566/0 (68 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 11 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog`, `JohnsonCounter` |
-| `arith/` | 16 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator` |
+| `arith/` | 17 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator`, `Bin2Bcd` |
 | `mem/` | 8 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer`, `Lifo` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 4 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco` |
 | `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 71 | |
+| Total | 72 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 71/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 72/0)
 ```
 
 ## Parts
@@ -267,6 +267,17 @@ time** (same approach as CRC/FIR/moving-average); `done` pulses on the last bit,
 `Signed: 1` it compares in two's complement via `.signed()`. Unlike `MinMax` (which
 returns the selected value), it returns the relation — for thresholds, sorting
 networks, or FSM branch conditions. Combinational only.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Bin2Bcd` | binary to BCD (double-dabble, bit-serial) | `Width` (default 8, >= 1), `Digits` (BCD digits, default 3), `BcdWidth`/`CntWidth` (derived) |
+
+`Bin2Bcd` latches `bin` on `start` and converts it to BCD (4 bits/digit) over `Width`
+cycles — the front end of a 7-segment or decimal display. Each cycle it computes
+"add 3 to any digit >= 5" in `comb` (`adj`) then shifts left in `sync`, feeding in the
+top binary bit. `255 -> 0x255`, `99 -> 0x099` are checked. Same idiom as the serial
+DSP/CRC parts (intermediate result in `comb`, `sync` is non-blocking); `done` pulses
+on the final cycle.
 
 ### mem
 

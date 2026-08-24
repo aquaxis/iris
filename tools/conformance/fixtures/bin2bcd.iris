@@ -1,0 +1,88 @@
+/// 2進→BCD変換（ダブルダブル法、ビット直列）
+///
+/// `start`で`bin`を取り込み、Widthサイクルで2進数をBCD（4ビット/桁）へ変換する。
+/// 7セグ表示や10進出力の前段に使う。Widthサイクルの直列アルゴリズム（面積が小さい）。
+///
+/// ダブルダブル法：毎サイクル、各BCD桁が5以上なら3を足してから全体を左シフトし、
+/// 2進数の最上位ビットを最下位へ送り込む。桁ごとの「5以上なら+3」はcombで作り（`adj`）、
+/// syncでシフトして`bcd_r`へ登録する（syncは非ブロッキングなので中間結果はcombに置く）。
+///
+/// ジェネリックパラメータ:
+/// - Width:    2進入力のビット幅（既定8、1以上）
+/// - Digits:   BCD桁数（既定3。Widthが表せる十進桁数以上にすること。8ビット=3桁）
+/// - BcdWidth: BCD出力の幅（導出＝Digits*4）
+/// - CntWidth: ビット計数の幅（導出＝$clog2(Width)+1）
+///
+/// ポート:
+/// - start: 1で`bin`を取り込み変換を始める（busyでないとき）
+/// - bin:   2進入力
+/// - bcd:   BCD結果（4ビット/桁、変換完了後に有効）
+/// - done:  最後のサイクルに1（1サイクル幅）
+/// - busy:  変換中は1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Bin2Bcd[
+    Width: uint = 8,
+    Digits: uint = 3,
+    BcdWidth: uint = Digits * 4,
+    CntWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+    Digits >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  bin: bit[Width],
+    out bcd: bit[BcdWidth],
+    out done: bit,
+    out busy: bit,
+) {
+    var sr: bit[Width] = 0;
+    var bcd_r: bit[BcdWidth] = 0;
+    var adj: bit[BcdWidth] = 0;
+    var cnt: bit[CntWidth] = 0;
+    var busy_r: bit = 0;
+    var done_r: bit = 0;
+
+    comb {
+        for d in 0..Digits {
+            if bcd_r[d * 4 +: 4] >= 5 {
+                adj[d * 4 +: 4] = bcd_r[d * 4 +: 4] + 3;
+            } else {
+                adj[d * 4 +: 4] = bcd_r[d * 4 +: 4];
+            }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if rst {
+            busy_r = 0;
+            bcd_r = 0;
+            cnt = 0;
+        } else if busy_r == 0 {
+            if start == 1 {
+                sr = bin;
+                bcd_r = 0;
+                cnt = 0;
+                busy_r = 1;
+            }
+        } else {
+            bcd_r = { adj[BcdWidth - 2 : 0], sr[Width - 1] };
+            sr = sr << 1;
+            cnt = cnt + 1;
+            if cnt == Width - 1 {
+                busy_r = 0;
+                done_r = 1;
+            }
+        }
+    }
+
+    comb {
+        bcd = bcd_r;
+        done = done_r;
+        busy = busy_r;
+    }
+}

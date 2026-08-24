@@ -5,13 +5,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在71部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は560/0を保つ（lib部品67個を検体に登録）。
+現在72部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は566/0を保つ（lib部品68個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 11 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog`／`JohnsonCounter` |
-| `arith/` | 16 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator` |
+| `arith/` | 17 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator`／`Bin2Bcd` |
 | `mem/` | 8 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer`／`Lifo` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 4 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco` |
 | `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 71 | |
+| 合計 | 72 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 71/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 72/0）
 ```
 
 ## 部品一覧
@@ -237,6 +237,15 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 `Comparator`は`a`と`b`を比べ`lt`（a<b）・`eq`・`gt`の3フラグを出す。`Signed`が1なら`.signed()`で
 2の補数比較する。値を選ぶ`MinMax`と違い、大小「関係」を出す（しきい値・ソート網・FSM分岐に使う）。
 組み合わせのみ。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Bin2Bcd` | 2進→BCD変換（ダブルダブル法、ビット直列） | `Width`（既定8、1以上）、`Digits`（BCD桁数、既定3）、`BcdWidth`／`CntWidth`（導出） |
+
+`Bin2Bcd`は`start`で`bin`を取り込み、Widthサイクルで2進数をBCD（4ビット/桁）に変換する
+（7セグ表示・10進出力の前段）。毎サイクル「各桁が5以上なら+3」をcombで作り（`adj`）、
+syncで左シフトして2進の最上位ビットを送り込む。255→0x255、99→0x099を確認。直列DSP/CRCと同じ
+「combの中間結果はcombに置き、syncは非ブロッキング」の手筋。`done`は完了サイクルに1。
 
 ### mem
 

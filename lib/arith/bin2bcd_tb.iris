@@ -1,0 +1,34 @@
+/// Bin2Bcdのテストベンチ
+///
+/// 255→BCD 0x255、99→BCD 0x099 を確かめる（2件を順に、busyの後に次を始める）。
+test Bin2BcdTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var start: bit = 0;
+    var bin: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Bin2Bcd { clk: clk, rst: rst, start: start, bin: bin };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            start = 0;
+            if step == 8'd1  { start = 1; bin = 8'd255; }
+            if step == 8'd13 { start = 1; bin = 8'd99; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd11 { assert dut.bcd == 12'h255, "255 -> BCD 0x255"; assert dut.done == 1, "done"; }
+            if step == 8'd23 { assert dut.bcd == 12'h099, "99 -> BCD 0x099"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(26);
+        $display("Bin2BcdTB: all checks passed");
+        $finish;
+    }
+}
