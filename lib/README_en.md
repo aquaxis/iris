@@ -5,13 +5,13 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-64 parts in 10 categories. Every part passes three checks: an `iris-sim`
+65 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 518/0 (60 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 524/0 (61 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
-| `timing/` | 9 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot` |
+| `timing/` | 10 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog` |
 | `arith/` | 15 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial` |
 | `mem/` | 7 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 64 | |
+| Total | 65 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 64/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 65/0)
 ```
 
 ## Parts
@@ -148,6 +148,15 @@ change on the fly. Use it for a periodic interrupt or rate generation.
 and holds `pulse` high for `Len` cycles (counting down from `Len-1`). It stretches
 a short event into a fixed-width control signal; a re-trigger while running is
 ignored.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Watchdog` | watchdog timer (alarm if not `kick`-ed within `timeout`) | `Width` (default 16, >= 1) |
+
+`Watchdog` counts up while `en` and latches `alarm` on reaching `timeout`; a `kick`
+resets the counter and `alarm` (`kick` takes priority over `en`). It flags a hang or
+fault when the periodic `kick` stops (functional safety / monitoring) — unlike
+`Timer`'s periodic tick, it checks "did a kick arrive in time".
 
 ### arith
 
