@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-47 parts in 10 categories. Every part passes three checks: an `iris-sim`
+48 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 416/0 (43 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 422/0 (44 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -19,9 +19,9 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 4 | `Crc`, `Parity`, `Secded`, `TmrVoter` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
-| `dsp/` | 2 | `FirSerial`, `MacSerial` |
+| `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 47 | |
+| Total | 48 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -391,6 +391,18 @@ by value, so a signed result compares against a negative literal
 A generic width on `int[Width]`/`uint[Width]` also works now (like `bit[Width]`; a
 parser limitation was fixed) — so signed parts can use either `bit[N]` + `.signed()`
 or `int[N]` directly and keep the width generic.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `MovingAverage` | moving average (boxcar, window `N` = power of two) | `Width` (default 8, >= 1), `N` (window, power of two, default 4, >= 2), `LogN`/`SumWidth`/`Total` (derived) |
+
+`MovingAverage` outputs the mean of the last `N` samples. A sum-fold (adding `N`
+samples every cycle) is not expressible in `comb`, but a **running sum** is
+(`sum += din - the oldest sample leaving the window`); the oldest comes from the
+last stage of an `N`-deep delay line (a packed vector). With `N` a power of two the
+mean is `sum >> LogN`. After reset the delay line is 0, so it ramps up correctly
+over the first `N` cycles — the same "unroll a convolution over time" approach as
+`FirSerial`.
 
 ### util
 

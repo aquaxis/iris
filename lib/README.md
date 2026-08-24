@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在47部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は416/0を保つ（lib部品43個を検体に登録）。
+現在48部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は422/0を保つ（lib部品44個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -18,9 +18,9 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 4 | `Crc`／`Parity`／`Secded`／`TmrVoter` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
-| `dsp/` | 2 | `FirSerial`／`MacSerial` |
+| `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 47 | |
+| 合計 | 48 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -349,6 +349,16 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 比較できる（この比較はiris-simの修正で対応した。9.3.1参照）。
 `int[Width]`／`uint[Width]`のジェネリック幅も書ける（`bit[Width]`と同様。パーサの不備を修正）。
 `bit[N]`＋`.signed()`でも、`int[N]`直接でも、どちらでも幅をジェネリックにできる。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `MovingAverage` | 移動平均（ボックスカー、窓幅N＝2のべき乗） | `Width`（既定8、1以上）、`N`（窓幅、2のべき乗、既定4、2以上）、`LogN`／`SumWidth`／`Total`（導出） |
+
+`MovingAverage`は直近N個の平均を出す。総和の畳み込み（毎サイクルN個を足す）はcombでは
+書けないが、**走査和**（`sum += din - 窓から出る最古の標本`）なら書ける。最古の標本は
+長さNの遅延線（連結パックドベクタ）の最終段から得る。Nが2のべき乗なので平均は`sum >> LogN`。
+リセット直後は遅延線が0なので最初のNサイクルで正しく立ち上がる。`FirSerial`と同じ
+「畳み込みは直列（時間）に展開すれば書ける」方針の実例。
 
 ### util
 

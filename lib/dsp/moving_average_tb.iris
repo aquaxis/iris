@@ -1,0 +1,34 @@
+/// MovingAverageのテストベンチ
+///
+/// 窓幅N=4（既定）で、一定入力に平均が立ち上がって収束することを確かめる。
+/// 40を入れ続けると4サイクルで40へ、次に80を入れ続けると窓が入れ替わり80へ収束する。
+test MovingAverageTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var din: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = MovingAverage { clk: clk, rst: rst, en: en, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step <= 8'd4 { din = 8'd40; } else { din = 8'd80; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd5  { assert dut.avg == 8'd40, "window of 40s -> 40"; }
+            if step == 8'd7  { assert dut.avg == 8'd50, "mixed window -> 50"; }
+            if step == 8'd10 { assert dut.avg == 8'd80, "window of 80s -> 80"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(13);
+        $display("MovingAverageTB: all checks passed");
+        $finish;
+    }
+}
