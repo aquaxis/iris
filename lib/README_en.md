@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-56 parts in 10 categories. Every part passes three checks: an `iris-sim`
+58 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 470/0 (52 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 482/0 (54 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -15,13 +15,13 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `arith/` | 12 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck` |
 | `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
-| `stream/` | 9 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin` |
+| `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 5 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 56 | |
+| Total | 58 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -326,6 +326,18 @@ beat transfers when every consumer is ready at once). `StreamJoin` is the revers
 `out_ready`" (all inputs consumed together). The N-way valid/ready are `bit[N]`,
 data is a packed vector. Combinational only; no per-output/-input buffering (insert
 a `SpillRegister` where independent buffering is needed).
+
+| Part | Function | Parameters |
+|---|---|---|
+| `StreamFilter` | pass/drop items by a `keep` predicate | `Width` (default 8, >= 1) |
+| `CreditCounter` | credit-based flow control | `Width` (default 8, >= 1), `MaxCredit` (initial credits, default 8) |
+
+`StreamFilter` forwards an item when `keep` is 1 (`out_valid = in_valid`, gated by
+`out_ready`) and swallows it when `keep` is 0 (`in_ready` held high, no output) —
+for dropping unwanted items. Combinational only. `CreditCounter` tracks available
+credits: `give` returns one (+1), `take` spends one (-1), both at once cancel; it
+starts at `MaxCredit` and raises `available` while any remain — the classic
+credit-based flow-control counter.
 
 ### cdc
 

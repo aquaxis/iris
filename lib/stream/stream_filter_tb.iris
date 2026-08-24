@@ -1,0 +1,34 @@
+/// StreamFilterのテストベンチ
+///
+/// keep=1で通過（out_valid=in_valid、in_ready=out_ready）、keep=0で破棄
+/// （out_valid=0、in_ready=1で吸い込む）を確かめる。組み合わせなので次サイクルで読む。
+test StreamFilterTB {
+    let clk: clock(period: 10ns);
+    var in_valid: bit = 1;
+    var in_data: bit[8] = 8'h55;
+    var keep: bit = 1;
+    var out_ready: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = StreamFilter {
+        in_valid: in_valid, in_data: in_data, keep: keep, out_ready: out_ready
+    };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd2 { keep = 0; }              // 破棄
+        if step == 8'd4 { keep = 1; out_ready = 0; }  // 通過だが下流stall
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd1 { assert dut.out_valid == 1, "keep -> valid"; assert dut.in_ready == 1, "keep ready = out_ready"; }
+        if step == 8'd3 { assert dut.out_valid == 0, "drop -> no valid"; assert dut.in_ready == 1, "drop -> always ready"; }
+        if step == 8'd5 { assert dut.out_valid == 1, "keep again"; assert dut.in_ready == 0, "stall -> not ready"; }
+    }
+
+    seq {
+        await clk.cycles(7);
+        $display("StreamFilterTB: all checks passed");
+        $finish;
+    }
+}
