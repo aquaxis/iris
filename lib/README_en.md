@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-66 parts in 10 categories. Every part passes three checks: an `iris-sim`
+67 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 530/0 (62 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 536/0 (63 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -20,8 +20,8 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `coding/` | 7 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
-| `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 66 | |
+| `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
+| Total | 67 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 66/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 67/0)
 ```
 
 ## Parts
@@ -563,6 +563,15 @@ part-select write with an `if be[i] { 8'hFF } else { 8'h00 }` value. `EndianSwap
 `(Bytes-1-i)*8` — where parentheses override precedence — round-trips through
 iris2sv with the grouping preserved (iris2sv now parenthesizes by precedence;
 previously it emitted `Bytes-1-i*8`, silently changing the meaning).
+
+| Part | Function | Parameters |
+|---|---|---|
+| `RangeMask` | range (boxcar) mask — bits in `[lo, hi)` set | `Width` (default 8, >= 1), `IdxWidth` (derived `$clog2(Width)+1`) |
+
+`RangeMask` sets bits from `lo` up to (not including) `hi` (`mask[i] = lo<=i<hi`),
+filling one bit per `for` iteration by comparing the loop constant `i` with `lo`/`hi`.
+Use it for field extraction, windowing, or ranged byte-enables; `hi<=lo` gives an
+empty mask. Combinational only.
 
 ## Implementation notes
 

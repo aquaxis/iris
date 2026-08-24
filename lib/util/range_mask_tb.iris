@@ -1,0 +1,33 @@
+/// RangeMaskのテストベンチ
+///
+/// [2,6)・[0,8)・空[5,5)・[0,1) のマスクを確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test RangeMaskTB {
+    let clk: clock(period: 10ns);
+    var lo: bit[4] = 0;
+    var hi: bit[4] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = RangeMask { lo: lo, hi: hi };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { lo = 4'd2; hi = 4'd6; }
+        if step == 8'd2 { lo = 4'd0; hi = 4'd8; }
+        if step == 8'd3 { lo = 4'd5; hi = 4'd5; }
+        if step == 8'd4 { lo = 4'd0; hi = 4'd1; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.mask == 8'b0011_1100, "range [2,6)"; }
+        if step == 8'd3 { assert dut.mask == 8'b1111_1111, "range [0,8)"; }
+        if step == 8'd4 { assert dut.mask == 8'b0000_0000, "empty [5,5)"; }
+        if step == 8'd5 { assert dut.mask == 8'b0000_0001, "range [0,1)"; }
+    }
+
+    seq {
+        await clk.cycles(7);
+        $display("RangeMaskTB: all checks passed");
+        $finish;
+    }
+}
