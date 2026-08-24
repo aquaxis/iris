@@ -5,14 +5,14 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-31 parts in 9 categories. Every part passes three checks: an `iris-sim`
+32 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 `tools/conformance/run.sh` stays at 158/0.
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
-| `arith/` | 6 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin` |
+| `arith/` | 7 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax` |
 | `mem/` | 4 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
@@ -20,7 +20,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `coding/` | 2 | `Crc`, `Parity` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 31 | |
+| Total | 32 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -131,6 +131,11 @@ at the maximum (all ones) and the minimum (0). The maximum is detected with
 | `Decoder` | binary index to one-hot (opened by `en`) | `Width` (output lines, default 8, >= 2), `SelWidth` (derived `$clog2(Width)`) |
 | `Rotator` | barrel rotator (variable-amount circular shift) | `Width` (default 8, >= 2), `Right` (0=left / 1=right, default 0), `ShWidth` (derived `$clog2(Width)`) |
 | `Gray2Bin` | gray code to binary (inverse of `Bin2Gray`) | `Width` (default 8, >= 1) |
+| `MinMax` | two-input min/max (unsigned or signed) | `Width` (default 8, >= 1), `Signed` (0/1, default 0), `Max` (0=min / 1=max, default 0) |
+
+`MinMax` outputs the smaller or larger of `a` and `b`: it sets `out = a`, then
+overwrites with `out = b` when the comparison calls for it (a selection). With
+`Signed: 1` it compares with `.signed()` (a worked case of the signed-comparison fix).
 
 `Gray2Bin` builds each bit as `bin[i] = (gray >> i).xor_reduce()` (the XOR of the
 bits from `i` up). An XOR fold is expressible in `comb` with `.xor_reduce()` and

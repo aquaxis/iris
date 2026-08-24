@@ -5,13 +5,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在31部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+現在32部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
 `iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
-| `arith/` | 6 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin` |
+| `arith/` | 7 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax` |
 | `mem/` | 4 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
@@ -19,7 +19,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `coding/` | 2 | `Crc`／`Parity` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 31 | |
+| 合計 | 32 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -123,6 +123,10 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | `Decoder` | 2進の添字 → one-hot（`en`で開く） | `Width`（出力線の数、既定8、2以上）、`SelWidth`（導出`$clog2(Width)`） |
 | `Rotator` | バレルローテータ（可変量の巡回シフト） | `Width`（既定8、2以上）、`Right`（0=左/1=右、既定0）、`ShWidth`（導出`$clog2(Width)`） |
 | `Gray2Bin` | GRAY符号 → 2進（`Bin2Gray`の逆） | `Width`（既定8、1以上） |
+| `MinMax` | 2入力の最小/最大（符号なし・符号付き） | `Width`（既定8、1以上）、`Signed`（0/1、既定0）、`Max`（0=最小/1=最大、既定0） |
+
+`MinMax`は`a`と`b`の小さい方または大きい方を出す。`out = a`と置き、条件に合えば`out = b`で
+上書きする（選択）。`Signed`が1なら`.signed()`で符号付き比較する（符号付き比較の修正の実例）。
 
 `Gray2Bin`は`bin[i] = (gray >> i).xor_reduce()`で各ビットを作る（第i位以上のXOR）。
 `.xor_reduce()`（XORリダクション）と部分ビット代入（`bin[i] = ...`はビットごとに積み上がる）で、

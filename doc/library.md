@@ -12,12 +12,12 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在31部品を9分類に置く。
+現在32部品を9分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
 | `timing/` | 7 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce |
-| `arith/` | 6 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin |
+| `arith/` | 7 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax |
 | `mem/` | 4 | FifoSync、FifoAsync、RamSp、RamDp |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
 | `stream/` | 1 | SpillRegister |
@@ -46,7 +46,7 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-31部品すべてのテストベンチが`iris-sim`で通る。
+32部品すべてのテストベンチが`iris-sim`で通る。
 `tools/conformance/run.sh`は158/0を保つ。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
