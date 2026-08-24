@@ -12,12 +12,12 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-71 parts in 10 categories.
+72 parts in 10 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
 | `timing/` | 11 | Counter, EdgeDetect, GrayCounter, Lfsr, ClkDivider, Pwm, Debounce, Timer, OneShot, Watchdog, JohnsonCounter |
-| `arith/` | 16 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial, MulSerial, SatAdd, SatSub, OneHotCheck, Abs, Accumulator, PopcountSerial, Comparator |
+| `arith/` | 17 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial, MulSerial, SatAdd, SatSub, OneHotCheck, Abs, Accumulator, PopcountSerial, Comparator, Bin2Bcd |
 | `mem/` | 8 | FifoSync, FifoAsync, RamSp, RamDp, Ram2r1w, ShiftRegister, RingBuffer, Lifo |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
 | `stream/` | 11 | SpillRegister, Serializer, Deserializer, VecMux, VecDemux, StreamDownsizer, StreamUpsizer, StreamFork, StreamJoin, StreamFilter, CreditCounter |
@@ -47,9 +47,9 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 71 testbenches pass under `iris-sim`; run them at once with `bash tools/lib_test.sh`
+All 72 testbenches pass under `iris-sim`; run them at once with `bash tools/lib_test.sh`
 (catches behavioral/assert regressions that conformance's convert/round-trip checks miss).
-`tools/conformance/run.sh` stays at 560/0 (67 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 566/0 (68 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 
