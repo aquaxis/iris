@@ -5,21 +5,21 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在37部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+現在38部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
 `iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
 | `arith/` | 9 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial` |
-| `mem/` | 4 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp` |
+| `mem/` | 5 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 3 | `SpillRegister`／`Serializer`／`Deserializer` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 3 | `Crc`／`Parity`／`Secded` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 37 | |
+| 合計 | 38 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -162,6 +162,7 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 | `FifoAsync` | 2クロックドメインの非同期FIFO（GRAY符号ポインタ同期） | `DataWidth`（既定8）、`Depth`（既定16、4以上の2のべき乗）、`AddrWidth`／`PtrWidth`（導出） |
 | `RamSp` | 単一ポート同期RAM（登録読み出し、read-before-write） | `Width`（既定8）、`Depth`（既定256、2以上）、`AddrWidth`（導出） |
 | `RamDp` | 簡易デュアルポートRAM（書き1・読み1、登録読み出し） | `Width`（既定8）、`Depth`（既定256、2以上）、`AddrWidth`（導出） |
+| `Ram2r1w` | 2読み1書きRAM（レジスタファイル型、登録読み出し） | `Width`（既定8）、`Depth`（既定32、2以上）、`AddrWidth`（導出） |
 
 `FifoSync`は`mem`とラップビット付きポインタで実装する。
 `empty`はポインタ一致、`full`はラップビットが異なり下位アドレスが等しいこと。
@@ -181,6 +182,8 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 別々に持つ同期RAMである。同じクロックで、書きながら別アドレスを読める（FIFOや行バッファの
 土台）。読み出しは1サイクル遅れ、書き込みと読み出しが同アドレスなら`dout`に古い値が出る
 （`RamSp`と同じread-before-write）。真のデュアルポート（両ポートで読み書き）は含まない。
+
+`Ram2r1w`は読み出し2ポート＋書き込み1ポート（レジスタファイル型）。2つのオペランドを同時に読める。
 
 ### arbiter
 

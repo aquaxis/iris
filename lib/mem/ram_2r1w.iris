@@ -1,0 +1,61 @@
+/// 2読み出し1書き込みRAM（レジスタファイル型、登録読み出し）
+///
+/// 書き込みポート1つ（`we`／`waddr`／`din`）と、独立した読み出しポート2つ
+/// （`raddr0`／`rdata0`、`raddr1`／`rdata1`）を持つ同期RAMである。
+/// レジスタファイル（2つのオペランドを同時に読み、1つの結果を書く）の土台に使う。
+/// 読み出しは1サイクル遅れ、書き込みと同アドレスの読み出しは書き込み前の古い値を返す
+/// （read-before-write。`RamSp`／`RamDp`と同じ）。
+///
+/// ジェネリックパラメータ:
+/// - Width:     語のビット幅（既定8、1以上）
+/// - Depth:     語数（既定32、2以上）
+/// - AddrWidth: アドレス幅（導出＝$clog2(Depth)）
+///
+/// ポート:
+/// - we／waddr／din:   書き込み
+/// - raddr0／rdata0:   読み出しポート0（1サイクル遅れ）
+/// - raddr1／rdata1:   読み出しポート1（1サイクル遅れ）
+///
+/// RAMの中身はリセットしない。リセットは出力レジスタだけを0に戻す
+/// （非同期assert・同期deassert、能動High）。
+mod Ram2r1w[
+    Width: uint = 8,
+    Depth: uint = 32,
+    AddrWidth: uint = $clog2(Depth),
+]
+where
+    Width >= 1,
+    Depth >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  we: bit,
+    in  waddr: bit[AddrWidth],
+    in  din: bit[Width],
+    in  raddr0: bit[AddrWidth],
+    out rdata0: bit[Width],
+    in  raddr1: bit[AddrWidth],
+    out rdata1: bit[Width],
+) {
+    mem storage: bit[Width][Depth];
+    var rd0: bit[Width] = 0;
+    var rd1: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            rd0 = 0;
+            rd1 = 0;
+        } else {
+            if we {
+                storage[waddr] = din;
+            }
+            rd0 = storage[raddr0];
+            rd1 = storage[raddr1];
+        }
+    }
+
+    comb {
+        rdata0 = rd0;
+        rdata1 = rd1;
+    }
+}

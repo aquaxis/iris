@@ -5,7 +5,7 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-37 parts in 9 categories. Every part passes three checks: an `iris-sim`
+38 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 `tools/conformance/run.sh` stays at 158/0.
 
@@ -13,14 +13,14 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 |---|---|---|
 | `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
 | `arith/` | 9 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial` |
-| `mem/` | 4 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp` |
+| `mem/` | 5 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 3 | `SpillRegister`, `Serializer`, `Deserializer` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 3 | `Crc`, `Parity`, `Secded` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 37 | |
+| Total | 38 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -179,6 +179,7 @@ reliable.
 | `FifoAsync` | two-clock-domain asynchronous FIFO (gray-code pointer sync) | `DataWidth` (default 8), `Depth` (default 16, power of two >= 4), `AddrWidth`/`PtrWidth` (derived) |
 | `RamSp` | single-port synchronous RAM (registered read, read-before-write) | `Width` (default 8), `Depth` (default 256, >= 2), `AddrWidth` (derived) |
 | `RamDp` | simple dual-port RAM (one write, one read, registered read) | `Width` (default 8), `Depth` (default 256, >= 2), `AddrWidth` (derived) |
+| `Ram2r1w` | 2-read / 1-write RAM (register-file shape, registered read) | `Width` (default 8), `Depth` (default 32, >= 2), `AddrWidth` (derived) |
 
 `FifoSync` uses a `mem` and pointers with a wrap bit. `empty` is pointer
 equality; `full` is a differing wrap bit with equal low address bits.
@@ -202,6 +203,9 @@ address is read (the basis for a FIFO or a line buffer). The read is registered,
 and if the write and read address the same location on one cycle, `dout` returns
 the old value (the same read-before-write as `RamSp`). A true dual-port RAM (read
 and write on both ports) is not included.
+
+`Ram2r1w` has two read ports and one write port (a register-file shape), so two
+operands can be read at once. Registered reads, read-before-write.
 
 ### arbiter
 
