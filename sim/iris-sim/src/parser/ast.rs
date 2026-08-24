@@ -178,6 +178,9 @@ pub enum Type {
     /// Bit vector whose width is a constant expression (may mention generic
     /// parameters or `$clog2`), resolved at elaboration
     BitVecExpr { expr: Box<Expression> },
+    /// Integer (`int[N]`/`uint[N]`) whose width is a constant expression (may
+    /// mention generic parameters), resolved at elaboration to `Int`
+    IntExpr { expr: Box<Expression>, signed: bool },
     /// A user-defined enumeration, resolved from `Type::Named` at elaboration
     Enum { name: String, width: usize },
     /// Named type (for generics or user-defined types)
@@ -259,6 +262,7 @@ impl Type {
             Type::Bool => Some(1),
             Type::Float { bits } => Some(*bits),
             Type::BitVecExpr { .. } => None,
+            Type::IntExpr { .. } => None,
             Type::Enum { width, .. } => Some(*width),
             Type::Named(_) => None,
         }
@@ -273,6 +277,9 @@ impl fmt::Display for Type {
             Type::BitVecExpr { expr } => write!(f, "bit[{}]", expr),
             Type::Int { width, signed } => {
                 write!(f, "{}[{}]", if *signed { "int" } else { "uint" }, width)
+            }
+            Type::IntExpr { expr, signed } => {
+                write!(f, "{}[{}]", if *signed { "int" } else { "uint" }, expr)
             }
             Type::Bool => write!(f, "bool"),
             Type::Float { bits } => write!(f, "f{}", bits),

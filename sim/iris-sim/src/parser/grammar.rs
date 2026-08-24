@@ -722,10 +722,10 @@ impl Parser {
                         Ok((Type::Reset { active_low }, None, reset_config))
                     }
                     Rule::int_type => {
-                        Ok((Self::sized_int(base, true)?, None, None))
+                        Ok((self.sized_int(base, true)?, None, None))
                     }
                     Rule::uint_type => {
-                        Ok((Self::sized_int(base, false)?, None, None))
+                        Ok((self.sized_int(base, false)?, None, None))
                     }
                     Rule::float_type => {
                         let bits = if base.as_str() == "f64" { 64 } else { 32 };
@@ -757,20 +757,26 @@ impl Parser {
         ))
     }
 
-    /// `int[N]` / `uint[N]`, defaulting to 32 bits when no width is written
+    /// `int[N]` / `uint[N]`, defaulting to 32 bits when no width is written.
+    /// A literal width gives `Int`; a constant expression (which may mention
+    /// generic parameters) gives `IntExpr`, resolved at elaboration.
     fn sized_int(
+        &self,
         pair: pest::iterators::Pair<Rule>,
         signed: bool,
     ) -> Result<Type, ParseError> {
-        let width = pair
-            .into_inner()
-            .next()
-            .and_then(|w| w.into_inner().next())
-            .map(|we| we.as_str().trim().parse::<usize>())
-            .transpose()
-            .map_err(|_| ParseError::InvalidLiteral("Invalid integer width".to_string()))?
-            .unwrap_or(32);
-        Ok(Type::Int { width, signed })
+        let we = pair.into_inner().next().and_then(|w| w.into_inner().next());
+        match we {
+            None => Ok(Type::Int { width: 32, signed }),
+            Some(we) => match we.as_str().trim().parse::<usize>() {
+                Ok(width) => Ok(Type::Int { width, signed }),
+                // Not a literal: a constant expression, resolved at elaboration.
+                Err(_) => Ok(Type::IntExpr {
+                    expr: Box::new(self.parse_expr(we)?),
+                    signed,
+                }),
+            },
+        }
     }
 
     /// Recognise the `iN` / `uN` built-in type names (spec 3.1.2)

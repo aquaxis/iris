@@ -812,6 +812,15 @@ fn type_to_veryl(ctx: &Ctx, ty: &Type, report: &mut Report) -> Result<String, Re
         Type::BitVecExpr { expr } => {
             format!("logic<{}>", expr_to_veryl(ctx, expr, report)?)
         }
+        // `int[W]`/`uint[W]` with an expression width.
+        Type::IntExpr { expr, signed } => {
+            let w = expr_to_veryl(ctx, expr, report)?;
+            if *signed {
+                format!("signed logic<{}>", w)
+            } else {
+                format!("logic<{}>", w)
+            }
+        }
         // A name nothing declares. IRIS reports this as O1008, so passing it
         // through as if it were a type would carry the fault across.
         // A name the file declares as an enumeration or a structure.

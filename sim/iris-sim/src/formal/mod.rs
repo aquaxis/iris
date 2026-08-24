@@ -125,6 +125,11 @@ fn decl_type_in(ty: &Type, env: &std::collections::HashMap<String, i64>) -> Resu
             Some(w) if w > 0 => Ok(format!("logic [{}:0]", w - 1)),
             _ => Err("a width that does not resolve to a number".to_string()),
         },
+        Type::IntExpr { expr, signed } => match Project::const_value(expr, env) {
+            Some(w) if w > 0 && *signed => Ok(format!("logic signed [{}:0]", w - 1)),
+            Some(w) if w > 0 => Ok(format!("logic [{}:0]", w - 1)),
+            _ => Err("a width that does not resolve to a number".to_string()),
+        },
         // The equivalence flow proves designs bit-for-bit with yosys, which
         // reasons in two-valued logic. IEEE-754 reals are not bit-blastable
         // there (yosys `miter`/`equiv`/`sat` have no `real`), so there is no

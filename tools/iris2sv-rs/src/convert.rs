@@ -563,6 +563,11 @@ fn type_to_sv(ty: &Type) -> Result<String, String> {
         Type::Named(name) => name.clone(),
         // A parametric width: `bit[DataWidth]` -> `logic [DataWidth-1:0]`.
         Type::BitVecExpr { expr } => format!("logic [{}-1:0]", emit_expr(expr)),
+        // A parametric signed/unsigned integer: `int[W]` -> `logic signed [W-1:0]`.
+        Type::IntExpr { expr, signed: true } => {
+            format!("logic signed [{}-1:0]", emit_expr(expr))
+        }
+        Type::IntExpr { expr, signed: false } => format!("logic [{}-1:0]", emit_expr(expr)),
         // IEEE-754 floats map to SystemVerilog's real types.
         Type::Float { bits: 32 } => "shortreal".to_string(),
         Type::Float { bits: 64 } => "real".to_string(),
@@ -587,6 +592,7 @@ fn cast_width(ty: &Type) -> Option<String> {
         Type::BitVec { width } => Some(width.to_string()),
         Type::Int { width, .. } => Some(width.to_string()),
         Type::BitVecExpr { expr } => Some(emit_expr(expr)),
+        Type::IntExpr { expr, .. } => Some(emit_expr(expr)),
         _ => None,
     }
 }
