@@ -12,7 +12,7 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-32 parts in 9 categories.
+33 parts in 9 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
@@ -22,7 +22,7 @@ One directory per category.
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
 | `stream/` | 1 | SpillRegister |
 | `cdc/` | 3 | Sync2ff, RstSync, PulseSync |
-| `coding/` | 2 | Crc, Parity |
+| `coding/` | 3 | Crc, Parity, Secded |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
 | `dsp/` | 2 | FirSerial, MacSerial |
 
@@ -46,7 +46,7 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 32 testbenches pass under `iris-sim`.
+All 33 testbenches pass under `iris-sim`.
 `tools/conformance/run.sh` stays at 158/0.
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
@@ -63,7 +63,7 @@ Three kinds of parts are written directly in IRIS.
 | FSM + shift register | UartTx/Rx, SpiMaster, I2cMaster | a state machine and a shift register build a peripheral interface |
 | Accumulation unrolled over time | Crc, Lfsr, FirSerial, MacSerial | sync accumulation unrolls a convolution over time |
 | Signed arithmetic | MacSerial[Signed: 1] | `.signed()` + `.sign_extend[N]()` accumulate in two's complement; read with `acc.signed()` |
-| An XOR fold | Parity, Gray2Bin | `.xor_reduce()` plus per-bit assignment (`out[i]=...` accumulates bit by bit) |
+| An XOR fold | Parity, Gray2Bin, Secded | `.xor_reduce()` plus per-bit assignment (`out[i]=...` accumulates bit by bit) |
 
 What could not be done is recorded, with the reason.
 

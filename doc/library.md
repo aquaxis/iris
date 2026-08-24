@@ -12,7 +12,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在32部品を9分類に置く。
+現在33部品を9分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
@@ -22,7 +22,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
 | `stream/` | 1 | SpillRegister |
 | `cdc/` | 3 | Sync2ff、RstSync、PulseSync |
-| `coding/` | 2 | Crc、Parity |
+| `coding/` | 3 | Crc、Parity、Secded |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
 | `dsp/` | 2 | FirSerial、MacSerial |
 
@@ -46,7 +46,7 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-32部品すべてのテストベンチが`iris-sim`で通る。
+33部品すべてのテストベンチが`iris-sim`で通る。
 `tools/conformance/run.sh`は158/0を保つ。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
@@ -63,7 +63,7 @@ IRISで素直に書けるのは次の3種である。
 | FSM＋シフトレジスタ | UartTx／Rx、SpiMaster、I2cMaster | 状態機械とシフトで周辺IFを組める |
 | 直列にして時間へ展開する積算 | Crc、Lfsr、FirSerial、MacSerial | syncの逐次加算で畳み込みを時間に展開できる |
 | 符号付き演算 | MacSerial[Signed: 1] | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
-| XORの畳み込み | Parity、Gray2Bin | `.xor_reduce()`と部分ビット代入（`out[i]=...`はビットごとに積む）で書ける |
+| XORの畳み込み | Parity、Gray2Bin、Secded | `.xor_reduce()`と部分ビット代入（`out[i]=...`はビットごとに積む）で書ける |
 
 書けなかったものは、理由とともに残す。
 

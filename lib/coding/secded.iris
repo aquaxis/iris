@@ -1,0 +1,80 @@
+/// SECDED（単一誤り訂正・二重誤り検出）：8ビットデータの拡張ハミング符号(13,8)
+///
+/// メモリのECCなどに使う定番の符号である。8ビットのデータを、4つのハミングパリティと
+/// 1つの全体パリティを足した13ビットの符号語にする（エンコーダ）。受け取った符号語から
+/// 1ビットの誤りを訂正し、2ビットの誤りを（訂正はできないが）検出する（デコーダ）。
+///
+/// パリティは`.xor_reduce()`（XORリダクション）で作る。従来combではXORの畳み込みを
+/// 書けなかったが、`.xor_reduce()`と部分ビット代入で書ける（`Parity`／`Gray2Bin`と同型）。
+/// この符号はデータ8ビットに固定である（一般のハミング符号はパリティ数の
+/// コンパイル時計算が要り、現状のIRISでは幅をジェネリックにできない）。
+///
+/// 符号語のビット配置（`code[0]`＝全体パリティ、`code[1..12]`＝ハミング位置1..12）:
+///   位置1,2,4,8＝パリティ、位置3,5,6,7,9,10,11,12＝データd0..d7。
+///
+/// `SecdedEnc`ポート:
+/// - data: 8ビットデータ
+/// - code: 13ビット符号語
+mod SecdedEnc(
+    in  data: bit[8],
+    out code: bit[13],
+) {
+    comb {
+        code = 0;
+        // ハミングパリティ（データの部分集合のXOR）
+        code[1] = (data & 8'h5B).xor_reduce();  // p1: d0,d1,d3,d4,d6
+        code[2] = (data & 8'h6D).xor_reduce();  // p2: d0,d2,d3,d5,d6
+        code[4] = (data & 8'h8E).xor_reduce();  // p4: d1,d2,d3,d7
+        code[8] = (data & 8'hF0).xor_reduce();  // p8: d4,d5,d6,d7
+        // データ（位置3,5,6,7,9,10,11,12）
+        code[3]  = data[0];
+        code[5]  = data[1];
+        code[6]  = data[2];
+        code[7]  = data[3];
+        code[9]  = data[4];
+        code[10] = data[5];
+        code[11] = data[6];
+        code[12] = data[7];
+        // 全体パリティ（位置1..12のXOR）。上で書いたビットを読み直して作る。
+        code[0] = (code & 13'h1FFE).xor_reduce();
+    }
+}
+
+/// `SecdedDec`ポート:
+/// - code:       13ビット符号語（誤りを含みうる）
+/// - data_out:   訂正後の8ビットデータ
+/// - syndrome:   ハミングシンドローム（誤り位置。0なら位置誤りなし）
+/// - single_err: 1ビット誤りを訂正した
+/// - double_err: 2ビット誤りを検出した（訂正不可）
+mod SecdedDec(
+    in  code: bit[13],
+    out data_out: bit[8],
+    out syndrome: bit[4],
+    out single_err: bit,
+    out double_err: bit,
+) {
+    comb {
+        // シンドローム（各パリティの再計算）
+        syndrome = 0;
+        syndrome[0] = (code & 13'h0AAA).xor_reduce();  // 位置1,3,5,7,9,11
+        syndrome[1] = (code & 13'h0CCC).xor_reduce();  // 位置2,3,6,7,10,11
+        syndrome[2] = (code & 13'h10F0).xor_reduce();  // 位置4,5,6,7,12
+        syndrome[3] = (code & 13'h1F00).xor_reduce();  // 位置8,9,10,11,12
+
+        // 全体パリティが崩れていれば奇数個＝1ビット誤り（訂正可）。
+        // 崩れておらずシンドロームが非0なら偶数個＝2ビット誤り（検出のみ）。
+        single_err = code.xor_reduce();
+        double_err = ~code.xor_reduce() & syndrome.or_reduce();
+
+        // 訂正：1ビット誤りのとき、シンドロームが指す位置のデータビットを反転する。
+        data_out = 0;
+        data_out[0] = code[3]  ^ (single_err & (syndrome == 4'd3));
+        data_out[1] = code[5]  ^ (single_err & (syndrome == 4'd5));
+        data_out[2] = code[6]  ^ (single_err & (syndrome == 4'd6));
+        data_out[3] = code[7]  ^ (single_err & (syndrome == 4'd7));
+        data_out[4] = code[9]  ^ (single_err & (syndrome == 4'd9));
+        data_out[5] = code[10] ^ (single_err & (syndrome == 4'd10));
+        data_out[6] = code[11] ^ (single_err & (syndrome == 4'd11));
+        data_out[7] = code[12] ^ (single_err & (syndrome == 4'd12));
+    }
+}

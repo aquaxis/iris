@@ -5,7 +5,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在32部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+現在33部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
 `iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
 
 | 分類 | 部品数 | 部品 |
@@ -16,10 +16,10 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
-| `coding/` | 2 | `Crc`／`Parity` |
+| `coding/` | 3 | `Crc`／`Parity`／`Secded` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 32 | |
+| 合計 | 33 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -218,12 +218,20 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 |---|---|---|
 | `Crc` | CRC（巡回冗長検査、ビット直列） | `Width`（既定8、2以上）。多項式`poly`は入力ポート |
 | `Parity` | パリティ生成（偶/奇） | `Width`（既定8、1以上）、`Odd`（0=偶/1=奇、既定0） |
+| `Secded` | 単一誤り訂正・二重誤り検出（8ビットデータの拡張ハミング(13,8)） | なし（データ8ビット固定）。`SecdedEnc`＋`SecdedDec` |
 
 `Crc`はMSB先頭で1サイクルに1ビット取り込み、`poly`で更新する（LFSRにデータ入力を足した形）。
 `clear`で区切れる。並列CRC（1バイト同時）はXOR網の畳み込みが要り、現状のcombでは書けない。
 
 `Parity`は`.xor_reduce()`でビットのXORを取る（偶パリティ）。`Odd`で奇パリティ（反転）。
 iris2svは`.xor_reduce()`をSystemVerilogの縮約演算子`(^d)`へ変換する。
+
+`Secded`はメモリECCの定番で、`SecdedEnc`（8ビット→13ビット符号語）と`SecdedDec`
+（符号語→訂正データ＋single_err／double_err）の2モジュールからなる。
+パリティは`.xor_reduce()`、訂正は「シンドロームが指す位置のビットを反転」で書く。
+1ビット誤りを訂正し、2ビット誤りを検出することをTBで確認している。
+データ8ビットに固定である（一般のハミング符号はパリティ数のコンパイル時計算が要り、
+現状のIRISでは幅をジェネリックにできない）。
 
 ### periph
 

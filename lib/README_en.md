@@ -5,7 +5,7 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-32 parts in 9 categories. Every part passes three checks: an `iris-sim`
+33 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 `tools/conformance/run.sh` stays at 158/0.
 
@@ -17,10 +17,10 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
-| `coding/` | 2 | `Crc`, `Parity` |
+| `coding/` | 3 | `Crc`, `Parity`, `Secded` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 32 | |
+| Total | 33 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -238,6 +238,7 @@ expressible today (a `var` array needs a constant size), so the depth is two.
 |---|---|---|
 | `Crc` | CRC (cyclic redundancy check, bit-serial) | `Width` (default 8, >= 2); polynomial `poly` is an input port |
 | `Parity` | parity generator (even/odd) | `Width` (default 8, >= 1), `Odd` (0=even / 1=odd, default 0) |
+| `Secded` | single-error-correct, double-error-detect (extended Hamming (13,8) over 8-bit data) | none (data fixed at 8 bits); `SecdedEnc` + `SecdedDec` |
 
 `Crc` takes one bit per cycle MSB-first and updates with `poly` (an LFSR with a
 data input); `clear` starts a new stream. A parallel CRC (a byte per cycle)
@@ -245,6 +246,13 @@ needs a sum-fold XOR tree and is not expressible in today's `comb`.
 
 `Parity` XORs the bits with `.xor_reduce()` (even parity); `Odd` inverts it for
 odd parity. iris2sv converts `.xor_reduce()` to the SV reduction operator `(^d)`.
+
+`Secded` is the classic memory ECC: `SecdedEnc` (8-bit data → 13-bit codeword)
+and `SecdedDec` (codeword → corrected data plus `single_err`/`double_err`).
+Parity uses `.xor_reduce()`, and correction flips the bit the syndrome points at.
+A testbench confirms it corrects a single-bit error and detects a double-bit
+error. The data width is fixed at 8 (a general Hamming code needs a compile-time
+parity count, which IRIS cannot express as a generic width).
 
 ### periph
 

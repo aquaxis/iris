@@ -1,0 +1,39 @@
+/// Secdedのテストベンチ
+///
+/// エンコーダで符号語を作り、0/1/2ビットの誤りを注入してデコーダに入れる。
+///   誤りなし   → データ一致、single=0、double=0
+///   1ビット誤り → データ一致（訂正）、single=1、double=0
+///   2ビット誤り → double=1（検出）、single=0
+/// 組み合わせなので入力を変えて次のサイクルで読む。誤りは符号語のビットをXORで反転する。
+test SecdedTB {
+    let clk: clock(period: 10ns);
+    var data: bit[8] = 8'hA5;
+    var flip: bit[13] = 0;
+    var step: bit[8] = 0;
+
+    inst enc = SecdedEnc { data: data };
+    inst dec = SecdedDec { code: enc.code ^ flip };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 1 { data = 8'hA5; flip = 13'h0000; }  // 誤りなし
+        if step == 2 { data = 8'hA5; flip = 13'h0008; }  // 1ビット誤り（位置3＝d0）
+        if step == 3 { data = 8'h3C; flip = 13'h0040; }  // 1ビット誤り（位置6＝d2）
+        if step == 4 { data = 8'h3C; flip = 13'h0001; }  // 1ビット誤り（全体パリティ）
+        if step == 5 { data = 8'h5A; flip = 13'h0011; }  // 2ビット誤り（位置0と4）
+    }
+
+    sync(clk.posedge) {
+        if step == 2 { assert dec.data_out == 8'hA5, "no error data"; assert dec.single_err == 0, "no single"; assert dec.double_err == 0, "no double"; }
+        if step == 3 { assert dec.data_out == 8'hA5, "1-bit corrected (d0)"; assert dec.single_err == 1, "single set"; assert dec.double_err == 0, "not double"; }
+        if step == 4 { assert dec.data_out == 8'h3C, "1-bit corrected (d2)"; assert dec.single_err == 1, "single set 2"; }
+        if step == 5 { assert dec.data_out == 8'h3C, "parity-bit error leaves data intact"; assert dec.single_err == 1, "single (parity)"; }
+        if step == 6 { assert dec.double_err == 1, "2-bit detected"; assert dec.single_err == 0, "not single on double"; }
+    }
+
+    seq {
+        await clk.cycles(9);
+        $display("SecdedTB: all checks passed");
+        $finish;
+    }
+}
