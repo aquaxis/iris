@@ -1,0 +1,39 @@
+/// ShiftRegisterのテストベンチ
+///
+/// Stages=4（既定）で、入れた語が4サイクル遅れて出ることを確かめる。
+/// enを1に保ち、A1/B2/C3/D4を順に入れて、遅延後の出力を照合する。
+test ShiftRegisterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var din: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = ShiftRegister { clk: clk, rst: rst, en: en, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd1 { din = 8'hA1; }
+            if step == 8'd2 { din = 8'hB2; }
+            if step == 8'd3 { din = 8'hC3; }
+            if step == 8'd4 { din = 8'hD4; }
+            if step >= 8'd5 { din = 8'h00; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd6 { assert dut.dout == 8'hA1, "4-cycle delay: A1"; }
+            if step == 8'd7 { assert dut.dout == 8'hB2, "4-cycle delay: B2"; }
+            if step == 8'd8 { assert dut.dout == 8'hC3, "4-cycle delay: C3"; }
+            if step == 8'd9 { assert dut.dout == 8'hD4, "4-cycle delay: D4"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(11);
+        $display("ShiftRegisterTB: all checks passed");
+        $finish;
+    }
+}

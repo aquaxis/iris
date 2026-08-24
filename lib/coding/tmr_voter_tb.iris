@@ -1,0 +1,31 @@
+/// TmrVoterのテストベンチ
+///
+/// 3入力一致・1つ食い違い・別の一致の3状況で、多数決とmismatchを確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test TmrVoterTB {
+    let clk: clock(period: 10ns);
+    var a: bit[8] = 8'hAA;
+    var b: bit[8] = 8'hAA;
+    var c: bit[8] = 8'hAA;
+    var step: bit[8] = 0;
+
+    inst dut = TmrVoter { a: a, b: b, c: c };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd2 { a = 8'hAA; b = 8'hAB; c = 8'hAA; }   // bだけ1ビット違う
+        if step == 8'd3 { a = 8'h0F; b = 8'h0F; c = 8'h0F; }   // 全一致
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.y == 8'hAA, "全一致 -> AA"; assert dut.mismatch == 0, "不一致なし"; }
+        if step == 8'd3 { assert dut.y == 8'hAA, "多数決 -> AA"; assert dut.mismatch == 1, "不一致を検出"; }
+        if step == 8'd4 { assert dut.y == 8'h0F, "全一致 -> 0F"; assert dut.mismatch == 0, "不一致なし"; }
+    }
+
+    seq {
+        await clk.cycles(6);
+        $display("TmrVoterTB: all checks passed");
+        $finish;
+    }
+}

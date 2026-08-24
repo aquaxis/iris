@@ -5,23 +5,23 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-43 parts in 10 categories. Every part passes three checks: an `iris-sim`
+45 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 392/0 (39 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 404/0 (41 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
 | `arith/` | 9 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial` |
-| `mem/` | 5 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w` |
+| `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 5 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
-| `coding/` | 3 | `Crc`, `Parity`, `Secded` |
+| `coding/` | 4 | `Crc`, `Parity`, `Secded`, `TmrVoter` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 43 | |
+| Total | 45 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -211,6 +211,16 @@ and write on both ports) is not included.
 `Ram2r1w` has two read ports and one write port (a register-file shape), so two
 operands can be read at once. Registered reads, read-before-write.
 
+| Part | Function | Parameters |
+|---|---|---|
+| `ShiftRegister` | fixed-stage delay line (`en` advances one stage) | `Width` (default 8, >= 1), `Stages` (stages = delay cycles, default 4, >= 1), `Total` (derived `Width*Stages`) |
+
+`ShiftRegister` latches `din` on `en` and emits it `Stages` cycles later on
+`dout`. Stages live in a packed vector `bit[Width*Stages]`; on `en`, stage `i`
+takes stage `i-1`. sync is non-blocking (the right-hand side reads the pre-edge
+value), so the part-select assignments are a correct shift; `en` low holds. Use it
+for pipeline delay matching or sample delay.
+
 ### arbiter
 
 | Part | Function | Parameters |
@@ -284,6 +294,7 @@ expressible today (a `var` array needs a constant size), so the depth is two.
 | `Crc` | CRC (cyclic redundancy check, bit-serial) | `Width` (default 8, >= 2); polynomial `poly` is an input port |
 | `Parity` | parity generator (even/odd) | `Width` (default 8, >= 1), `Odd` (0=even / 1=odd, default 0) |
 | `Secded` | single-error-correct, double-error-detect (extended Hamming (13,8) over 8-bit data) | none (data fixed at 8 bits); `SecdedEnc` + `SecdedDec` |
+| `TmrVoter` | triple-modular-redundancy vote (bitwise, with a mismatch flag) | `Width` (default 8, >= 1) |
 
 `Crc` takes one bit per cycle MSB-first and updates with `poly` (an LFSR with a
 data input); `clear` starts a new stream. A parallel CRC (a byte per cycle)
@@ -298,6 +309,12 @@ Parity uses `.xor_reduce()`, and correction flips the bit the syndrome points at
 A testbench confirms it corrects a single-bit error and detects a double-bit
 error. The data width is fixed at 8 (a general Hamming code needs a compile-time
 parity count, which IRIS cannot express as a generic width).
+
+`TmrVoter` outputs the bitwise majority of three redundant inputs `a`/`b`/`c`
+(`y = a&b | b&c | a&c`), so a single bit-flip in any one is absorbed. It raises
+`mismatch` from the OR-reduction of the three pairwise XORs, flagging a
+disagreement. Use it for SEU tolerance or a functional-safety output vote.
+Combinational only.
 
 ### periph
 
