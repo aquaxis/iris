@@ -7,7 +7,7 @@ arbiter as a part instead of writing it again each time.
 
 38 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 218/0 (10 representative parts registered as fixtures).
+`tools/conformance/run.sh` stays at 242/0 (14 representative parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|

@@ -1,0 +1,32 @@
+/// GRAY符号 → 2進
+///
+/// GRAY符号`gray`を2進`bin`に戻す。`bin[i]`は`gray`の第i位以上のビットのXORである
+/// （`bin[i] = XOR(gray[Width-1:i])`）。`Bin2Gray`の逆変換。
+///
+/// 各出力ビットは`(gray >> i).xor_reduce()`で作る。右シフトで第i位以上を下位に集め、
+/// XORリダクションを取る（上位に入る0はXORに影響しない）。
+/// combの部分ビット代入（`bin[i] = ...`）はビットごとに積み上がるので、
+/// `for`で全ビットを1つずつ埋められる（総和の畳み込みとは違い、こちらは書ける）。
+///
+/// ジェネリックパラメータ:
+/// - Width: ビット幅（既定8、1以上）
+///
+/// ポート:
+/// - gray: GRAY符号の入力
+/// - bin:  2進の出力
+mod Gray2Bin[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  gray: bit[Width],
+    out bin: bit[Width],
+) {
+    comb {
+        bin = 0;
+        for i in 0..Width {
+            bin[i] = (gray >> i).xor_reduce();
+        }
+    }
+}

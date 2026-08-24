@@ -299,6 +299,22 @@ fn emit_stmts(out: &mut String, stmts: &[Stmt], depth: usize) {
             Stmt::Return(e) => {
                 out.push_str(&format!("{}return {};\n", pad, emit_expr(e)));
             }
+            Stmt::For {
+                var,
+                start,
+                limit,
+                body,
+            } => {
+                out.push_str(&format!(
+                    "{}for {} in {}..{} {{\n",
+                    pad,
+                    var,
+                    emit_expr(start),
+                    emit_expr(limit)
+                ));
+                emit_stmts(out, body, depth + 1);
+                out.push_str(&format!("{}}}\n", pad));
+            }
         }
     }
 }

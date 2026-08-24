@@ -699,6 +699,35 @@ impl Parser {
             self.expect_kw("endcase")?;
             return Ok(Stmt::Case { scrutinee, arms });
         }
+        if self.at_kw("for") {
+            // Only the canonical counting form iris2sv emits is recognised:
+            // `for (int v = start; v < limit; v = v + 1) body`. The step is
+            // consumed but assumed to be `+ 1` (IRIS `for` counts up by one).
+            self.next();
+            self.expect_sym("(")?;
+            if self.at_kw("int") {
+                self.next();
+            }
+            let var = self.ident()?;
+            self.expect_sym("=")?;
+            let start = self.parse_expr()?;
+            self.expect_sym(";")?;
+            let _cond_var = self.ident()?;
+            self.expect_sym("<")?;
+            let limit = self.parse_expr()?;
+            self.expect_sym(";")?;
+            let _step_var = self.ident()?;
+            self.expect_sym("=")?;
+            let _step = self.parse_expr()?;
+            self.expect_sym(")")?;
+            let body = self.parse_stmt_or_block()?;
+            return Ok(Stmt::For {
+                var,
+                start,
+                limit,
+                body,
+            });
+        }
         if self.at_kw("if") {
             self.next();
             self.expect_sym("(")?;
