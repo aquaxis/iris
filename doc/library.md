@@ -47,6 +47,9 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
+全部品のテストベンチ（振る舞い＝assert）は`bash tools/lib_test.sh`で一括実行できる
+（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在64/0）。
+
 64部品すべてのテストベンチが`iris-sim`で通る。
 `tools/conformance/run.sh`は518/0を保つ（lib部品60個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける

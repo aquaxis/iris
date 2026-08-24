@@ -91,6 +91,14 @@ iris sv      <分類>/<name>.iris -o out/          # SystemVerilogへ変換で�
 iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 ```
 
+全部品のテストベンチ（振る舞い＝assert）を一括で回すには次を使う。
+`tools/conformance/run.sh`が変換・往復・verilatorを守るのに対し、これは各`_tb`のassertを実行して
+**振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
+
+```
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 64/0）
+```
+
 ## 部品一覧
 
 ### timing

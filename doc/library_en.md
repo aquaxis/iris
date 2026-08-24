@@ -47,7 +47,8 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 64 testbenches pass under `iris-sim`.
+All 64 testbenches pass under `iris-sim`; run them at once with `bash tools/lib_test.sh`
+(catches behavioral/assert regressions that conformance's convert/round-trip checks miss).
 `tools/conformance/run.sh` stays at 518/0 (60 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
