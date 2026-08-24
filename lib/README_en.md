@@ -5,13 +5,13 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-68 parts in 10 categories. Every part passes three checks: an `iris-sim`
+69 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 542/0 (64 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 548/0 (65 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
-| `timing/` | 10 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog` |
+| `timing/` | 11 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog`, `JohnsonCounter` |
 | `arith/` | 16 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator` |
 | `mem/` | 7 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 68 | |
+| Total | 69 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 68/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 69/0)
 ```
 
 ## Parts
@@ -157,6 +157,15 @@ ignored.
 resets the counter and `alarm` (`kick` takes priority over `en`). It flags a hang or
 fault when the periodic `kick` stops (functional safety / monitoring) — unlike
 `Timer`'s periodic tick, it checks "did a kick arrive in time".
+
+| Part | Function | Parameters |
+|---|---|---|
+| `JohnsonCounter` | Johnson (twisted-ring) counter, 2N states | `Width` (default 4, >= 1; 2*Width states) |
+
+`JohnsonCounter` cycles through 2*Width states via `r = { r[Width-2:0], ~r[Width-1] }`
+(shift left, feeding the inverted MSB into the LSB): `0…0 → 0…01 → … → 1…1 → 1…10 → …
+→ 10…0 → 0…0`. Adjacent states differ by one bit, so it suits phase/quadrature
+generation and glitch-free state decode; `en` low holds.
 
 ### arith
 
