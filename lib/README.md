@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在66部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は530/0を保つ（lib部品62個を検体に登録）。
+現在67部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は536/0を保つ（lib部品63個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -19,8 +19,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `coding/` | 7 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum`／`Scrambler`／`Descrambler` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
-| `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 66 | |
+| `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
+| 合計 | 67 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 66/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 67/0）
 ```
 
 ## 部品一覧
@@ -493,6 +493,14 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 `ByteEnableExpand`は部分選択への書き込み（値は`if be[i] { 8'hFF } else { 8'h00 }`）。
 `EndianSwap`のように`(Bytes-1-i)*8`と括弧で優先順位を変える式は、iris2svが括弧を保って
 SVへ写す（優先順位に応じた括弧付けに対応。従来は`Bytes-1-i*8`と落ちて意味が変わっていた）。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `RangeMask` | 区間マスク（boxcar、`[lo, hi)`のビットを1に） | `Width`（既定8、1以上）、`IdxWidth`（導出`$clog2(Width)+1`） |
+
+`RangeMask`は`lo`以上`hi`未満のビットを1にする（`mask[i] = lo<=i<hi`）。`for`でループ定数`i`と
+`lo`／`hi`を比べて1ビットずつ埋める。フィールド切り出し・ウィンドウ・区間バイトイネーブルに使う。
+`hi<=lo`は空（全0）。組み合わせのみ。
 
 ## 実装上の注意
 

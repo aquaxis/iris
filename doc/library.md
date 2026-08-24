@@ -12,7 +12,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在66部品を10分類に置く。
+現在67部品を10分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
@@ -25,7 +25,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `coding/` | 7 | Crc、Parity、Secded、TmrVoter、Checksum、Scrambler、Descrambler |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
 | `dsp/` | 3 | FirSerial、MacSerial、MovingAverage |
-| `util/` | 3 | BitReverse、EndianSwap、ByteEnableExpand |
+| `util/` | 4 | BitReverse、EndianSwap、ByteEnableExpand、RangeMask |
 
 1部品は3点で構成する。
 実装（`<分類>/<name>.iris`）、試験（`<分類>/<name>_tb.iris`）、資料（`lib/README.md`）である。
@@ -48,10 +48,10 @@ iris lint    <分類>/<name>.iris
 ```
 
 全部品のテストベンチ（振る舞い＝assert）は`bash tools/lib_test.sh`で一括実行できる
-（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在66/0）。
+（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在67/0）。
 
-66部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は530/0を保つ（lib部品62個を検体に登録）。
+67部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は536/0を保つ（lib部品63個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 

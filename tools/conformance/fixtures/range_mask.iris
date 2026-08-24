@@ -1,0 +1,33 @@
+/// 区間マスク（boxcar、[lo, hi)のビットを1にする）
+///
+/// `lo`以上`hi`未満のビット位置を1、それ以外を0にしたマスクを出す（`mask[i] = lo<=i<hi`）。
+/// フィールドの切り出し、ウィンドウ処理、バイトイネーブルの区間生成などに使う。組み合わせのみ。
+///
+/// `for`で1ビットずつ、ループ定数`i`（コンパイル時に確定）と入力`lo`／`hi`を比べて埋める。
+/// `hi<=lo`なら空（全0）、`hi>Width`はWidthで頭打ち（上位ビットが無いだけ）。
+///
+/// ジェネリックパラメータ:
+/// - Width:    マスクのビット幅（既定8、1以上）
+/// - IdxWidth: lo／hiの幅（導出＝$clog2(Width)+1、0〜Widthを表せる）
+///
+/// ポート:
+/// - lo:   区間の下限（この位置を含む）
+/// - hi:   区間の上限（この位置を含まない）
+/// - mask: [lo, hi)のビットを1にしたマスク
+mod RangeMask[
+    Width: uint = 8,
+    IdxWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+(
+    in  lo: bit[IdxWidth],
+    in  hi: bit[IdxWidth],
+    out mask: bit[Width],
+) {
+    comb {
+        for i in 0..Width {
+            mask[i] = (i >= lo) & (i < hi);
+        }
+    }
+}
