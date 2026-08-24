@@ -1,0 +1,33 @@
+/// Parityのテストベンチ
+///
+/// 偶パリティと奇パリティを、いくつかの入力で確かめる。
+/// 0xA5は1が4個（偶数）→偶パリティ0・奇パリティ1。0x01は1が1個→偶1・奇0。
+test ParityTB {
+    let clk: clock(period: 10ns);
+    var d: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst even = Parity { d: d };            // 偶（既定）
+    inst odd = Parity[Odd: 1] { d: d };     // 奇
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 1 { d = 8'hA5; }  // 4個の1
+        if step == 2 { d = 8'h01; }  // 1個の1
+        if step == 3 { d = 8'hFF; }  // 8個の1
+        if step == 4 { d = 8'h07; }  // 3個の1
+    }
+
+    sync(clk.posedge) {
+        if step == 2 { assert even.p == 0, "A5 even"; assert odd.p == 1, "A5 odd"; }
+        if step == 3 { assert even.p == 1, "01 even"; assert odd.p == 0, "01 odd"; }
+        if step == 4 { assert even.p == 0, "FF even"; }
+        if step == 5 { assert even.p == 1, "07 even (3 ones)"; }
+    }
+
+    seq {
+        await clk.cycles(8);
+        $display("ParityTB: all checks passed");
+        $finish;
+    }
+}

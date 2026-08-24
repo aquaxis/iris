@@ -1,0 +1,36 @@
+/// Gray2Binのテストベンチ
+///
+/// `Bin2Gray`と往復させ、任意の2進 → GRAY → 2進 が元に戻ることを確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test Gray2BinTB {
+    let clk: clock(period: 10ns);
+    var b: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst enc = Bin2Gray { bin: b };
+    inst dec = Gray2Bin { gray: enc.gray };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 1 { b = 8'h00; }
+        if step == 2 { b = 8'hA5; }
+        if step == 3 { b = 8'hFF; }
+        if step == 4 { b = 8'h5C; }
+        if step == 5 { b = 8'h01; }
+    }
+
+    sync(clk.posedge) {
+        // 往復で元の値に戻る（decの出力＝1つ前のb）
+        if step == 2 { assert dec.bin == 8'h00, "roundtrip 00"; }
+        if step == 3 { assert dec.bin == 8'hA5, "roundtrip A5"; }
+        if step == 4 { assert dec.bin == 8'hFF, "roundtrip FF"; }
+        if step == 5 { assert dec.bin == 8'h5C, "roundtrip 5C"; }
+        if step == 6 { assert dec.bin == 8'h01, "roundtrip 01"; }
+    }
+
+    seq {
+        await clk.cycles(9);
+        $display("Gray2BinTB: all checks passed");
+        $finish;
+    }
+}

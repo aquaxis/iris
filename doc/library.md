@@ -12,17 +12,17 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在29部品を9分類に置く。
+現在31部品を9分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
 | `timing/` | 7 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce |
-| `arith/` | 5 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator |
+| `arith/` | 6 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin |
 | `mem/` | 4 | FifoSync、FifoAsync、RamSp、RamDp |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
 | `stream/` | 1 | SpillRegister |
 | `cdc/` | 3 | Sync2ff、RstSync、PulseSync |
-| `coding/` | 1 | Crc |
+| `coding/` | 2 | Crc、Parity |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
 | `dsp/` | 2 | FirSerial、MacSerial |
 
@@ -46,7 +46,7 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-29部品すべてのテストベンチが`iris-sim`で通る。
+31部品すべてのテストベンチが`iris-sim`で通る。
 `tools/conformance/run.sh`は158/0を保つ。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
@@ -63,12 +63,13 @@ IRISで素直に書けるのは次の3種である。
 | FSM＋シフトレジスタ | UartTx／Rx、SpiMaster、I2cMaster | 状態機械とシフトで周辺IFを組める |
 | 直列にして時間へ展開する積算 | Crc、Lfsr、FirSerial、MacSerial | syncの逐次加算で畳み込みを時間に展開できる |
 | 符号付き演算 | MacSerial[Signed: 1] | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
+| XORの畳み込み | Parity、Gray2Bin | `.xor_reduce()`と部分ビット代入（`out[i]=...`はビットごとに積む）で書ける |
 
 書けなかったものは、理由とともに残す。
 
 | 書けないもの | 理由 |
 |---|---|
-| combの畳み込み・積算（popcount、parity、gray2bin、並列CRC） | combで`var`が使えず、信号の再代入はlast-winsで逐次和にならない |
+| combの総和の畳み込み（popcount、並列CRCのXOR網） | combで`var`が使えず、まるごとの再代入はlast-winsで逐次和にならない（XOR畳み込みは`.xor_reduce()`で可） |
 | ジェネリックな配列ポート・var配列（多ストリームのmux／demux） | 配列の生成境界に定数が要る（`mem`だけがジェネリックを許す） |
 | ジェネリック関数（汎用math関数） | `fn f[Width](...)`がパースできない。固定幅の`fn`は動く |
 | `int[N]`／`uint[N]`型のジェネリック幅（`int[Width]`） | 型の幅にリテラルしか使えない（`bit[Width]`は書ける）。符号付き部品は`bit[N]`＋`.signed()`で書く |

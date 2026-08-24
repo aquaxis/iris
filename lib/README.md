@@ -5,27 +5,28 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在29部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+現在31部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
 `iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
-| `arith/` | 5 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator` |
+| `arith/` | 6 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin` |
 | `mem/` | 4 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
-| `coding/` | 1 | `Crc` |
+| `coding/` | 2 | `Crc`／`Parity` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 29 | |
+| 合計 | 31 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
 展開する積算（CRC・LFSR・直列DSP）はIRISで素直に書ける。
-一方、組み合わせでの畳み込み・積算（popcount／parity／並列CRC）、ジェネリックな配列ポート
+一方、combでの総和の畳み込み（popcount／並列CRC）、ジェネリックな配列ポート
 （多ストリームのmux）、ジェネリック関数（汎用math）は現状のIRISでは書けない。
+（XORの畳み込みは`.xor_reduce()`と部分ビット代入で書ける。`Parity`／`Gray2Bin`が実例。）
 詳しくは各部品の説明と「実装上の注意」に、できなかった理由まで残している。
 
 ## 置き場所
@@ -121,6 +122,11 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | `Bin2Gray` | 2進 → GRAY符号（`bin ^ (bin >> 1)`） | `Width`（既定8、1以上） |
 | `Decoder` | 2進の添字 → one-hot（`en`で開く） | `Width`（出力線の数、既定8、2以上）、`SelWidth`（導出`$clog2(Width)`） |
 | `Rotator` | バレルローテータ（可変量の巡回シフト） | `Width`（既定8、2以上）、`Right`（0=左/1=右、既定0）、`ShWidth`（導出`$clog2(Width)`） |
+| `Gray2Bin` | GRAY符号 → 2進（`Bin2Gray`の逆） | `Width`（既定8、1以上） |
+
+`Gray2Bin`は`bin[i] = (gray >> i).xor_reduce()`で各ビットを作る（第i位以上のXOR）。
+`.xor_reduce()`（XORリダクション）と部分ビット代入（`bin[i] = ...`はビットごとに積み上がる）で、
+XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻ることを確認している。
 
 `Rotator`は`data`を`amt`ビット巡回シフトする。両方向のシフトをORして作る
 （`(data << amt) | (data >> (Width - amt))`、右回転はその逆）。
@@ -207,9 +213,13 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | 部品 | 機能 | パラメータ |
 |---|---|---|
 | `Crc` | CRC（巡回冗長検査、ビット直列） | `Width`（既定8、2以上）。多項式`poly`は入力ポート |
+| `Parity` | パリティ生成（偶/奇） | `Width`（既定8、1以上）、`Odd`（0=偶/1=奇、既定0） |
 
 `Crc`はMSB先頭で1サイクルに1ビット取り込み、`poly`で更新する（LFSRにデータ入力を足した形）。
-`clear`で区切れる。並列CRC（1バイト同時）はXORの畳み込みが要り、現状のcombでは書けない。
+`clear`で区切れる。並列CRC（1バイト同時）はXOR網の畳み込みが要り、現状のcombでは書けない。
+
+`Parity`は`.xor_reduce()`でビットのXORを取る（偶パリティ）。`Odd`で奇パリティ（反転）。
+iris2svは`.xor_reduce()`をSystemVerilogの縮約演算子`(^d)`へ変換する。
 
 ### periph
 
@@ -268,14 +278,17 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 ## 実装上の注意
 
 **IRISのcombでは`var`を使えない。** `var`はsync／fsm専用である。
-またcombでの信号の再代入は「後の代入が優先される（last-wins）」であって、
-`x = x + d[i]`のような**逐次的な積算にはならない**（各代入はブロック入口の値を読む）。
-このため**選択（最初/最後の1を選ぶ）は書けるが、総和や畳み込み（popcount、gray2bin等）は
-組み合わせでは書けない**。`popcount`（総和）や`gray2bin`（上位からのXOR畳み込み）のように
-積算を要する部品は、現状のIRISのcombでは表せない（今後の課題）。
-`bin2gray`は1回のXОRなので書ける（逆変換のgray2binは畳み込みが要るので保留）。
-同じ理由で、**パリティ生成やSECDEDのパリティ計算（ビット部分集合のXOR＝畳み込み）も
-combでは書けない**。CRCは直列（毎サイクル1ビット）にすれば書ける（積算を時間に展開する）。
+またcombでの信号の「まるごとの」再代入は「後の代入が優先される（last-wins）」であって、
+`x = x + d[i]`のような**逐次的な総和にはならない**（各代入はブロック入口の値を読む）。
+このため**総和の畳み込み（popcount、並列CRCのXOR網）は組み合わせでは書けない**（今後の課題）。
+
+**ただしXORの畳み込みは書ける。** `.xor_reduce()`（XORリダクション、`.and_reduce()`／
+`.or_reduce()`も同様）でビット全体のXORが取れ、**部分ビット代入（`out[i] = ...`）は
+ビットごとに積み上がる**（まるごとの再代入と違い、`for`で全ビットを1つずつ埋められる）。
+この2つで、`Parity`（`d.xor_reduce()`）や`Gray2Bin`（`bin[i] = (gray >> i).xor_reduce()`）が
+combで書ける。SECDEDのパリティ計算（ビット部分集合のXOR）も同じ要領で書ける。
+`iris2sv`は`.xor_reduce()`／`.and_reduce()`／`.or_reduce()`をSVの縮約演算子`(^d)`／`(&d)`／`(|d)`へ変換する。
+CRCは直列（毎サイクル1ビット）にすれば書ける（積算を時間に展開する）。
 
 **配列型のポート・var（生成境界に定数以外を使うもの）は書けない。**
 `in d: bit[Width][N]`や`var a: bit[W][N]`は「expected integer」で拒否される

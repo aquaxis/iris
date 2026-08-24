@@ -12,17 +12,17 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-29 parts in 9 categories.
+31 parts in 9 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
 | `timing/` | 7 | Counter, EdgeDetect, GrayCounter, Lfsr, ClkDivider, Pwm, Debounce |
-| `arith/` | 5 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator |
+| `arith/` | 6 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin |
 | `mem/` | 4 | FifoSync, FifoAsync, RamSp, RamDp |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
 | `stream/` | 1 | SpillRegister |
 | `cdc/` | 3 | Sync2ff, RstSync, PulseSync |
-| `coding/` | 1 | Crc |
+| `coding/` | 2 | Crc, Parity |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
 | `dsp/` | 2 | FirSerial, MacSerial |
 
@@ -46,7 +46,7 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 29 testbenches pass under `iris-sim`.
+All 31 testbenches pass under `iris-sim`.
 `tools/conformance/run.sh` stays at 158/0.
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
@@ -63,12 +63,13 @@ Three kinds of parts are written directly in IRIS.
 | FSM + shift register | UartTx/Rx, SpiMaster, I2cMaster | a state machine and a shift register build a peripheral interface |
 | Accumulation unrolled over time | Crc, Lfsr, FirSerial, MacSerial | sync accumulation unrolls a convolution over time |
 | Signed arithmetic | MacSerial[Signed: 1] | `.signed()` + `.sign_extend[N]()` accumulate in two's complement; read with `acc.signed()` |
+| An XOR fold | Parity, Gray2Bin | `.xor_reduce()` plus per-bit assignment (`out[i]=...` accumulates bit by bit) |
 
 What could not be done is recorded, with the reason.
 
 | Not expressible | Reason |
 |---|---|
-| A combinational fold (popcount, parity, gray2bin, parallel CRC) | `var` is not allowed in comb, and reassignment is last-write-wins, not a running sum |
+| A combinational sum-fold (popcount, a parallel-CRC XOR tree) | `var` is not allowed in comb, and a whole-signal reassignment is last-write-wins, not a running sum (an XOR fold is fine via `.xor_reduce()`) |
 | Generic array ports and var arrays (multi-stream mux/demux) | array bounds need a constant (only `mem` allows a generic bound) |
 | Generic functions (a general math library) | `fn f[Width](...)` does not parse; a fixed-width `fn` works |
 | A generic width on `int[N]`/`uint[N]` (`int[Width]`) | a type's width takes only a literal (`bit[Width]` works); write signed parts over `bit[N]` with `.signed()` |
