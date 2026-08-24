@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-69 parts in 10 categories. Every part passes three checks: an `iris-sim`
+70 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 548/0 (65 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 554/0 (66 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -19,9 +19,9 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `cdc/` | 4 | `Sync2ff`, `RstSync`, `PulseSync`, `HandshakeSync` |
 | `coding/` | 7 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
-| `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
+| `dsp/` | 4 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco` |
 | `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 69 | |
+| Total | 70 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 69/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 70/0)
 ```
 
 ## Parts

@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在69部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は548/0を保つ（lib部品65個を検体に登録）。
+現在70部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は554/0を保つ（lib部品66個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -18,9 +18,9 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `cdc/` | 4 | `Sync2ff`／`RstSync`／`PulseSync`／`HandshakeSync` |
 | `coding/` | 7 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum`／`Scrambler`／`Descrambler` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
-| `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
+| `dsp/` | 4 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco` |
 | `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 69 | |
+| 合計 | 70 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 69/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 70/0）
 ```
 
 ## 部品一覧

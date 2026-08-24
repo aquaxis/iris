@@ -1,0 +1,45 @@
+/// NCO／DDS（数値制御発振器、位相アキュムレータ）
+///
+/// `en`のたびに位相アキュムレータへ`incr`を足す。`phase`は鋸波（0→最大→0の周回）、
+/// `sq`はその最上位ビット＝`incr`に比例した周波数の方形波。周波数合成、トーン生成、
+/// 掃引（sweep）、位相基準などに使う。出力周波数は`f_clk * incr / 2^PhaseWidth`。
+///
+/// 位相の最上位ビットを方形波として取り出す最小構成。正弦波が要る場合は`phase`の上位ビットで
+/// 正弦LUT（`RamSp`等のROM）を引く（LUTは利用側で用意する）。
+///
+/// ジェネリックパラメータ:
+/// - PhaseWidth: 位相アキュムレータのビット幅（既定16、2以上、周波数分解能）
+///
+/// ポート:
+/// - en:    1で位相を進める（0なら保持）
+/// - incr:  位相増分（周波数語、大きいほど高い周波数）
+/// - phase: 位相アキュムレータの現在値（鋸波）
+/// - sq:    位相のMSB（`incr`に比例した周波数の方形波）
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Nco[PhaseWidth: uint = 16]
+where
+    PhaseWidth >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  incr: bit[PhaseWidth],
+    out phase: bit[PhaseWidth],
+    out sq: bit,
+) {
+    var acc: bit[PhaseWidth] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            acc = 0;
+        } else if en {
+            acc = acc + incr;
+        }
+    }
+
+    comb {
+        phase = acc;
+        sq = acc[PhaseWidth - 1];
+    }
+}

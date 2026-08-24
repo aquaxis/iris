@@ -12,7 +12,7 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-69 parts in 10 categories.
+70 parts in 10 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
@@ -24,7 +24,7 @@ One directory per category.
 | `cdc/` | 4 | Sync2ff, RstSync, PulseSync, HandshakeSync |
 | `coding/` | 7 | Crc, Parity, Secded, TmrVoter, Checksum, Scrambler, Descrambler |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
-| `dsp/` | 3 | FirSerial, MacSerial, MovingAverage |
+| `dsp/` | 4 | FirSerial, MacSerial, MovingAverage, Nco |
 | `util/` | 4 | BitReverse, EndianSwap, ByteEnableExpand, RangeMask |
 
 A part is three pieces.
@@ -47,9 +47,9 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 69 testbenches pass under `iris-sim`; run them at once with `bash tools/lib_test.sh`
+All 70 testbenches pass under `iris-sim`; run them at once with `bash tools/lib_test.sh`
 (catches behavioral/assert regressions that conformance's convert/round-trip checks miss).
-`tools/conformance/run.sh` stays at 548/0 (65 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 554/0 (66 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 
