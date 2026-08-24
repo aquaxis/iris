@@ -1,0 +1,72 @@
+/// ストリームアップサイザ（幅変換、狭い語→広い語、ready/valid）
+///
+/// 幅`Width`の狭い語N個を集めて、幅`Width*N`の広い語1つにして出す（先に来た語がLSB側）。
+/// バス幅の拡大、細いIFの出力を広いFIFOへまとめるなどに使う。ready/validでバックプレッシャに従う。
+///
+/// `in_valid`のたびに要素位置`cnt`へ部分書き込みし（要素iは`hold[i*Width +: Width]`）、
+/// N個そろったら`full`にして`out_valid`を上げる。取られたら次の語の受け入れを再開する。
+/// 添字は積`cnt*Width`が桁あふれしないよう`IdxWidth`へ拡張してから掛ける。
+///
+/// ジェネリックパラメータ:
+/// - Width:    入力（狭い語）のビット幅（既定8、1以上）
+/// - N:        まとめる数（既定4、2以上）
+/// - Total:    出力（広い語）のビット幅（導出＝Width*N）
+/// - CntWidth: 要素カウンタの幅（導出＝$clog2(N)）
+/// - IdxWidth: ビット位置計算の幅（導出＝$clog2(Width*N)+1）
+///
+/// ポート:
+/// - in_valid／in_data／in_ready: 入力側ハンドシェイク（狭い語、N個）
+/// - out_valid／out_data／out_ready: 出力側ハンドシェイク（広い語）
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod StreamUpsizer[
+    Width: uint = 8,
+    N: uint = 4,
+    Total: uint = Width * N,
+    CntWidth: uint = $clog2(N),
+    IdxWidth: uint = $clog2(Width * N) + 1,
+]
+where
+    Width >= 1,
+    N >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  in_valid: bit,
+    in  in_data: bit[Width],
+    out in_ready: bit,
+    out out_valid: bit,
+    out out_data: bit[Total],
+    in  out_ready: bit,
+) {
+    var hold: bit[Total] = 0;
+    var cnt: bit[CntWidth] = 0;
+    var full: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            full = 0;
+            cnt = 0;
+        } else if full == 1 {
+            if out_ready == 1 {
+                full = 0;
+                cnt = 0;
+            }
+        } else {
+            if in_valid == 1 {
+                hold[cnt.resize(IdxWidth) * Width +: Width] = in_data;
+                if cnt == N - 1 {
+                    full = 1;
+                } else {
+                    cnt = cnt + 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        in_ready = full == 0;
+        out_valid = full;
+        out_data = hold;
+    }
+}

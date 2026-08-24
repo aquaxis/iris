@@ -1,0 +1,40 @@
+/// StreamDownsizerのテストベンチ
+///
+/// N=4／Width=8で、広い語0xDDCCBBAAが AA→BB→CC→DD の4語に分かれて出ることと、
+/// 分割中はin_readyが下がることを確かめる。out_readyは常に1。
+test StreamDownsizerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var in_valid: bit = 0;
+    var in_data: bit[32] = 0;
+    var out_ready: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = StreamDownsizer {
+        clk: clk, rst: rst, in_valid: in_valid, in_data: in_data, out_ready: out_ready
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd1 { in_valid = 1; in_data = 32'hDDCCBBAA; }
+            if step == 8'd2 { in_valid = 0; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd3 { assert dut.out_valid == 1, "emitting"; assert dut.out_data == 8'hAA, "el0 AA"; assert dut.in_ready == 0, "busy"; }
+            if step == 8'd4 { assert dut.out_data == 8'hBB, "el1 BB"; }
+            if step == 8'd5 { assert dut.out_data == 8'hCC, "el2 CC"; }
+            if step == 8'd6 { assert dut.out_data == 8'hDD, "el3 DD"; }
+            if step == 8'd7 { assert dut.in_ready == 1, "ready again"; assert dut.out_valid == 0, "done"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(9);
+        $display("StreamDownsizerTB: all checks passed");
+        $finish;
+    }
+}
