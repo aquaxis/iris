@@ -1,0 +1,27 @@
+/// ビット順反転
+///
+/// `din`のビット順を反転して`dout`へ出す（`dout[i] = din[Width-1-i]`）。
+/// LSB先頭とMSB先頭の変換、CRC/LFSRのreflect処理、シリアル送出のビット順合わせなどに使う。
+/// 組み合わせのみ。
+///
+/// combの部分ビット代入（`dout[i] = ...`はビットごとに積む）と`for`で全ビットを1つずつ埋める。
+///
+/// ジェネリックパラメータ:
+/// - Width: ビット幅（既定8、1以上）
+///
+/// ポート:
+/// - din:  入力
+/// - dout: ビット順を反転した出力
+mod BitReverse[Width: uint = 8]
+where
+    Width >= 1,
+(
+    in  din:  bit[Width],
+    out dout: bit[Width],
+) {
+    comb {
+        for i in 0..Width {
+            dout[i] = din[Width - 1 - i];
+        }
+    }
+}

@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在40部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は374/0を保つ（lib部品36個を検体に登録）。
+現在43部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は392/0を保つ（lib部品39個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -19,7 +19,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `coding/` | 3 | `Crc`／`Parity`／`Secded` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 40 | |
+| `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
+| 合計 | 43 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -322,6 +323,20 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 比較できる（この比較はiris-simの修正で対応した。9.3.1参照）。
 `int[Width]`／`uint[Width]`のジェネリック幅も書ける（`bit[Width]`と同様。パーサの不備を修正）。
 `bit[N]`＋`.signed()`でも、`int[N]`直接でも、どちらでも幅をジェネリックにできる。
+
+### util
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `BitReverse` | ビット順反転（`dout[i]=din[Width-1-i]`） | `Width`（既定8、1以上） |
+| `EndianSwap` | バイト順反転（エンディアン変換） | `Bytes`（既定4、1以上）、`Width`（導出＝Bytes*8） |
+| `ByteEnableExpand` | バイトEN→ビットマスク（1ビット→8ビット） | `Bytes`（既定4、1以上）、`Width`（導出＝Bytes*8） |
+
+いずれも組み合わせのみの語彙変換部品。`for`で1要素ずつ埋める：`BitReverse`は部分ビット代入
+（`dout[i]=...`はビットごとに積む）、`EndianSwap`はバイト単位の部分選択の読み書き、
+`ByteEnableExpand`は部分選択への書き込み（値は`if be[i] { 8'hFF } else { 8'h00 }`）。
+`EndianSwap`のように`(Bytes-1-i)*8`と括弧で優先順位を変える式は、iris2svが括弧を保って
+SVへ写す（優先順位に応じた括弧付けに対応。従来は`Bytes-1-i*8`と落ちて意味が変わっていた）。
 
 ## 実装上の注意
 

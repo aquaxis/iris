@@ -12,7 +12,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在40部品を9分類に置く。
+現在43部品を10分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
@@ -25,6 +25,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `coding/` | 3 | Crc、Parity、Secded |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
 | `dsp/` | 2 | FirSerial、MacSerial |
+| `util/` | 3 | BitReverse、EndianSwap、ByteEnableExpand |
 
 1部品は3点で構成する。
 実装（`<分類>/<name>.iris`）、試験（`<分類>/<name>_tb.iris`）、資料（`lib/README.md`）である。
@@ -46,8 +47,8 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-40部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は374/0を保つ（lib部品36個を検体に登録）。
+43部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は392/0を保つ（lib部品39個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 
@@ -65,6 +66,7 @@ IRISで素直に書けるのは次の3種である。
 | 符号付き演算 | MacSerial[Signed: 1] | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
 | XORの畳み込み | Parity、Gray2Bin、Secded | `.xor_reduce()`と部分ビット代入（`out[i]=...`はビットごとに積む）で書ける |
 | 多ストリームのmux／demux（パックドベクタ） | VecMux、VecDemux | 要素を連結した`bit[Width*N]`と部分選択`[i*Width +: Width]`で表せる（添字は幅拡張してから掛ける） |
+| 語彙変換（ビット/バイト順、マスク展開） | BitReverse、EndianSwap、ByteEnableExpand | `for`と部分ビット代入/部分選択で1要素ずつ埋める |
 
 書けなかったものは、理由とともに残す。
 

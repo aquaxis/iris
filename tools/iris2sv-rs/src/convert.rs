@@ -830,9 +830,27 @@ fn emit_expr(expr: &Expression) -> String {
         // SystemVerilog (`Add`); a plain identifier is unchanged.
         Expression::Ident(name) => strip_enum_qualifier(name),
         Expression::BinOp { op, lhs, rhs } => {
-            format!("{} {} {}", emit_expr(lhs), binop_to_sv(*op), emit_expr(rhs))
+            // IRIS folds parentheses into the tree, so grouping must be
+            // reconstructed from precedence — otherwise `(a - b) * c` emits as
+            // `a - b * c`, which SystemVerilog re-parses as `a - (b * c)`.
+            let pp = binop_prec(*op);
+            format!(
+                "{} {} {}",
+                emit_operand(lhs, pp, false),
+                binop_to_sv(*op),
+                emit_operand(rhs, pp, true)
+            )
         }
-        Expression::UnaryOp { op, expr } => format!("{}{}", unop_to_sv(*op), emit_expr(expr)),
+        Expression::UnaryOp { op, expr } => {
+            // A unary operator binds tighter than any binary one, so a binary
+            // operand must be parenthesised (`~(a + b)`, not `~a + b`).
+            let inner = if matches!(**expr, Expression::BinOp { .. }) {
+                format!("({})", emit_expr(expr))
+            } else {
+                emit_expr(expr)
+            };
+            format!("{}{}", unop_to_sv(*op), inner)
+        }
         Expression::Index { base, index } => {
             format!("{}[{}]", emit_expr(base), emit_expr(index))
         }
@@ -932,6 +950,37 @@ fn slice_bound(e: &Expression) -> String {
         Expression::BinOp { .. } => format!("32'({})", emit_expr(e)),
         _ => emit_expr(e),
     }
+}
+
+/// SystemVerilog precedence of a binary operator; a higher number binds tighter.
+fn binop_prec(op: BinOp) -> u8 {
+    match op {
+        BinOp::Mul | BinOp::Div | BinOp::Mod => 11,
+        BinOp::Add | BinOp::Sub => 10,
+        BinOp::Shl | BinOp::Shr | BinOp::AShr => 9,
+        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => 8,
+        BinOp::Eq | BinOp::Ne => 7,
+        BinOp::And => 6,
+        BinOp::Xor => 5,
+        BinOp::Or => 4,
+        BinOp::LogicalAnd => 3,
+        BinOp::LogicalOr => 2,
+    }
+}
+
+/// Emit a binary operand, parenthesising it when its own operator would
+/// otherwise re-associate against the parent. A left operand needs parentheses
+/// only when it binds more loosely; a right operand also needs them at equal
+/// precedence, because these operators are left-associative (`a - (b - c)` must
+/// keep its parentheses, while `a - b - c` need not).
+fn emit_operand(e: &Expression, parent_prec: u8, is_right: bool) -> String {
+    if let Expression::BinOp { op, .. } = e {
+        let cp = binop_prec(*op);
+        if cp < parent_prec || (is_right && cp == parent_prec) {
+            return format!("({})", emit_expr(e));
+        }
+    }
+    emit_expr(e)
 }
 
 fn binop_to_sv(op: BinOp) -> &'static str {

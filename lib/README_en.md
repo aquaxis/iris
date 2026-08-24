@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-40 parts in 9 categories. Every part passes three checks: an `iris-sim`
+43 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 374/0 (36 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 392/0 (39 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -20,7 +20,8 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `coding/` | 3 | `Crc`, `Parity`, `Secded` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 40 | |
+| `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
+| Total | 43 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -360,6 +361,22 @@ by value, so a signed result compares against a negative literal
 A generic width on `int[Width]`/`uint[Width]` also works now (like `bit[Width]`; a
 parser limitation was fixed) — so signed parts can use either `bit[N]` + `.signed()`
 or `int[N]` directly and keep the width generic.
+
+### util
+
+| Part | Function | Parameters |
+|---|---|---|
+| `BitReverse` | reverse bit order (`dout[i]=din[Width-1-i]`) | `Width` (default 8, >= 1) |
+| `EndianSwap` | reverse byte order (endianness) | `Bytes` (default 4, >= 1), `Width` (derived `Bytes*8`) |
+| `ByteEnableExpand` | byte-enable to bit mask (1 bit -> 8 bits) | `Bytes` (default 4, >= 1), `Width` (derived `Bytes*8`) |
+
+Combinational vocabulary conversions, each filling one element per `for`
+iteration: `BitReverse` uses per-bit assignment (`dout[i]=...` accumulates bit by
+bit), `EndianSwap` a byte-granular part-select read/write, `ByteEnableExpand` a
+part-select write with an `if be[i] { 8'hFF } else { 8'h00 }` value. `EndianSwap`'s
+`(Bytes-1-i)*8` — where parentheses override precedence — round-trips through
+iris2sv with the grouping preserved (iris2sv now parenthesizes by precedence;
+previously it emitted `Bytes-1-i*8`, silently changing the meaning).
 
 ## Implementation notes
 
