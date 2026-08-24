@@ -100,6 +100,7 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 | 0.6.0 | 2026-08-14 | ブロック図ビューア（`tools/schematic`）とSurferの翻訳プラグイン（`tools/surfer-plugin`）を追加。`iris-sim`の波形出力を、入れ子の`$scope`、`--dump-arrays`による`mem`の要素展開、符号付き`int[N]`の`$var integer`に対応。VCDの識別子が94本で一周し黙って衝突する不具合を改修。仕様書の本文は変更なし |
 | 0.7.0 | 2026-08-15 | VerylとIRISを相互に変換する`tools/veryl2iris`を追加。`counter`／`alu`／`regfile`／`decoder`の4設計が往復し、模擬実行で一致する。共通部分の外は位置を添えて拒否し、「言語に対応物が無い」と「この変換器が未実装」を分けて報告する。`sign_extend`をVerylのキャストと等価と誤って分類していたのを訂正。`iris-sim`の`check::expr_width`を公開。**言語仕様は変更していない** |
 | 0.8.0 | 2026-08-15 | `example/`の6設計すべてがVerylとの往復で模擬実行まで一致するようになった。対応表で`Exact`とした30行のうち24行に往復の断片を置き、行と試験の対応を`mapping`の検査が守る。`grammar_check.py`に文法が閉じているかの検査（未定義の参照・到達不能）を追加し、`port_connection`が参照していた未定義の非終端`expression`を`expr`へ訂正。**言語仕様の意味は変更していない**（`expression`は定義が無く何も指していなかった） |
+| 0.8.1 | 2026-08-24 | 符号付き演算の`==`／`!=`を値で比較するよう`iris-sim`（`iris_runtime::ops::signed_binop`）を修正。幅の異なる符号付きどうし、および符号付き変数と負のリテラルの等価比較が正しくなった（テストベンチの`assert x == -7`等）。同幅の場合の挙動は不変で、conformanceは158/0、RV32Iは40/40のまま。9.3.1に符号付き等価の一文を追記。**文法（`tools/iris.ebnf`）は変更していない** |
 
 ---
 
