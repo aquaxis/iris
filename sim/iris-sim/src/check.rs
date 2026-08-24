@@ -354,6 +354,36 @@ fn check_unknown_types(project: &Project, module: &Module, out: &mut Vec<Diagnos
     for mem in &module.memories {
         report("memory", &mem.name, &mem.element_type);
     }
+
+    // An array-typed signal or port (`bit[W][N]`) parses, but the simulator
+    // flattens it to a plain bit vector with no element-width, so `d[i]` reads a
+    // *bit*, not the i-th element — silently wrong. Refuse it with a clear
+    // diagnostic instead. (A `mem` is a separate declaration that carries its
+    // element width, so memories are unaffected.)
+    let array_error = |kind: &str, holder: &str| {
+        Diagnostic::error(
+            "O1009",
+            &module.name,
+            format!("array-typed {} '{}' (bit[W][N]) is not supported", kind, holder),
+        )
+        .with_note(
+            "an array signal flattens to bits, so `d[i]` would read one bit, not the i-th element"
+                .to_string(),
+        )
+        .with_help(
+            "use a packed vector `bit[W*N]` and a part-select `d[i*W +: W]` (see the VecMux/VecDemux library parts); `mem` still supports `bit[W][Depth]`",
+        )
+    };
+    for port in &module.ports {
+        if matches!(port.ty, Type::Array { .. }) {
+            out.push(array_error("port", &port.name));
+        }
+    }
+    for signal in &module.signals {
+        if matches!(signal.ty, Type::Array { .. }) {
+            out.push(array_error("signal", &signal.name));
+        }
+    }
 }
 
 /// Whether a name is declared as an enumeration, structure, union or interface

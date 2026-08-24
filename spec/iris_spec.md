@@ -104,6 +104,7 @@ VS Code、Neovim、Emacs、IntelliJ IDEAでのIRIS開発環境のセットアッ
 | 0.8.2 | 2026-08-24 | `iris-sim`の`$display`の`%d`が、符号付き型（`int[N]`／`iN`）の値を符号付きで表示するようにした（例：`int[16]=-7`が`-7`。従来は`65529`）。符号なしは従来どおり、`%h`／`%b`はビット表示のまま。conformance 158/0、RV32I 40/40、cargo test緑。文法・意味は不変（表示のみ） |
 | 0.8.3 | 2026-08-24 | `int[N]`／`uint[N]`の幅Nに定数式（ジェネリックパラメータを含む、例：`int[Width]`）を書けるようにした。文法（`primitive_type`は`int "[" const_expr "]"`）は元から式を許しており、パーサ（`sized_int`）がリテラルのみ受けていた不備を直した（新`Type::IntExpr`、elaborationで`Int`へ解決）。`bit[Width]`と同様に扱える。iris2sv／veryl2iris／formalも対応。conformance 158/0、RV32I 40/40、全cargo test緑。**文法は不変** |
 | 0.8.4 | 2026-08-24 | ジェネリック関数（`fn f[Width](...)`、spec 12.1）を書けるようにした。EBNF（`fn_def = "fn" identifier [ generic_params ] ...`）は元から生成を許しており、pestの`fn_decl`が`generics?`を欠いていた不備を直した（`FnDecl`に`generics`を追加、`parse_fn`は元から未知節を無視）。関数は呼び出し位置に展開（インライン）され幅注釈は消えるため、本体が幅の数値を必要としないジェネリック関数（例：`fn max2[W](a,b)`）が任意の幅で動く。iris2svはジェネリック関数を呼び出し位置でインライン展開し（固定幅関数は従来どおりSVの`function`で出力）、`project::inline_functions_in_module`を公開して再利用。conformance 572/0、RV32I 40/40（sim/SV両方）、lib_test 72/0、全cargo test緑。**EBNFは不変**（元からgeneric_paramsを許容） |
+| 0.8.5 | 2026-08-24 | `bit[W][N]`をsignal/portに使う配列型を明示エラー`O1009`にした（チェッカ`check_unknown_types`）。配列信号はビットに平坦化され`d[i]`が要素でなくビットを指す（黙って誤る）ため、`bit[8][4]`のリテラルを含め拒否し、パックドベクタ`bit[W*N]`＋部分選択`d[i*W+:W]`を案内する。`mem`（別宣言・要素幅を持つ）は`bit[W][Depth]`で従来どおり可。既存設計にsignal/portの配列型は無く回帰なし。conformance 572/0、RV32I 40/40、lib_test 72/0、cargo test緑。**文法・意味は不変**（誤用を止める診断の追加のみ） |
 
 ---
 

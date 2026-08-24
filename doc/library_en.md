@@ -76,7 +76,7 @@ What could not be done is recorded, with the reason.
 | Not expressible | Reason |
 |---|---|
 | A combinational sum-fold (popcount, a parallel-CRC XOR tree) | `var` is not allowed in comb, and a whole-signal reassignment is last-write-wins, not a running sum (an XOR fold is fine via `.xor_reduce()`; **serially it is expressible** — `PopcountSerial`) |
-| The `bit[W][N]` array-port syntax and var arrays | array bounds need a constant (only `mem` allows a generic bound); the multi-stream mux/demux itself is expressible with a packed vector (table above) |
+| An array-typed signal/port (`bit[W][N]`) | rejected with a clear error (`O1009`) — it would flatten to bits so `d[i]` reads a bit, not an element; use a packed vector (table above); `mem` still takes `bit[W][Depth]` |
 | Generic functions whose body needs the numeric width | `fn f[W]` itself works (inlined); but using `W` as a value in the body leaves it unresolved after inlining |
 | A parameterizable synchronizer depth | a var array needs a constant bound, so the depth is fixed at two |
 

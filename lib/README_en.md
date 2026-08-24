@@ -33,7 +33,8 @@ index does not overflow. A combinational sum-fold (popcount, a parallel-CRC XOR 
 `comb`, but **is expressible serially over time** (`PopcountSerial` is the example).
 Generic functions `fn f[W](...)` are also expressible (inlined at call sites, so a
 function whose body needs no numeric width — e.g. `max2` — works at any width; iris sv
-inlines them). The `bit[W][N]` array-port syntax itself is not expressible today. (An XOR fold is expressible with
+inlines them). An array-typed signal/port (`bit[W][N]`) is rejected with a clear error (`O1009`) — it would
+flatten to bits and make `d[i]` read a bit, not an element; use a packed vector instead (`mem` still takes `bit[W][Depth]`). (An XOR fold is expressible with
 `.xor_reduce()` and per-bit assignment — `Parity` and `Gray2Bin` are the
 examples.) Each part's description and the "Implementation notes" record what
 could not be done, and why.
@@ -629,13 +630,15 @@ parity (an XOR of a subset of bits) follows the same recipe. iris2sv converts
 `.xor_reduce()` / `.and_reduce()` / `.or_reduce()` to the SV reduction operators
 `(^d)` / `(&d)` / `(|d)`. A CRC works if made bit-serial (accumulation over time).
 
-**The `bit[W][N]` array-port syntax is not expressible, but a packed vector
-replaces it.** `in d: bit[Width][N]` or `var a: bit[W][N]` is rejected
-("expected integer"); only `mem` allows a generic dimension. A mux/demux that
-bundles N streams is instead written over a **packed vector** `bit[Width*N]` with
-a part-select `data[i*Width +: Width]` — see `VecMux`/`VecDemux`. Widen the index
-before the multiply (`sel.resize(IdxWidth) * Width`) so it does not wrap. This
-covers the common cases; true `bit[W][N]` unpacked-array ports remain future work.
+**An array-typed signal/port (`bit[W][N]`) is rejected with a clear error
+(`O1009`).** An array signal flattens to bits, so `d[i]` would read a bit, not the
+i-th element (silently wrong), so the checker stops it (literal `bit[8][4]` too);
+`mem` still takes `bit[W][Depth]` (a memory carries its own element width). A
+mux/demux that bundles N streams is written over a **packed vector** `bit[Width*N]`
+with a part-select `data[i*Width +: Width]` — see `VecMux`/`VecDemux`. Widen the
+index before the multiply (`sel.resize(IdxWidth) * Width`) so it does not wrap.
+This covers the common cases; true `bit[W][N]` unpacked-array ports (lowered as
+sugar `d[i]` → `d[i*W +: W]`) remain future work.
 
 **`iris2sv` now supports `for` loops.** A `for` with constant bounds becomes a
 synthesisable SystemVerilog `for` (inside `always_comb`/`always_ff`), so the
