@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在72部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は566/0を保つ（lib部品68個を検体に登録）。
+現在73部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は578/0を保つ（lib部品69個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -14,13 +14,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `arith/` | 17 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator`／`Bin2Bcd` |
 | `mem/` | 8 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer`／`Lifo` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
-| `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
+| `stream/` | 12 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter`／`StreamArbiter` |
 | `cdc/` | 4 | `Sync2ff`／`RstSync`／`PulseSync`／`HandshakeSync` |
 | `coding/` | 7 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum`／`Scrambler`／`Descrambler` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 4 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco` |
 | `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 72 | |
+| 合計 | 73 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -98,7 +98,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 72/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 73/0）
 ```
 
 ## 部品一覧
@@ -378,6 +378,15 @@ Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを
 0の要素は`in_ready`を1にして吸い込み捨てる。不要要素の除去に使う。組み合わせのみ。
 `CreditCounter`は使えるクレジット数を数える。`give`で返し（+1）、`take`で使う（−1）、同時なら相殺。
 `MaxCredit`から始め、残りがあれば`available`が1。送信可否をクレジットで律速するフロー制御に使う。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `StreamArbiter` | N入力→1出力のラウンドロビン調停 | `Width`（既定8、1以上）、`N`（既定4、2以上）、`Total`／`SelW`／`KW`／`IdxW`（導出） |
+
+`StreamArbiter`は有効な入力を1つ選んで出力へ流す。直前に選んだ位置`ptr`の次から巡回して公平に選ぶ
+（RR）。選択はcombの last-wins を使い、オフセットを遠い方から回して`ptr`寄りの有効入力を最後に書いて残す。
+`out_valid`は「どれか有効」、`in_ready`は選ばれた1本だけ、出力受理で`ptr`を次へ進める。StreamJoin
+（全入力必須）と違い1つを選ぶ。共有バスへの合流に使う。
 
 ### cdc
 

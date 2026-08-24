@@ -12,7 +12,7 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-72 parts in 10 categories.
+73 parts in 10 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
@@ -20,7 +20,7 @@ One directory per category.
 | `arith/` | 17 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial, MulSerial, SatAdd, SatSub, OneHotCheck, Abs, Accumulator, PopcountSerial, Comparator, Bin2Bcd |
 | `mem/` | 8 | FifoSync, FifoAsync, RamSp, RamDp, Ram2r1w, ShiftRegister, RingBuffer, Lifo |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
-| `stream/` | 11 | SpillRegister, Serializer, Deserializer, VecMux, VecDemux, StreamDownsizer, StreamUpsizer, StreamFork, StreamJoin, StreamFilter, CreditCounter |
+| `stream/` | 12 | SpillRegister, Serializer, Deserializer, VecMux, VecDemux, StreamDownsizer, StreamUpsizer, StreamFork, StreamJoin, StreamFilter, CreditCounter, StreamArbiter |
 | `cdc/` | 4 | Sync2ff, RstSync, PulseSync, HandshakeSync |
 | `coding/` | 7 | Crc, Parity, Secded, TmrVoter, Checksum, Scrambler, Descrambler |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
@@ -47,9 +47,9 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 72 testbenches pass under `iris-sim`; run them at once with `bash tools/lib_test.sh`
+All 73 testbenches pass under `iris-sim`; run them at once with `bash tools/lib_test.sh`
 (catches behavioral/assert regressions that conformance's convert/round-trip checks miss).
-`tools/conformance/run.sh` stays at 566/0 (68 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 578/0 (69 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 
