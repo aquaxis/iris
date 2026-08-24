@@ -1,0 +1,41 @@
+/// デコーダ（2進 → one-hot）
+///
+/// 2進の添字`sel`を、その位置だけ1のone-hot（`onehot`）に開く。
+/// `en`が1のときだけ開き、0のときは全ビット0を出す。
+/// アドレスデコードやone-hot選択の土台に使う。`PriorityEncoder`（one-hot寄り → 添字）の逆向き。
+///
+/// 組み合わせ回路である。まず0を置き、`sel`に一致する1ビットだけを`for`ループで立てる
+/// （`PriorityEncoder`と同じ、combのlast-wins選択）。
+/// `1 << sel`は使わない。無型リテラル`1`が1ビット幅と推論され、シフトで桁があふれて
+/// 0になってしまうためである（幅付きの生成境界の`for`なら確実に1ビットを選べる）。
+///
+/// ジェネリックパラメータ:
+/// - Width:    出力線の数（既定8、2以上）
+/// - SelWidth: 添字の幅（導出＝$clog2(Width)）
+///
+/// ポート:
+/// - sel:    開く位置（2進）
+/// - en:     1で開く、0で全0
+/// - onehot: 選ばれた位置だけ1（Widthビット）
+mod Decoder[
+    Width: uint = 8,
+    SelWidth: uint = $clog2(Width),
+]
+where
+    Width >= 2,
+(
+    in  sel: bit[SelWidth],
+    in  en: bit,
+    out onehot: bit[Width],
+) {
+    comb {
+        onehot = 0;
+        for i in 0..Width {
+            if en {
+                if sel == i {
+                    onehot[i] = 1;
+                }
+            }
+        }
+    }
+}

@@ -12,13 +12,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在24部品を9分類に置く。
+現在29部品を9分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
-| `timing/` | 5 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider |
-| `arith/` | 3 | PriorityEncoder、Lzc、Bin2Gray |
-| `mem/` | 3 | FifoSync、FifoAsync、RamSp |
+| `timing/` | 7 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce |
+| `arith/` | 5 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator |
+| `mem/` | 4 | FifoSync、FifoAsync、RamSp、RamDp |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
 | `stream/` | 1 | SpillRegister |
 | `cdc/` | 3 | Sync2ff、RstSync、PulseSync |
@@ -46,7 +46,7 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-24部品すべてのテストベンチが`iris-sim`で通る。
+29部品すべてのテストベンチが`iris-sim`で通る。
 `tools/conformance/run.sh`は158/0を保つ。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
@@ -62,6 +62,7 @@ IRISで素直に書けるのは次の3種である。
 | 単一クロックの論理 | Counter、FifoSync、ArbiterRr | comb／syncとmemで素直に表せる |
 | FSM＋シフトレジスタ | UartTx／Rx、SpiMaster、I2cMaster | 状態機械とシフトで周辺IFを組める |
 | 直列にして時間へ展開する積算 | Crc、Lfsr、FirSerial、MacSerial | syncの逐次加算で畳み込みを時間に展開できる |
+| 符号付き演算 | MacSerial[Signed: 1] | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
 
 書けなかったものは、理由とともに残す。
 
@@ -70,8 +71,10 @@ IRISで素直に書けるのは次の3種である。
 | combの畳み込み・積算（popcount、parity、gray2bin、並列CRC） | combで`var`が使えず、信号の再代入はlast-winsで逐次和にならない |
 | ジェネリックな配列ポート・var配列（多ストリームのmux／demux） | 配列の生成境界に定数が要る（`mem`だけがジェネリックを許す） |
 | ジェネリック関数（汎用math関数） | `fn f[Width](...)`がパースできない。固定幅の`fn`は動く |
-| 符号付きの積和（符号付きFIR／MAC） | int型はあり同幅の演算は効くが、幅を広げる代入が符号拡張せず零拡張になる（asキャストもcomb／syncで不可） |
+| `int[N]`／`uint[N]`型のジェネリック幅（`int[Width]`） | 型の幅にリテラルしか使えない（`bit[Width]`は書ける）。符号付き部品は`bit[N]`＋`.signed()`で書く |
 | 可変段数の同期化器 | var配列が生成境界に定数を要するため2段固定 |
+
+符号付きの`==`／`!=`が値で比較するよう、iris-simを修正した（負のリテラルと比較できる。仕様9.3.1）。
 
 直列にできるもの・FSMで書けるものはIRISで書き、
 畳み込みや配列ポートの限界に当たるもの・実証が要る重いものはOSSを流用する。

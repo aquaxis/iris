@@ -12,13 +12,13 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-24 parts in 9 categories.
+29 parts in 9 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
-| `timing/` | 5 | Counter, EdgeDetect, GrayCounter, Lfsr, ClkDivider |
-| `arith/` | 3 | PriorityEncoder, Lzc, Bin2Gray |
-| `mem/` | 3 | FifoSync, FifoAsync, RamSp |
+| `timing/` | 7 | Counter, EdgeDetect, GrayCounter, Lfsr, ClkDivider, Pwm, Debounce |
+| `arith/` | 5 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator |
+| `mem/` | 4 | FifoSync, FifoAsync, RamSp, RamDp |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
 | `stream/` | 1 | SpillRegister |
 | `cdc/` | 3 | Sync2ff, RstSync, PulseSync |
@@ -46,7 +46,7 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 24 testbenches pass under `iris-sim`.
+All 29 testbenches pass under `iris-sim`.
 `tools/conformance/run.sh` stays at 158/0.
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
@@ -62,6 +62,7 @@ Three kinds of parts are written directly in IRIS.
 | Single-clock logic | Counter, FifoSync, ArbiterRr | expressible directly with comb/sync and mem |
 | FSM + shift register | UartTx/Rx, SpiMaster, I2cMaster | a state machine and a shift register build a peripheral interface |
 | Accumulation unrolled over time | Crc, Lfsr, FirSerial, MacSerial | sync accumulation unrolls a convolution over time |
+| Signed arithmetic | MacSerial[Signed: 1] | `.signed()` + `.sign_extend[N]()` accumulate in two's complement; read with `acc.signed()` |
 
 What could not be done is recorded, with the reason.
 
@@ -70,8 +71,10 @@ What could not be done is recorded, with the reason.
 | A combinational fold (popcount, parity, gray2bin, parallel CRC) | `var` is not allowed in comb, and reassignment is last-write-wins, not a running sum |
 | Generic array ports and var arrays (multi-stream mux/demux) | array bounds need a constant (only `mem` allows a generic bound) |
 | Generic functions (a general math library) | `fn f[Width](...)` does not parse; a fixed-width `fn` works |
-| Signed multiply-accumulate (signed FIR/MAC) | int types exist and same-width ops work, but a widening assignment zero-extends instead of sign-extending (and an `as` cast does not parse in comb/sync) |
+| A generic width on `int[N]`/`uint[N]` (`int[Width]`) | a type's width takes only a literal (`bit[Width]` works); write signed parts over `bit[N]` with `.signed()` |
 | A parameterizable synchronizer depth | a var array needs a constant bound, so the depth is fixed at two |
+
+Signed `==`/`!=` were fixed in iris-sim to compare by value (so a signed value compares against a negative literal; spec 9.3.1).
 
 What can be serialized or written as an FSM is written in IRIS.
 What hits the fold or array-port limits, or is heavy and needs proven silicon, reuses OSS.

@@ -5,22 +5,22 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-24 parts in 9 categories. Every part passes three checks: an `iris-sim`
+29 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 `tools/conformance/run.sh` stays at 158/0.
 
 | Category | Count | Parts |
 |---|---|---|
-| `timing/` | 5 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider` |
-| `arith/` | 3 | `PriorityEncoder`, `Lzc`, `Bin2Gray` |
-| `mem/` | 3 | `FifoSync`, `FifoAsync`, `RamSp` |
+| `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
+| `arith/` | 5 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator` |
+| `mem/` | 4 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 1 | `Crc` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 24 | |
+| Total | 29 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -98,9 +98,19 @@ iris lint    <category>/<name>.iris                  # follows the naming rules
 | `GrayCounter` | gray-code counter (adjacent values differ by one bit) | `Width` (default 8, >= 1) |
 | `Lfsr` | linear-feedback shift register (Galois, PRNG/PRBS) | `Width` (default 8, >= 2); polynomial `poly` is an input port |
 | `ClkDivider` | integer divider (one-cycle `tick` every Div cycles) | `Div` (default 2, >= 2), `CountWidth` (derived) |
+| `Pwm` | PWM generator (counter + compare, duty ratio `duty/Period`) | `Period` (clocks per period, default 256, >= 2), `Width` (derived `$clog2(Period)`) |
 
 `ClkDivider` emits a clock-enable tick rather than gating a clock — the
 synthesis-friendly pattern.
+
+`Pwm` runs a free-running counter of period `Period` and holds the output high
+while `cnt < duty`, so the duty ratio is `duty / Period` (`duty` of 0 is always
+low). Use it for LED dimming or motor drive.
+
+`Debounce` flips the output `q` only after the input `d` has differed from the
+current output for `Count` consecutive cycles; a shorter glitch is ignored (push
+button chatter removal). It is not a metastability guard, so synchronize an async
+input with `Sync2ff` first.
 
 `Counter` leaves wrap to natural width overflow, and saturation holds the value
 at the maximum (all ones) and the minimum (0). The maximum is detected with
@@ -116,11 +126,23 @@ at the maximum (all ones) and the minimum (0). The maximum is detected with
 | `PriorityEncoder` | index of the lowest set bit, with a valid flag | `Width` (default 8, >= 2), `IdxWidth` (default `$clog2(Width)`) |
 | `Lzc` | leading zero count (zeros from the MSB to the first 1) | `Width` (default 8, >= 1), `CountWidth` (default `$clog2(Width)+1`) |
 | `Bin2Gray` | binary to gray code (`bin ^ (bin >> 1)`) | `Width` (default 8, >= 1) |
+| `Decoder` | binary index to one-hot (opened by `en`) | `Width` (output lines, default 8, >= 2), `SelWidth` (derived `$clog2(Width)`) |
+| `Rotator` | barrel rotator (variable-amount circular shift) | `Width` (default 8, >= 2), `Right` (0=left / 1=right, default 0), `ShWidth` (derived `$clog2(Width)`) |
 
-Both are combinational and use a `for` loop with combinational last-write-wins.
+`Rotator` circularly shifts `data` by `amt`, formed by OR-ing the two shift
+directions (`(data << amt) | (data >> (Width - amt))`, reversed for a right
+rotate). When `amt` is 0, `data >> Width` is 0 (a full-width shift), so a rotate
+of 0 returns `data` unchanged.
+
+`PriorityEncoder`, `Lzc`, and `Decoder` are combinational and use a `for` loop
+with combinational last-write-wins.
 `PriorityEncoder` scans from the high index down so the lowest set bit remains.
 `Lzc` scans from the low index up so the highest set bit remains, and reports
 `Width - 1 - i` as the leading-zero count.
+`Decoder` sets the single bit matching `sel` (the inverse of `PriorityEncoder`).
+It does not use `1 << sel`: the untyped literal `1` is inferred as one bit wide,
+so the shift overflows to 0; selecting one bit with a width-bounded `for` is
+reliable.
 
 ### mem
 
@@ -129,6 +151,7 @@ Both are combinational and use a `for` loop with combinational last-write-wins.
 | `FifoSync` | single-clock synchronous FIFO (first-in first-out) | `Width` (default 8), `Depth` (default 4, power of two), `AddrWidth`/`PtrWidth` (derived from Depth) |
 | `FifoAsync` | two-clock-domain asynchronous FIFO (gray-code pointer sync) | `DataWidth` (default 8), `Depth` (default 16, power of two >= 4), `AddrWidth`/`PtrWidth` (derived) |
 | `RamSp` | single-port synchronous RAM (registered read, read-before-write) | `Width` (default 8), `Depth` (default 256, >= 2), `AddrWidth` (derived) |
+| `RamDp` | simple dual-port RAM (one write, one read, registered read) | `Width` (default 8), `Depth` (default 256, >= 2), `AddrWidth` (derived) |
 
 `FifoSync` uses a `mem` and pointers with a wrap bit. `empty` is pointer
 equality; `full` is a differing wrap bit with equal low address bits.
@@ -143,8 +166,15 @@ SDC constraints cannot be emitted from IRIS and are the user's responsibility.
 one address port. The read is registered, so it takes one cycle. Reading and
 writing the same address on one cycle returns the old value on `dout`
 (read-before-write). The RAM contents are not reset (a `mem` is not a reset
-target); reset only clears the output register `dout`. A dual-port variant and
-write byte-enables are not included (add a variant when needed).
+target); reset only clears the output register `dout`. Write byte-enables are not
+included (add a variant when needed).
+
+`RamDp` is a synchronous RAM with a separate write port (`we`/`waddr`/`din`) and
+read port (`raddr`/`dout`). On one clock it can be written while a different
+address is read (the basis for a FIFO or a line buffer). The read is registered,
+and if the write and read address the same location on one cycle, `dout` returns
+the old value (the same read-before-write as `RamSp`). A true dual-port RAM (read
+and write on both ports) is not included.
 
 ### arbiter
 
@@ -229,7 +259,7 @@ clock stretching, and arbitration are not included (see OSS for a full version).
 | Part | Function | Parameters |
 |---|---|---|
 | `FirSerial` | serial (time-multiplexed) FIR filter (one multiplier, `Taps` cycles per sample) | `Width` (default 8), `Taps` (default 4, >= 2), `CoeffWidth` (default 8), `AccWidth`/`IdxWidth`/`CntWidth` (derived) |
-| `MacSerial` | serial multiply-accumulate: `acc += a*b` on each `en`, `clear` zeroes it | `AWidth` (default 8), `BWidth` (default 8), `GuardBits` (default 8), `AccWidth` (derived) |
+| `MacSerial` | serial multiply-accumulate: `acc += a*b` on each `en`, `clear` zeroes it | `AWidth` (default 8), `BWidth` (default 8), `GuardBits` (default 8), `AccWidth` (derived), `Signed` (0=unsigned / 1=signed, default 0) |
 
 `MacSerial` is the elemental DSP part: it adds `a*b` to `acc` on each `en`, and
 computes a dot product Σ a[i]*b[i] by streaming pairs one at a time (the core of
@@ -237,7 +267,10 @@ computes a dot product Σ a[i]*b[i] by streaming pairs one at a time (the core o
 zero-extended to `AccWidth`, and, to fit the non-blocking `sync`, it is two stages
 (register+widen, then multiply-accumulate) — so there is a 2-cycle latency from
 input to `acc`, and `valid_out` pulses with the same latency. `clear` takes
-priority over `en`. Values are unsigned.
+priority over `en`. With `Signed: 1` the inputs are sign-extended with
+`.signed().sign_extend[AccWidth]()` instead (the two's-complement bits accumulate
+correctly, so the add and multiply are unchanged); read the result with
+`acc.signed()` (a signed dot product of `-68` is checked).
 
 `FirSerial` computes `y[n] = Σ coeff[k]*x[n-k]` with a single multiplier used
 across `Taps` cycles. Coefficients are loaded through a write port; samples enter
@@ -246,12 +279,18 @@ one at a time on `in_valid` and results leave on `out_valid`. **A convolution
 lets `sync` accumulate it one tap per cycle** — the concrete case of the Tier-3
 policy "if it can be serialized, write it in IRIS". Multiplication truncates to
 the operand width, so coefficients and samples are held zero-extended in
-`AccWidth`-wide mems, and the wide product is not truncated. Values are unsigned.
-A signed version is on hold: int types (`int[N]`/`iN`) exist and same-width signed
-arithmetic works, but a widening assignment zero-extends rather than sign-extends
-(`int[16] = int[8]` turns `-7` into `249`), and an `as` cast does not parse in
-comb/sync, so a wide signed product is not expressible cleanly (sign-extension
-needs language support; a future item).
+`AccWidth`-wide mems, and the wide product is not truncated. `FirSerial` itself is
+unsigned, but a signed FIR follows the same recipe as `MacSerial`'s `Signed` mode
+(`.signed().sign_extend[AccWidth]()`).
+
+**Signed arithmetic works.** Reinterpret a `bit[N]` as signed with `.signed()` and
+sign-extend with `.sign_extend[M]()`; the two's-complement product accumulates
+correctly (`MacSerial[Signed: 1]` is the worked example). Signed `==`/`!=` compare
+by value, so a signed result compares against a negative literal
+(`acc.signed() == -68`); this comparison was fixed in iris-sim (see spec 9.3.1).
+The one remaining limit is that `int[N]`/`uint[N]` types take no generic width yet
+(`int[Width]` does not parse, though `bit[Width]` does) — write signed parts over
+`bit[N]` with `.signed()` to keep the width generic.
 
 ## Implementation notes
 

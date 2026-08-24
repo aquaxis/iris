@@ -1,0 +1,50 @@
+/// Debounceのテストベンチ
+///
+/// Count=4で、短いグリッチ（3サイクル）は無視し、4サイクル以上続いた変化だけが
+/// 出力に通ることを確かめる。
+///   step 1..3: d=1（3サイクルのグリッチ）→ step4でd=0に戻る → qは0のまま
+///   step 10以降: d=1を保持 → 4サイクル後にq=1
+///   step 25以降: d=0を保持 → 4サイクル後にq=0
+test DebounceTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var d: bit = 0;
+    var q_glitch: bit = 1;
+    var q_high: bit = 0;
+    var q_low: bit = 1;
+
+    inst dut = Debounce[Count: 4] { clk: clk, rst: rst, d: d };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            d = 0;
+        } else {
+            step = step + 1;
+
+            // 3サイクルのグリッチ（1,2,3）ののち0へ戻す
+            if step == 1 { d = 1; }
+            if step == 4 { d = 0; }
+            // 長く1を保持
+            if step == 10 { d = 1; }
+            // 長く0を保持
+            if step == 25 { d = 0; }
+
+            // 捕捉
+            if step == 8  { q_glitch = dut.q; }   // グリッチ後：まだ0のはず
+            if step == 20 { q_high = dut.q; }      // 1を十分保持：1のはず
+            if step == 35 { q_low = dut.q; }       // 0を十分保持：0のはず
+        }
+    }
+
+    seq {
+        await clk.cycles(40);
+        assert q_glitch == 0, "a 3-cycle glitch does not pass (Count=4)";
+        assert q_high == 1, "d held high long enough sets q to 1";
+        assert q_low == 0, "d held low long enough clears q to 0";
+        $display("DebounceTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,71 @@
+/// RamDpのテストベンチ
+///
+/// Depth=4で、書き込みポートでaddr0,1,2,3に 10,20,30,40 を書き、
+/// 読み出しポートで読み戻す。読み出しは2サイクル遅れる（TBのraddrレジスタで1、
+/// RAMの同期読み出しで1）。書きながら別アドレスを同時に読めること（独立ポート）と、
+/// 書き込みと読み出しが同アドレスなら古い値が出ること（read-before-write）を確かめる。
+test RamDpTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var we: bit = 0;
+    var waddr: bit[2] = 0;
+    var din: bit[8] = 0;
+    var raddr: bit[2] = 0;
+
+    var r0: bit[8] = 0;
+    var r1: bit[8] = 0;
+    var r2: bit[8] = 0;
+    var r3: bit[8] = 0;
+    var rconc: bit[8] = 0;
+    var rold: bit[8] = 0;
+
+    inst dut = RamDp[Width: 8, Depth: 4] {
+        clk: clk, rst: rst, we: we, waddr: waddr, din: din, raddr: raddr,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            we = 0;
+        } else {
+            step = step + 1;
+            we = 0;
+
+            // 書き込み：addr0..3 に 10,20,30,40
+            if step == 1 { we = 1; waddr = 0; din = 10; }
+            if step == 2 { we = 1; waddr = 1; din = 20; }
+            if step == 3 { we = 1; waddr = 2; din = 30; }
+            if step == 4 { we = 1; waddr = 3; din = 40; }
+
+            // 読み出し：raddrを出してから2サイクル後にdoutへ出る
+            if step == 6 { raddr = 0; }
+            if step == 7 { raddr = 1; }
+            if step == 8 { raddr = 2; r0 = dut.dout; }
+            if step == 9 { raddr = 3; r1 = dut.dout; }
+            if step == 10 { r2 = dut.dout; }
+            if step == 11 { r3 = dut.dout; }
+
+            // 独立ポート：addr3へ書きながら addr0 を読む（別アドレスなので互いに影響しない）
+            if step == 13 { we = 1; waddr = 3; din = 77; raddr = 0; }
+            if step == 15 { rconc = dut.dout; }
+
+            // read-before-write：同アドレス（addr0）へ書きながら読むと古い値が出る
+            if step == 17 { we = 1; waddr = 0; din = 99; raddr = 0; }
+            if step == 19 { rold = dut.dout; }
+        }
+    }
+
+    seq {
+        await clk.cycles(26);
+        assert r0 == 8'd10, "addr0 holds 10";
+        assert r1 == 8'd20, "addr1 holds 20";
+        assert r2 == 8'd30, "addr2 holds 30";
+        assert r3 == 8'd40, "addr3 holds 40";
+        assert rconc == 8'd10, "reading addr0 while writing addr3 returns 10 (independent ports)";
+        assert rold == 8'd10, "read-before-write on the same address returns the old value 10";
+        $display("RamDpTB: all checks passed");
+        $finish;
+    }
+}

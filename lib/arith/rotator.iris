@@ -1,0 +1,38 @@
+/// バレルローテータ（可変量の巡回シフト）
+///
+/// `data`を`amt`ビットだけ巡回シフト（ローテート）する組み合わせ回路である。
+/// `Right`が0なら左回転、1なら右回転。あふれたビットは反対側へ回り込む。
+/// 巡回はシフトのマスクではなく、両方向のシフトをORして作る。
+///
+/// ジェネリックパラメータ:
+/// - Width:   データ幅（既定8、2以上）
+/// - Right:   回転の向き（0=左、1=右、既定0）
+/// - ShWidth: 回転量の幅（導出＝$clog2(Width)）
+///
+/// ポート:
+/// - data:   入力データ
+/// - amt:    回転量（0..Width-1）
+/// - result: 回転後のデータ
+///
+/// 組み合わせ回路である。`amt`が0のとき`data >> (Width - amt)`は`data >> Width`となり
+/// 0になる（全幅シフトは0）ので、回転量0はそのまま`data`を返す。
+mod Rotator[
+    Width: uint = 8,
+    Right: uint = 0,
+    ShWidth: uint = $clog2(Width),
+]
+where
+    Width >= 2,
+(
+    in  data: bit[Width],
+    in  amt: bit[ShWidth],
+    out result: bit[Width],
+) {
+    comb {
+        if Right == 0 {
+            result = (data << amt) | (data >> (Width - amt));
+        } else {
+            result = (data >> amt) | (data << (Width - amt));
+        }
+    }
+}

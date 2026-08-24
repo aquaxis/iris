@@ -5,21 +5,21 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在24部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+現在29部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
 `iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
-| `timing/` | 5 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider` |
-| `arith/` | 3 | `PriorityEncoder`／`Lzc`／`Bin2Gray` |
-| `mem/` | 3 | `FifoSync`／`FifoAsync`／`RamSp` |
+| `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
+| `arith/` | 5 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator` |
+| `mem/` | 4 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 1 | `Crc` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 24 | |
+| 合計 | 29 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,8 +96,16 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | `GrayCounter` | GRAY符号カウンタ（隣接値が1ビット差） | `Width`（既定8、1以上） |
 | `Lfsr` | 線形帰還シフトレジスタ（Galois形、疑似乱数/PRBS） | `Width`（既定8、2以上）。多項式`poly`は入力ポート |
 | `ClkDivider` | 整数分周（Divサイクルごとに1サイクル幅のtick） | `Div`（既定2、2以上）、`CountWidth`（導出） |
+| `Pwm` | PWM生成（カウンタ＋比較、デューティ比`duty/Period`） | `Period`（1周期のクロック数、既定256、2以上）、`Width`（導出`$clog2(Period)`） |
 
 `ClkDivider`はクロックをゲーティングせず、クロックイネーブル（tick）を出す合成向きの方式。
+
+`Pwm`は周期`Period`の自由走行カウンタを回し、`cnt < duty`の間だけ出力を1にする。
+デューティ比は`duty / Period`（`duty`が0なら常に0）。LEDの調光やモータ駆動に使う。
+
+`Debounce`は入力`d`が`Count`サイクル連続して現在の出力と異なったときだけ出力`q`を
+切り替える。それより短いグリッチは無視する（押しボタンのチャタリング除去）。
+メタステーブル対策ではないので、非同期入力は先に`Sync2ff`で同期させてから入れる。
 
 `Counter`はラップを幅の自然なあふれに任せ、飽和は上限（全ビット1）と下限（0）で値を保つ。
 上限の判定は`count + 1 == 0`で行う（全ビット1に1を足すとWidthビットで0へ戻る）。
@@ -111,10 +119,20 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | `PriorityEncoder` | 立っている最下位ビットの添字と有効フラグ | `Width`（既定8、2以上）、`IdxWidth`（既定`$clog2(Width)`） |
 | `Lzc` | 先頭ゼロ数（最上位から最初の1までの0の個数） | `Width`（既定8、1以上）、`CountWidth`（既定`$clog2(Width)+1`） |
 | `Bin2Gray` | 2進 → GRAY符号（`bin ^ (bin >> 1)`） | `Width`（既定8、1以上） |
+| `Decoder` | 2進の添字 → one-hot（`en`で開く） | `Width`（出力線の数、既定8、2以上）、`SelWidth`（導出`$clog2(Width)`） |
+| `Rotator` | バレルローテータ（可変量の巡回シフト） | `Width`（既定8、2以上）、`Right`（0=左/1=右、既定0）、`ShWidth`（導出`$clog2(Width)`） |
 
-どちらも組み合わせで、`for`ループと「combの後の代入が優先される（last-wins）」性質を使う。
+`Rotator`は`data`を`amt`ビット巡回シフトする。両方向のシフトをORして作る
+（`(data << amt) | (data >> (Width - amt))`、右回転はその逆）。
+`amt`が0のとき`data >> Width`は0になる（全幅シフトは0）ので、回転量0はそのまま返る。
+
+`PriorityEncoder`／`Lzc`／`Decoder`は組み合わせで、`for`ループと
+「combの後の代入が優先される（last-wins）」性質を使う。
 `PriorityEncoder`は高い添字から回して最下位の1を残す。
 `Lzc`は低い添字から回して最上位の1を残し、`Width - 1 - i`を先頭ゼロ数とする。
+`Decoder`は`sel`に一致する1ビットだけを立てる（`PriorityEncoder`の逆向き）。
+`1 << sel`は使わない。無型リテラル`1`が1ビット幅と推論され、シフトで桁があふれて0になる
+ためである。幅付きの`for`で1ビットを選べば確実である。
 
 ### mem
 
@@ -123,6 +141,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | `FifoSync` | 単一クロックの同期FIFO（先入れ先出し） | `Width`（既定8）、`Depth`（既定4、2のべき乗）、`AddrWidth`／`PtrWidth`（Depthから導出） |
 | `FifoAsync` | 2クロックドメインの非同期FIFO（GRAY符号ポインタ同期） | `DataWidth`（既定8）、`Depth`（既定16、4以上の2のべき乗）、`AddrWidth`／`PtrWidth`（導出） |
 | `RamSp` | 単一ポート同期RAM（登録読み出し、read-before-write） | `Width`（既定8）、`Depth`（既定256、2以上）、`AddrWidth`（導出） |
+| `RamDp` | 簡易デュアルポートRAM（書き1・読み1、登録読み出し） | `Width`（既定8）、`Depth`（既定256、2以上）、`AddrWidth`（導出） |
 
 `FifoSync`は`mem`とラップビット付きポインタで実装する。
 `empty`はポインタ一致、`full`はラップビットが異なり下位アドレスが等しいこと。
@@ -135,8 +154,13 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 `RamSp`は1つのアドレスポートで読み書きする素直な同期RAM（`mem`）である。
 読み出しは1サイクル遅れる（同期読み出し）。同一アドレスへ同時に読み書きすると`dout`には
 書き込み前の古い値が出る（read-before-write）。RAMの中身はリセットしない（`mem`はリセット
-対象にしない）。リセットは出力レジスタ`dout`だけを0に戻す。デュアルポートや書き込みバイト
-イネーブルは含まない（必要時に変種を足す）。
+対象にしない）。リセットは出力レジスタ`dout`だけを0に戻す。書き込みバイトイネーブルは
+含まない（必要時に変種を足す）。
+
+`RamDp`は書き込みポート（`we`／`waddr`／`din`）と読み出しポート（`raddr`／`dout`）を
+別々に持つ同期RAMである。同じクロックで、書きながら別アドレスを読める（FIFOや行バッファの
+土台）。読み出しは1サイクル遅れ、書き込みと読み出しが同アドレスなら`dout`に古い値が出る
+（`RamSp`と同じread-before-write）。真のデュアルポート（両ポートで読み書き）は含まない。
 
 ### arbiter
 
@@ -215,24 +239,31 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 | 部品 | 機能 | パラメータ |
 |---|---|---|
 | `FirSerial` | 直列（時分割）FIRフィルタ（1乗算器を時分割、1サンプルにTapsサイクル） | `Width`（既定8）、`Taps`（既定4、2以上）、`CoeffWidth`（既定8）、`AccWidth`／`IdxWidth`／`CntWidth`（導出） |
-| `MacSerial` | 直列積和（MAC）。`en`ごとに`acc += a*b`、`clear`で0に戻す | `AWidth`（既定8）、`BWidth`（既定8）、`GuardBits`（既定8）、`AccWidth`（導出） |
+| `MacSerial` | 直列積和（MAC）。`en`ごとに`acc += a*b`、`clear`で0に戻す | `AWidth`（既定8）、`BWidth`（既定8）、`GuardBits`（既定8）、`AccWidth`（導出）、`Signed`（0=符号なし/1=符号付き、既定0） |
 
 `MacSerial`はDSPの基本部品で、`en`のたびに`acc = acc + a*b`を積む。内積Σa[i]*b[i]を対を
 1つずつ流して求めるのに使う（`FirSerial`の中核を単体で取り出したもの）。
 乗算の切り詰めを避けるため入力をAccWidth幅へ零拡張し、非ブロッキングのsyncに合わせて
 「幅を広げて登録する段」と「掛けて足す段」の2段にする（入力からaccへ2サイクルの遅延、
-`valid_out`も同じ遅延で1になる）。`clear`は`en`より優先。数は符号なし。
+`valid_out`も同じ遅延で1になる）。`clear`は`en`より優先。
+`Signed`が1なら符号付きになり、入力を`.signed().sign_extend[AccWidth]()`で符号拡張してから積む
+（桁は2の補数で正しいので和・積の式は同じ）。符号付きの結果は`acc.signed()`で読む
+（負の積を含む内積 `-68` を確認）。
 
 `FirSerial`は`y[n] = Σ coeff[k]*x[n-k]`を、1つの乗算器を時分割で使って求める。
 係数は書き込みポートで読み込み、サンプルは`in_valid`で1つずつ入れ、`out_valid`で結果を出す。
 **combでは畳み込み（積算）を書けないが、直列にして時間へ展開すればsyncの逐次加算で書ける**
 （段L3の方針「直列にできるものはIRIS」の実例）。
 乗算はオペランド幅に切り詰められるので、係数とサンプルは`AccWidth`幅のmemに零拡張して持ち、
-積が切り詰められないようにする。数は符号なし。
-符号付き版は保留である。int型（`int[N]`／`iN`）はあり同幅の符号付き演算は効くが、
-**幅を広げる代入が符号拡張にならず零拡張になる**（`int[16] = int[8]`で`-7`が`249`になる）。
-式中の`as`キャストもcomb／syncではパースできないため、幅広の符号付き積を素直に作れない
-（符号拡張の言語対応が要る。今後の課題）。
+積が切り詰められないようにする。`FirSerial`自体は符号なしだが、符号付きは`MacSerial`の
+`Signed`と同じ要領（`.signed().sign_extend[AccWidth]()`）で書ける。
+
+**符号付き演算はできる。** `bit[N]`を`.signed()`で符号付きに解釈し、`.sign_extend[M]()`で
+符号拡張してから掛ければ、2の補数で正しく積算される（`MacSerial[Signed: 1]`が実例）。
+符号付きの`==`／`!=`は値で比較するので、`acc.signed() == -68`のように負のリテラルと
+比較できる（この比較はiris-simの修正で対応した。9.3.1参照）。
+唯一の制約は、`int[N]`／`uint[N]`型のジェネリック幅（`int[Width]`）がまだ書けないこと
+（`bit[Width]`は書ける）。符号付き部品は`bit[N]`＋`.signed()`で書けば幅をジェネリックにできる。
 
 ## 実装上の注意
 
