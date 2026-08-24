@@ -771,7 +771,10 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, String> {
-        for op in ["!", "~", "-", "+"] {
+        // `!` `~` `-` `+`, plus the reduction operators `^` `&` `|` in prefix
+        // position (`^bus`). A reduction only appears at the start of an operand,
+        // so it does not clash with the binary `^`/`&`/`|` handled after this.
+        for op in ["!", "~", "-", "+", "^", "&", "|"] {
             if self.at_sym(op) {
                 self.next();
                 let expr = self.parse_unary()?;
