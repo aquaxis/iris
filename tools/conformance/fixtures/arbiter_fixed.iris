@@ -1,0 +1,26 @@
+/// 固定優先度アービタ
+///
+/// 要求`req`のうち最下位の添字を持つものにgrantを1つだけ与える（one-hot）。
+/// 要求が無ければ`valid`を0にする。
+///
+/// ジェネリックパラメータ:
+/// - N: 要求の本数（既定4、2以上）
+///
+/// 実装は組み合わせ。最下位の1の分離に2の補数の性質を使う。
+///   grant = req & (~req + 1)   （~req + 1 は -req。最下位の1だけが残る）
+///   valid = req != 0
+mod ArbiterFixed[
+    N: uint = 4,
+]
+where
+    N >= 2,
+(
+    in  req: bit[N],
+    out grant: bit[N],
+    out valid: bit,
+) {
+    comb {
+        grant = req & (~req + 1);
+        valid = req != 0;
+    }
+}

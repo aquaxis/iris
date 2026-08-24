@@ -409,6 +409,10 @@ fn emit_expr(expr: &Expr) -> String {
     match expr {
         Expr::Number(text) => normalize_number(text),
         Expr::Ident(name) => name.clone(),
+        // The reduction operators have no prefix form in IRIS; they are methods.
+        Expr::Unary { op, expr } if op == "^" => format!("{}.xor_reduce()", emit_expr(expr)),
+        Expr::Unary { op, expr } if op == "&" => format!("{}.and_reduce()", emit_expr(expr)),
+        Expr::Unary { op, expr } if op == "|" => format!("{}.or_reduce()", emit_expr(expr)),
         Expr::Unary { op, expr } => format!("{}{}", op, emit_expr(expr)),
         Expr::Binary { op, lhs, rhs } => {
             format!("{} {} {}", emit_expr(lhs), op, emit_expr(rhs))

@@ -1,0 +1,20 @@
+/// 2進 → GRAY符号変換
+///
+/// `gray = bin ^ (bin >> 1)`。隣り合う値が1ビットしか違わないGRAY符号にする。
+/// CDCのポインタ同期などで使う。
+///
+/// ジェネリックパラメータ:
+/// - Width: 幅（既定8、1以上）
+mod Bin2Gray[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  bin: bit[Width],
+    out gray: bit[Width],
+) {
+    comb {
+        gray = bin ^ (bin >> 1);
+    }
+}

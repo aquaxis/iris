@@ -47,7 +47,7 @@ iris lint    <分類>/<name>.iris
 ```
 
 38部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は158/0を保つ。
+`tools/conformance/run.sh`は218/0を保つ（代表的なlib部品10個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 

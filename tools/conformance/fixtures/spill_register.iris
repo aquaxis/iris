@@ -1,0 +1,69 @@
+/// スピルレジスタ（スキッドバッファ）
+///
+/// ready/validのハンドシェイクを持つ深さ2のバッファ。上流と下流のパスを切り、
+/// バックプレッシャがかかってもデータを落とさず、詰まっていなければ毎サイクル
+/// 1語を通す（スループット100%）。
+///
+/// `in_ready`はスキッド段の空きだけで決まる（`out_ready`から組み合わせで作らない）
+/// ので、上流と下流の間の組み合わせパスが切れる。
+///
+/// ジェネリックパラメータ:
+/// - Width: データ幅（既定8、1以上）
+///
+/// リセットは非同期assert・同期deassert、能動High。両段とも空で始まる。
+mod SpillRegister[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  in_valid: bit,
+    in  in_data: bit[Width],
+    out in_ready: bit,
+    out out_valid: bit,
+    out out_data: bit[Width],
+    in  out_ready: bit,
+) {
+    var data_reg: bit[Width] = 0;   // 出力段
+    var data_valid: bit = 0;
+    var skid_reg: bit[Width] = 0;   // スキッド段
+    var skid_valid: bit = 0;
+
+    // 発火条件はインライン展開する（iris2svはブロック内のletを未対応のため）。
+    //   in_fire  = in_valid & ~skid_valid   （in_ready = ~skid_valid）
+    //   out_fire = data_valid & out_ready
+    sync(clk.posedge, rst.async) {
+        if (data_valid & out_ready) {
+            if skid_valid {
+                data_reg = skid_reg;
+                skid_valid = 0;
+            } else {
+                if (in_valid & ~skid_valid) {
+                    data_reg = in_data;
+                } else {
+                    data_valid = 0;
+                }
+            }
+        } else {
+            if ~data_valid {
+                if (in_valid & ~skid_valid) {
+                    data_reg = in_data;
+                    data_valid = 1;
+                }
+            } else {
+                if (in_valid & ~skid_valid) {
+                    skid_reg = in_data;
+                    skid_valid = 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        in_ready = ~skid_valid;
+        out_valid = data_valid;
+        out_data = data_reg;
+    }
+}

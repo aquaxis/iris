@@ -1,0 +1,41 @@
+/// PWM生成器（カウンタ＋比較）
+///
+/// 周期`Period`の自由走行カウンタを回し、`duty`より小さい間だけ`pwm_out`を1にする。
+/// デューティ比は`duty / Period`である（`duty`が0なら常に0、`Period`以上なら常に1）。
+/// LEDの調光やモータ駆動などに使う。
+///
+/// ジェネリックパラメータ:
+/// - Period: 1周期のクロック数（既定256、2以上）
+/// - Width:  カウンタとdutyの幅（導出＝$clog2(Period)）
+///
+/// ポート:
+/// - duty:     デューティのしきい値（`cnt < duty`の間だけ1）
+/// - pwm_out:  PWM出力
+///
+/// リセットは非同期assert・同期deassert、能動High。カウンタは0で始まる。
+mod Pwm[
+    Period: uint = 256,
+    Width: uint = $clog2(Period),
+]
+where
+    Period >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  duty: bit[Width],
+    out pwm_out: bit,
+) {
+    var cnt: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if cnt == Period - 1 {
+            cnt = 0;
+        } else {
+            cnt = cnt + 1;
+        }
+    }
+
+    comb {
+        pwm_out = cnt < duty;
+    }
+}

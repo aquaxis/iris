@@ -1,0 +1,54 @@
+/// 単一ポート同期RAM（登録読み出し）
+///
+/// 1つのアドレスポートで読み書きする、素直な同期RAMである。
+/// `we`が1のとき`addr`へ`din`を書き、毎サイクル`addr`の内容を登録して`dout`へ出す。
+/// 読み出しは1サイクル遅れる（同期読み出し）。同じアドレスへ同時に読み書きすると、
+/// `dout`には書き込み前の古い値が出る（read-before-write）。
+///
+/// ジェネリックパラメータ:
+/// - Width:     語のビット幅（既定8、1以上）
+/// - Depth:     語数（既定256、2以上）
+/// - AddrWidth: アドレス幅（導出＝$clog2(Depth)）
+///
+/// ポート:
+/// - we:   1で書き込み
+/// - addr: 読み書きのアドレス
+/// - din:  書き込みデータ
+/// - dout: 読み出しデータ（1サイクル遅れ）
+///
+/// RAMの中身はリセットしない（メモリはリセット対象にしない）。
+/// リセットは出力レジスタ`dout`だけを0に戻す（非同期assert・同期deassert、能動High）。
+mod RamSp[
+    Width: uint = 8,
+    Depth: uint = 256,
+    AddrWidth: uint = $clog2(Depth),
+]
+where
+    Width >= 1,
+    Depth >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  we: bit,
+    in  addr: bit[AddrWidth],
+    in  din: bit[Width],
+    out dout: bit[Width],
+) {
+    mem storage: bit[Width][Depth];
+    var dout_r: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            dout_r = 0;
+        } else {
+            if we {
+                storage[addr] = din;
+            }
+            dout_r = storage[addr];
+        }
+    }
+
+    comb {
+        dout = dout_r;
+    }
+}
