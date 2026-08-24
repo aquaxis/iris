@@ -1,0 +1,38 @@
+/// Accumulatorのテストベンチ
+///
+/// 10+20=30を積み、clearで0に戻ることを確かめる。
+test AccumulatorTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var clear: bit = 0;
+    var din: bit[16] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Accumulator { clk: clk, rst: rst, en: en, clear: clear, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd1 { din = 16'd10; }
+            if step == 8'd2 { din = 16'd20; }
+            if step == 8'd3 { din = 16'd0; }
+            if step == 8'd5 { clear = 1; }
+            if step == 8'd6 { clear = 0; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd3 { assert dut.acc == 16'd10, "acc = 10"; }
+            if step == 8'd4 { assert dut.acc == 16'd30, "acc = 10+20 = 30"; }
+            if step == 8'd7 { assert dut.acc == 16'd0, "cleared -> 0"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(10);
+        $display("AccumulatorTB: all checks passed");
+        $finish;
+    }
+}

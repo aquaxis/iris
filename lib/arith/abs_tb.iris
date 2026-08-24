@@ -1,0 +1,32 @@
+/// Absのテストベンチ
+///
+/// 負（-5）・正（5）・0・最小負（-128）の絶対値を確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test AbsTB {
+    let clk: clock(period: 10ns);
+    var a: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Abs { a: a };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { a = 8'hFB; }   // -5
+        if step == 8'd2 { a = 8'd5; }    // 5
+        if step == 8'd3 { a = 8'd0; }    // 0
+        if step == 8'd4 { a = 8'h80; }   // -128 (最小負、ラップ)
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.y == 8'd5, "abs(-5)=5"; }
+        if step == 8'd3 { assert dut.y == 8'd5, "abs(5)=5"; }
+        if step == 8'd4 { assert dut.y == 8'd0, "abs(0)=0"; }
+        if step == 8'd5 { assert dut.y == 8'h80, "abs(-128) wraps to 0x80"; }
+    }
+
+    seq {
+        await clk.cycles(7);
+        $display("AbsTB: all checks passed");
+        $finish;
+    }
+}

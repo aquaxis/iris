@@ -1,0 +1,46 @@
+/// アキュムレータ（積算器、enで加算・clearで0）
+///
+/// `en`のたびに`din`を`acc`に足し込む（`acc += din`）。`clear`で0に戻す。
+/// 合計、平均の分子、面積、移動しない総和などに使う。乗算のない単純な積算器
+/// （積和は`MacSerial`、飽和加算は`SatAdd`を参照）。
+///
+/// 加算は幅`Width`で折り返す（オーバーフローはラップ）。桁あふれを避けるには`Width`を
+/// 十分広く取るか、飽和が要るなら`SatAdd`を組み合わせる。
+///
+/// ジェネリックパラメータ:
+/// - Width: アキュムレータのビット幅（既定16、1以上）
+///
+/// ポート:
+/// - en:    1で`din`を加える
+/// - clear: 1で0に戻す（enより優先）
+/// - din:   加える値
+/// - acc:   現在の積算値
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Accumulator[Width: uint = 16]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  clear: bit,
+    in  din: bit[Width],
+    out acc: bit[Width],
+) {
+    var a: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            a = 0;
+        } else if clear {
+            a = 0;
+        } else if en {
+            a = a + din;
+        }
+    }
+
+    comb {
+        acc = a;
+    }
+}

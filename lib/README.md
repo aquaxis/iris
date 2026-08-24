@@ -5,13 +5,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在60部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は494/0を保つ（lib部品56個を検体に登録）。
+現在62部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は506/0を保つ（lib部品58個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 9 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot` |
-| `arith/` | 12 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck` |
+| `arith/` | 14 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator` |
 | `mem/` | 6 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 60 | |
+| 合計 | 62 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -187,6 +187,15 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 
 `OneHotCheck`は`din & (din - 1)`で最下位の1を1つ落とし、結果が0でかつ`din`が0でなければ
 `is_onehot`を1にする（畳み込み・popcount不要）。全0なら`is_zero`を1にする。組み合わせのみ。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Abs` | 絶対値（符号付き2の補数） | `Width`（既定8、2以上） |
+| `Accumulator` | 積算器（enで加算・clearで0） | `Width`（既定16、1以上） |
+
+`Abs`は負なら`~a + 1`、非負ならそのまま。最小負値（0x80..）は同幅で表せずラップする（明記）。
+`Accumulator`は`en`のたびに`acc += din`、`clear`で0に戻す。乗算のない単純な積算器
+（積和は`MacSerial`、飽和が要るなら`SatAdd`と組み合わせる）。加算はWidth幅でラップする。
 
 ### mem
 
