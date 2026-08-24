@@ -864,6 +864,10 @@ fn method_to_sv(receiver: &Expression, method: &str, args: &[Expression]) -> Str
         "extend" | "truncate" => format!("{}'({})", width(), r),
         "signed" => format!("$signed({})", r),
         "unsigned" => format!("$unsigned({})", r),
+        // Reductions become SystemVerilog unary reduction operators.
+        "and_reduce" => format!("(&{})", r),
+        "or_reduce" => format!("(|{})", r),
+        "xor_reduce" => format!("(^{})", r),
         // A no-argument call is a member access: an instance output or an
         // interface signal. A wired instance output becomes its wire name; a
         // cross-file one stays a hierarchical reference (`rf.rdata1`).
