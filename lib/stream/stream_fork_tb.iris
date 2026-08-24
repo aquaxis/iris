@@ -1,0 +1,36 @@
+/// StreamForkのテストベンチ
+///
+/// N=2で、入力を両出力へブロードキャストすること、in_readyが両out_readyのANDになることを
+/// 確かめる。組み合わせなので入力を変えて次のサイクルで読む。
+test StreamForkTB {
+    let clk: clock(period: 10ns);
+    var in_valid: bit = 1;
+    var in_data: bit[8] = 8'hAB;
+    var out_ready: bit[2] = 2'b11;
+    var step: bit[8] = 0;
+
+    inst dut = StreamFork { in_valid: in_valid, in_data: in_data, out_ready: out_ready };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd2 { out_ready = 2'b01; }   // 片方だけready
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd1 {
+            assert dut.out_valid == 2'b11, "both outputs valid";
+            assert dut.out_data == 16'hABAB, "broadcast to both";
+            assert dut.in_ready == 1, "all ready -> in_ready";
+        }
+        if step == 8'd3 {
+            assert dut.in_ready == 0, "not all ready -> in_ready 0";
+            assert dut.out_valid == 2'b11, "still offering valid";
+        }
+    }
+
+    seq {
+        await clk.cycles(6);
+        $display("StreamForkTB: all checks passed");
+        $finish;
+    }
+}

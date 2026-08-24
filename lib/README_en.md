@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-54 parts in 10 categories. Every part passes three checks: an `iris-sim`
+56 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 458/0 (50 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 470/0 (52 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -15,13 +15,13 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `arith/` | 12 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck` |
 | `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
-| `stream/` | 7 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer` |
+| `stream/` | 9 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 5 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 54 | |
+| Total | 56 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -313,6 +313,19 @@ one `Width`-bit element at a time (LSB-first) on each `out_ready`, dropping
 into one wide word and raises `out_valid` when full. The element position is
 `cnt` widened to `IdxWidth` times `Width`, read/written with a part-select (the
 same technique as `VecMux`/`VecDemux`). Both honor ready/valid backpressure.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `StreamFork` | 1 input -> N outputs (transfers when all consumers are ready) | `Width` (default 8, >= 1), `N` (default 2, >= 2), `Total` (derived) |
+| `StreamJoin` | N inputs -> 1 output (transfers when all inputs are valid) | same |
+
+`StreamFork` broadcasts the input to N outputs (each `out_valid` = `in_valid`, each
+`out_data` element = `in_data`) and sets `in_ready` to the AND of `out_ready` (the
+beat transfers when every consumer is ready at once). `StreamJoin` is the reverse:
+`out_valid` is the AND of `in_valid`, and each `in_ready[i]` is "all valid and
+`out_ready`" (all inputs consumed together). The N-way valid/ready are `bit[N]`,
+data is a packed vector. Combinational only; no per-output/-input buffering (insert
+a `SpillRegister` where independent buffering is needed).
 
 ### cdc
 

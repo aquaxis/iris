@@ -1,0 +1,44 @@
+/// ストリームジョイン（N入力→1出力への同期合流、全入力が揃ったら転送）
+///
+/// N本の入力ストリームを1本にまとめる。全入力が`in_valid`のときだけ出力を`out_valid`にし、
+/// 出力が受けられたら全入力を同時に消費する。複数の処理系の結果を揃えて次段へ渡すのに使う。
+/// 組み合わせのみ。
+///
+/// `out_valid`は`in_valid`のANDリダクション（全入力が有効）。`out_data`は入力をそのまま連結した
+/// パックドベクタ`bit[Width*N]`。`in_ready[i]`は「全入力有効かつ`out_ready`」のとき1（全入力を同時に消費）。
+///
+/// 注意: 入力ごとのバッファは持たない。全入力が揃うまで各入力は待たされる
+/// （個別に先行して受けたい場合は各入力に`SpillRegister`を挟む）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 1入力のビット幅（既定8、1以上）
+/// - N:     入力数（既定2、2以上）
+/// - Total: 出力データの総幅（導出＝Width*N）
+///
+/// ポート:
+/// - in_valid／in_data／in_ready: 入力側ハンドシェイク（N本、valid/readyはbit[N]、dataはパックド）
+/// - out_valid／out_data／out_ready: 出力側ハンドシェイク（合流後）
+mod StreamJoin[
+    Width: uint = 8,
+    N: uint = 2,
+    Total: uint = Width * N,
+]
+where
+    Width >= 1,
+    N >= 2,
+(
+    in  in_valid: bit[N],
+    in  in_data: bit[Total],
+    out in_ready: bit[N],
+    out out_valid: bit,
+    out out_data: bit[Total],
+    in  out_ready: bit,
+) {
+    comb {
+        out_valid = in_valid.and_reduce();
+        out_data = in_data;
+        for i in 0..N {
+            in_ready[i] = in_valid.and_reduce() & out_ready;
+        }
+    }
+}

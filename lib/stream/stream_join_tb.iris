@@ -1,0 +1,36 @@
+/// StreamJoinのテストベンチ
+///
+/// N=2で、全入力が有効なときだけout_validが立ち、データが連結されること、
+/// 1入力が無効だと合流が止まる（in_readyが0）ことを確かめる。
+test StreamJoinTB {
+    let clk: clock(period: 10ns);
+    var in_valid: bit[2] = 2'b11;
+    var in_data: bit[16] = 16'hBBAA;
+    var out_ready: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = StreamJoin { in_valid: in_valid, in_data: in_data, out_ready: out_ready };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd2 { in_valid = 2'b01; }   // 片方だけvalid
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd1 {
+            assert dut.out_valid == 1, "all inputs valid -> out_valid";
+            assert dut.out_data == 16'hBBAA, "packed data";
+            assert dut.in_ready == 2'b11, "both consumed";
+        }
+        if step == 8'd3 {
+            assert dut.out_valid == 0, "not all valid -> out_valid 0";
+            assert dut.in_ready == 2'b00, "join stalls";
+        }
+    }
+
+    seq {
+        await clk.cycles(6);
+        $display("StreamJoinTB: all checks passed");
+        $finish;
+    }
+}
