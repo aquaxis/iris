@@ -1,0 +1,56 @@
+/// 飽和加算（オーバーフローで丸めず上限/下限に貼り付く）
+///
+/// `a + b`を計算し、あふれたら値を折り返さず範囲の端に飽和させる。
+/// 符号なし（Signed=0）は上限=全ビット1（`0-1`）で飽和。
+/// 符号付き（Signed=1）は上限=最大正（0x7F..）、下限=最小負（0x80..）で飽和。
+/// DSPのアキュムレータ、音声/画像のレベル処理、計器値の頭打ちなどに使う。組み合わせのみ。
+///
+/// 桁上げ/符号あふれを見るため、1ビット広い`Ext=Width+1`で和を作る。
+/// 符号なしは最上位ビット（桁上げ）で、符号付きは上位2ビットの不一致で判定する。
+/// 飽和値は全ビット1（`0-1`）と、符号付きの端（部分ビット代入でMSBだけ立てる/落とす）で作る。
+///
+/// ジェネリックパラメータ:
+/// - Width:  ビット幅（既定8、2以上）
+/// - Signed: 0=符号なし / 1=符号付き（既定0）
+/// - Ext:    内部和の幅（導出＝Width+1）
+///
+/// ポート:
+/// - a／b: 被演算数
+/// - sum:  飽和加算の結果
+mod SatAdd[
+    Width: uint = 8,
+    Signed: uint = 0,
+    Ext: uint = Width + 1,
+]
+where
+    Width >= 2,
+(
+    in  a: bit[Width],
+    in  b: bit[Width],
+    out sum: bit[Width],
+) {
+    var ext: bit[Ext] = 0;
+    comb {
+        if Signed == 1 {
+            ext = (a.signed().sign_extend[Ext]() + b.signed().sign_extend[Ext]());
+            sum = ext[0 +: Width];
+            // 符号あふれ＝上位2ビットが食い違う
+            if ext[Width] != ext[Width - 1] {
+                if ext[Width] == 0 {
+                    // 正のあふれ → 最大正 0x7F..（MSB=0、他=1）
+                    for i in 0..Width { sum[i] = 1; }
+                    sum[Width - 1] = 0;
+                } else {
+                    // 負のあふれ → 最小負 0x80..（MSB=1、他=0）
+                    sum = 0;
+                    sum[Width - 1] = 1;
+                }
+            }
+        } else {
+            ext = (({ 1'b0, a }) + ({ 1'b0, b }));
+            sum = ext[0 +: Width];
+            // 桁上げ → 全ビット1で飽和（0-1はWidth幅で全ビット1）
+            if ext[Width] == 1 { sum = 0 - 1; }
+        }
+    }
+}

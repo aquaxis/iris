@@ -1,0 +1,32 @@
+/// SatSubのテストベンチ
+///
+/// 符号なし（下限0）と符号付き（±飽和）で、通常の減算と飽和を確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test SatSubTB {
+    let clk: clock(period: 10ns);
+    var a: bit[8] = 0;
+    var b: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst u = SatSub { a: a, b: b };            // 符号なし
+    inst s = SatSub[Signed: 1] { a: a, b: b }; // 符号付き
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { a = 8'd200; b = 8'd100; }   // u:100     s:(-56)-100=-156 -> -128 sat
+        if step == 8'd2 { a = 8'd10;  b = 8'd50;  }   // u:sat0    s:10-50=-40
+        if step == 8'd3 { a = 8'd100; b = 8'd156; }   // s:100-(-100)=200 -> +127 sat
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert u.diff == 8'd100, "u 200-100=100"; assert s.diff == 8'h80, "s neg sat -128"; }
+        if step == 8'd3 { assert u.diff == 8'd0, "u floor 0"; assert s.diff == 8'hD8, "s 10-50=-40"; }
+        if step == 8'd4 { assert s.diff == 8'h7F, "s pos sat +127"; }
+    }
+
+    seq {
+        await clk.cycles(7);
+        $display("SatSubTB: all checks passed");
+        $finish;
+    }
+}
