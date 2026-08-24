@@ -1,0 +1,39 @@
+/// 比較器（大小比較、lt／eq／gtを出す、符号なし・符号付き）
+///
+/// `a`と`b`を比べ、`lt`（a<b）・`eq`（a==b）・`gt`（a>b）の3フラグを出す。
+/// しきい値判定、ソーティングネットワーク、FSMの分岐条件などに使う。組み合わせのみ。
+/// 値そのものを選ぶ`MinMax`と違い、こちらは大小関係（フラグ）を出す。
+///
+/// `Signed`が1なら`.signed()`で2の補数として比較する（符号付き比較の実例）。
+/// `eq`は値の一致（符号有無に依らず同じ）。
+///
+/// ジェネリックパラメータ:
+/// - Width:  ビット幅（既定8、1以上）
+/// - Signed: 0=符号なし / 1=符号付き（既定0）
+///
+/// ポート:
+/// - a／b: 比較する2値
+/// - lt:   a<b で1
+/// - eq:   a==b で1
+/// - gt:   a>b で1
+mod Comparator[Width: uint = 8, Signed: uint = 0]
+where
+    Width >= 1,
+(
+    in  a: bit[Width],
+    in  b: bit[Width],
+    out lt: bit,
+    out eq: bit,
+    out gt: bit,
+) {
+    comb {
+        eq = a == b;
+        if Signed == 1 {
+            lt = a.signed() < b.signed();
+            gt = a.signed() > b.signed();
+        } else {
+            lt = a < b;
+            gt = a > b;
+        }
+    }
+}
