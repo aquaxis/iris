@@ -1,0 +1,47 @@
+/// 複素乗算器（(ar+j*ai) * (br+j*bi)）
+///
+/// 2つの複素数の積を組み合わせ回路で1サイクルに求める。周波数変換（ミキサ）や
+/// FFTのバタフライ、複素相関の核として使う。
+///
+/// 実部 = ar*br - ai*bi、虚部 = ar*bi + ai*br。入力は符号付き（2の補数）。
+///
+/// IRISの`*`はオペランド幅に切り詰められるので、各入力を結果幅OutWidthへ
+/// 符号拡張（`.signed().sign_extend[OutWidth]()`）してから掛ける。全幅の積が
+/// 低位OutWidthビットに正しく現れ（符号付きでも2の補数で正しい）、
+/// 積の差・和もそのまま正しい。combは同一ブロックで更新した変数を読み直せないため、
+/// 中間変数を置かず式を直に書く（符号拡張は各入力につき2回ずつ現れる）。
+///
+/// 出力は符号付き。読み出す側は`.signed()`で解釈する。
+///
+/// ジェネリックパラメータ:
+/// - Width:    入力実部・虚部のビット幅（既定8、1以上）
+/// - OutWidth: 出力幅（導出＝2*Width+1）。積は2*Width-1ビットに収まり、
+///             その和・差に1ビット余裕を持たせる
+///
+/// ポート:
+/// - ar／ai: 被乗数の実部・虚部（符号付き）
+/// - br／bi: 乗数の実部・虚部（符号付き）
+/// - out_re／out_im: 積の実部・虚部（符号付き、OutWidth幅）
+mod ComplexMult[
+    Width: uint = 8,
+    OutWidth: uint = 2 * Width + 1,
+]
+where
+    Width >= 1,
+(
+    in  ar: bit[Width],
+    in  ai: bit[Width],
+    in  br: bit[Width],
+    in  bi: bit[Width],
+    out out_re: bit[OutWidth],
+    out out_im: bit[OutWidth],
+) {
+    comb {
+        // 実部 = ar*br - ai*bi
+        out_re = ar.signed().sign_extend[OutWidth]() * br.signed().sign_extend[OutWidth]()
+               - ai.signed().sign_extend[OutWidth]() * bi.signed().sign_extend[OutWidth]();
+        // 虚部 = ar*bi + ai*br
+        out_im = ar.signed().sign_extend[OutWidth]() * bi.signed().sign_extend[OutWidth]()
+               + ai.signed().sign_extend[OutWidth]() * br.signed().sign_extend[OutWidth]();
+    }
+}

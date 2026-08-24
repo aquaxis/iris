@@ -12,7 +12,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在73部品を10分類に置く。
+現在74部品を10分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
@@ -24,7 +24,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `cdc/` | 4 | Sync2ff、RstSync、PulseSync、HandshakeSync |
 | `coding/` | 7 | Crc、Parity、Secded、TmrVoter、Checksum、Scrambler、Descrambler |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
-| `dsp/` | 4 | FirSerial、MacSerial、MovingAverage、Nco |
+| `dsp/` | 5 | FirSerial、MacSerial、MovingAverage、Nco、ComplexMult |
 | `util/` | 4 | BitReverse、EndianSwap、ByteEnableExpand、RangeMask |
 
 1部品は3点で構成する。
@@ -48,10 +48,10 @@ iris lint    <分類>/<name>.iris
 ```
 
 全部品のテストベンチ（振る舞い＝assert）は`bash tools/lib_test.sh`で一括実行できる
-（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在72/0）。
+（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在74/0）。
 
-73部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は578/0を保つ（lib部品69個を検体に登録）。
+74部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は584/0を保つ（lib部品70個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 
@@ -67,7 +67,7 @@ IRISで素直に書けるのは次の3種である。
 | FSM＋シフトレジスタ | UartTx／Rx、SpiMaster、I2cMaster | 状態機械とシフトで周辺IFを組める |
 | 直列にして時間へ展開する積算 | Crc、Lfsr、FirSerial、MacSerial | syncの逐次加算で畳み込みを時間に展開できる |
 | 直列に展開した総和の畳み込み | PopcountSerial | combの畳み込み不可を直列（Widthサイクル）で回避 |
-| 符号付き演算 | MacSerial[Signed: 1] | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
+| 符号付き演算 | MacSerial[Signed: 1]、ComplexMult | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
 | XORの畳み込み | Parity、Gray2Bin、Secded | `.xor_reduce()`と部分ビット代入（`out[i]=...`はビットごとに積む）で書ける |
 | 多ストリームのmux／demux（パックドベクタ） | VecMux、VecDemux | 要素を連結した`bit[Width*N]`と部分選択`[i*Width +: Width]`で表せる（添字は幅拡張してから掛ける） |
 | 語彙変換（ビット/バイト順、マスク展開） | BitReverse、EndianSwap、ByteEnableExpand | `for`と部分ビット代入/部分選択で1要素ずつ埋める |

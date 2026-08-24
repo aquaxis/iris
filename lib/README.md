@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在73部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は578/0を保つ（lib部品69個を検体に登録）。
+現在74部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は584/0を保つ（lib部品70個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -18,9 +18,9 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `cdc/` | 4 | `Sync2ff`／`RstSync`／`PulseSync`／`HandshakeSync` |
 | `coding/` | 7 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum`／`Scrambler`／`Descrambler` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
-| `dsp/` | 4 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco` |
+| `dsp/` | 5 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco`／`ComplexMult` |
 | `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 73 | |
+| 合計 | 74 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -98,7 +98,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 73/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 74/0）
 ```
 
 ## 部品一覧
@@ -523,6 +523,17 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 長さNの遅延線（連結パックドベクタ）の最終段から得る。Nが2のべき乗なので平均は`sum >> LogN`。
 リセット直後は遅延線が0なので最初のNサイクルで正しく立ち上がる。`FirSerial`と同じ
 「畳み込みは直列（時間）に展開すれば書ける」方針の実例。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `ComplexMult` | 複素乗算（(ar+j*ai)*(br+j*bi)、符号付き、組み合わせ） | `Width`（入力実部・虚部の幅、既定8、1以上）、`OutWidth`（導出＝2*Width+1） |
+
+`ComplexMult`は2つの複素数の積を1サイクルの組み合わせ回路で求める（実部=ar*br-ai*bi、
+虚部=ar*bi+ai*br）。周波数変換（ミキサ）やFFTのバタフライ、複素相関の核に使う。
+IRISの`*`はオペランド幅に切り詰められるので、各入力を結果幅へ`.signed().sign_extend[OutWidth]()`で
+符号拡張してから掛ける。全幅の積が低位ビットに正しく現れ、積の差・和も2の補数で正しい。
+combは同一ブロックで更新した変数を読み直せないため中間変数を置かず、式を直に書く。
+出力は符号付き（`.signed()`で読む）。`(3+2j)(4+5j)=2+23j`、`(-3+2j)(4-5j)=-2+23j`を確認。
 
 ### util
 
