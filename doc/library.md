@@ -12,12 +12,12 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在67部品を10分類に置く。
+現在68部品を10分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
 | `timing/` | 10 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce、Timer、OneShot、Watchdog |
-| `arith/` | 15 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial、SatAdd、SatSub、OneHotCheck、Abs、Accumulator、PopcountSerial |
+| `arith/` | 16 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial、SatAdd、SatSub、OneHotCheck、Abs、Accumulator、PopcountSerial、Comparator |
 | `mem/` | 7 | FifoSync、FifoAsync、RamSp、RamDp、Ram2r1w、ShiftRegister、RingBuffer |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
 | `stream/` | 11 | SpillRegister、Serializer、Deserializer、VecMux、VecDemux、StreamDownsizer、StreamUpsizer、StreamFork、StreamJoin、StreamFilter、CreditCounter |
@@ -48,10 +48,10 @@ iris lint    <分類>/<name>.iris
 ```
 
 全部品のテストベンチ（振る舞い＝assert）は`bash tools/lib_test.sh`で一括実行できる
-（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在67/0）。
+（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在68/0）。
 
-67部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は536/0を保つ（lib部品63個を検体に登録）。
+68部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は542/0を保つ（lib部品64個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 

@@ -1,0 +1,40 @@
+/// Comparatorのテストベンチ
+///
+/// 符号なし・符号付きの両方で、大小・等価を確かめる。
+/// 200 vs 5 は符号なしでa>b、符号付きでは a=-56<5。組み合わせなので次サイクルで読む。
+test ComparatorTB {
+    let clk: clock(period: 10ns);
+    var a: bit[8] = 0;
+    var b: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst u = Comparator { a: a, b: b };
+    inst s = Comparator[Signed: 1] { a: a, b: b };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { a = 8'd200; b = 8'd5; }
+        if step == 8'd2 { a = 8'd7;   b = 8'd7; }
+        if step == 8'd3 { a = 8'd3;   b = 8'd9; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 {
+            assert u.gt == 1, "u: 200 > 5"; assert u.lt == 0, "u: not <";
+            assert s.lt == 1, "s: -56 < 5"; assert s.gt == 0, "s: not >";
+        }
+        if step == 8'd3 {
+            assert u.eq == 1, "eq"; assert s.eq == 1, "eq signed";
+            assert u.lt == 0, "eq -> !lt"; assert u.gt == 0, "eq -> !gt";
+        }
+        if step == 8'd4 {
+            assert u.lt == 1, "3 < 9"; assert s.lt == 1, "3 < 9 signed"; assert u.gt == 0, "not >";
+        }
+    }
+
+    seq {
+        await clk.cycles(6);
+        $display("ComparatorTB: all checks passed");
+        $finish;
+    }
+}

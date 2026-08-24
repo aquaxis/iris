@@ -5,13 +5,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在67部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は536/0を保つ（lib部品63個を検体に登録）。
+現在68部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は542/0を保つ（lib部品64個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 10 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog` |
-| `arith/` | 15 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial` |
+| `arith/` | 16 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator` |
 | `mem/` | 7 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 67 | |
+| 合計 | 68 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 67/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 68/0）
 ```
 
 ## 部品一覧
@@ -221,6 +221,14 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 `PopcountSerial`は`start`で`din`を取り込み、Widthサイクルで1ビットずつ`sr[0]`を`cnt`へ足す
 （毎サイクル右シフト）。**combでは総和の畳み込みが書けないが、直列に時間へ展開すれば書ける**
 という方針の実例（CRC・FIR・移動平均と同じ）。`done`は最後のビットで1、`busy`は計数中1。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Comparator` | 大小比較（lt／eq／gtを出す、符号なし・符号付き） | `Width`（既定8、1以上）、`Signed`（0/1、既定0） |
+
+`Comparator`は`a`と`b`を比べ`lt`（a<b）・`eq`・`gt`の3フラグを出す。`Signed`が1なら`.signed()`で
+2の補数比較する。値を選ぶ`MinMax`と違い、大小「関係」を出す（しきい値・ソート網・FSM分岐に使う）。
+組み合わせのみ。
 
 ### mem
 

@@ -5,14 +5,14 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-67 parts in 10 categories. Every part passes three checks: an `iris-sim`
+68 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 536/0 (63 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 542/0 (64 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 10 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog` |
-| `arith/` | 15 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial` |
+| `arith/` | 16 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator` |
 | `mem/` | 7 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 67 | |
+| Total | 68 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 67/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 68/0)
 ```
 
 ## Parts
@@ -249,6 +249,15 @@ cycle over `Width` cycles (shifting right each cycle). It is the worked example 
 **a combinational sum-fold is not expressible, but is expressible serially over
 time** (same approach as CRC/FIR/moving-average); `done` pulses on the last bit,
 `busy` is high while counting.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Comparator` | magnitude compare — `lt`/`eq`/`gt` (unsigned or signed) | `Width` (default 8, >= 1), `Signed` (0/1, default 0) |
+
+`Comparator` compares `a` and `b` and drives `lt` (a<b), `eq`, and `gt`; with
+`Signed: 1` it compares in two's complement via `.signed()`. Unlike `MinMax` (which
+returns the selected value), it returns the relation — for thresholds, sorting
+networks, or FSM branch conditions. Combinational only.
 
 ### mem
 
