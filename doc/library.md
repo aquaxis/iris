@@ -12,13 +12,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在62部品を10分類に置く。
+現在63部品を10分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
 | `timing/` | 9 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce、Timer、OneShot |
 | `arith/` | 14 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial、SatAdd、SatSub、OneHotCheck、Abs、Accumulator |
-| `mem/` | 6 | FifoSync、FifoAsync、RamSp、RamDp、Ram2r1w、ShiftRegister |
+| `mem/` | 7 | FifoSync、FifoAsync、RamSp、RamDp、Ram2r1w、ShiftRegister、RingBuffer |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
 | `stream/` | 11 | SpillRegister、Serializer、Deserializer、VecMux、VecDemux、StreamDownsizer、StreamUpsizer、StreamFork、StreamJoin、StreamFilter、CreditCounter |
 | `cdc/` | 3 | Sync2ff、RstSync、PulseSync |
@@ -47,8 +47,8 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-62部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は506/0を保つ（lib部品58個を検体に登録）。
+63部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は512/0を保つ（lib部品59個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 
