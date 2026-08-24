@@ -12,7 +12,7 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-47 parts in 10 categories.
+48 parts in 10 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
@@ -24,7 +24,7 @@ One directory per category.
 | `cdc/` | 3 | Sync2ff, RstSync, PulseSync |
 | `coding/` | 4 | Crc, Parity, Secded, TmrVoter |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
-| `dsp/` | 2 | FirSerial, MacSerial |
+| `dsp/` | 3 | FirSerial, MacSerial, MovingAverage |
 | `util/` | 3 | BitReverse, EndianSwap, ByteEnableExpand |
 
 A part is three pieces.
@@ -47,8 +47,8 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 47 testbenches pass under `iris-sim`.
-`tools/conformance/run.sh` stays at 416/0 (43 library parts registered as fixtures).
+All 48 testbenches pass under `iris-sim`.
+`tools/conformance/run.sh` stays at 422/0 (44 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 

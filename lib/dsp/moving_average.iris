@@ -1,0 +1,65 @@
+/// 移動平均フィルタ（ボックスカー、窓幅N＝2のべき乗）
+///
+/// 直近N個の`din`の平均を`avg`へ出す（窓幅Nは2のべき乗、割り算はシフトで行う）。
+/// 信号の平滑化、ノイズ低減、DCレベル推定などに使う。
+///
+/// 総和の畳み込み（毎サイクルN個を足す）はcombでは書けないが、
+/// **走査和（running sum）**なら書ける：`sum += din - 窓から出る最古の標本`。
+/// 最古の標本は長さNの遅延線（連結パックドベクタ）の最終段から得る。
+/// syncは非ブロッキングなので、遅延線のシフトと走査和の更新が前エッジの値で正しく回る。
+/// 平均は`sum >> LogN`（Nが2のべき乗なので割り算はシフト）。
+/// リセット直後は遅延線が0なので、最初のNサイクルで正しく立ち上がる。
+///
+/// ジェネリックパラメータ:
+/// - Width:    標本のビット幅（既定8、1以上）
+/// - N:        窓幅＝平均する標本数（2のべき乗、既定4、2以上）
+/// - LogN:     $clog2(N)（割り算のシフト量、導出）
+/// - SumWidth: 走査和の幅（導出＝Width+$clog2(N)）
+/// - Total:    遅延線の総幅（導出＝Width*N）
+///
+/// ポート:
+/// - en:   1のとき1標本進める（0なら保持）
+/// - din:  入力標本
+/// - avg:  直近N標本の移動平均
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod MovingAverage[
+    Width: uint = 8,
+    N: uint = 4,
+    LogN: uint = $clog2(N),
+    SumWidth: uint = Width + $clog2(N),
+    Total: uint = Width * N,
+]
+where
+    Width >= 1,
+    N >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  din: bit[Width],
+    out avg: bit[Width],
+) {
+    var sr: bit[Total] = 0;
+    var sum: bit[SumWidth] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            sr = 0;
+            sum = 0;
+        } else if en {
+            // 走査和：新しい標本を足し、窓から出る最古（最終段）を引く
+            sum = sum + din - sr[(N - 1) * Width +: Width];
+            // 遅延線を1段進める（段0にdin、以降は前エッジの値を送る）
+            sr[0 +: Width] = din;
+            for i in 1..N {
+                sr[i * Width +: Width] = sr[(i - 1) * Width +: Width];
+            }
+        }
+    }
+
+    comb {
+        // Nが2のべき乗なので平均はLogNビット右シフト（下位Widthビットに収まる）
+        avg = sum >> LogN;
+    }
+}
