@@ -1,0 +1,36 @@
+/// StreamArbiterのテストベンチ
+///
+/// 入力1(BB)と入力3(DD)を有効にし、out_readyを常に1にして、ラウンドロビンで
+/// BB→DD→BB→DD…と交互に出ること、in_readyが選ばれた1本だけ立つことを確かめる。
+test StreamArbiterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var iv: bit[4] = 0;
+    var idat: bit[32] = 32'hDDCCBBAA;
+    var ordy: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = StreamArbiter { clk: clk, rst: rst, in_valid: iv, in_data: idat, out_ready: ordy };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step >= 8'd1 { iv = 4'b1010; }   // 入力1(BB)と3(DD)が有効
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd2 { assert dut.out_valid == 1, "valid"; assert dut.out_data == 8'hBB, "RR pick idx1 BB"; assert dut.in_ready == 4'b0010, "ready idx1"; }
+            if step == 8'd3 { assert dut.out_data == 8'hDD, "RR pick idx3 DD"; assert dut.in_ready == 4'b1000, "ready idx3"; }
+            if step == 8'd4 { assert dut.out_data == 8'hBB, "RR back to idx1 BB"; }
+            if step == 8'd5 { assert dut.out_data == 8'hDD, "RR idx3 DD"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(8);
+        $display("StreamArbiterTB: all checks passed");
+        $finish;
+    }
+}

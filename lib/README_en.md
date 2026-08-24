@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-72 parts in 10 categories. Every part passes three checks: an `iris-sim`
+73 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 566/0 (68 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 578/0 (69 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -15,13 +15,13 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `arith/` | 17 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator`, `Bin2Bcd` |
 | `mem/` | 8 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer`, `Lifo` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
-| `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
+| `stream/` | 12 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter`, `StreamArbiter` |
 | `cdc/` | 4 | `Sync2ff`, `RstSync`, `PulseSync`, `HandshakeSync` |
 | `coding/` | 7 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 4 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco` |
 | `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 72 | |
+| Total | 73 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -102,7 +102,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 72/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 73/0)
 ```
 
 ## Parts
@@ -430,6 +430,17 @@ for dropping unwanted items. Combinational only. `CreditCounter` tracks availabl
 credits: `give` returns one (+1), `take` spends one (-1), both at once cancel; it
 starts at `MaxCredit` and raises `available` while any remain — the classic
 credit-based flow-control counter.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `StreamArbiter` | N-input to 1-output round-robin arbitration | `Width` (default 8, >= 1), `N` (default 4, >= 2), `Total`/`SelW`/`KW`/`IdxW` (derived) |
+
+`StreamArbiter` picks one valid input and forwards it. It rotates fairly from just
+after the last granted position `ptr` (round-robin). The selection uses comb
+last-wins: it scans offsets from far to near so the valid input nearest `ptr` is
+written last and wins. `out_valid` is "any input valid", `in_ready` is asserted on
+the granted line only, and accepting the output advances `ptr`. Unlike `StreamJoin`
+(all inputs required), it selects one — for merging onto a shared bus.
 
 ### cdc
 

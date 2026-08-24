@@ -1,0 +1,72 @@
+/// ストリームアービタ（N入力→1出力、ラウンドロビン調停）
+///
+/// N本の入力ストリームのうち有効なものを1つ選んで出力へ流す。公平になるよう、直前に選んだ
+/// 位置`ptr`の次から巡回して選ぶ（ラウンドロビン）。共有バス・共有処理系への合流に使う。
+/// StreamJoin（全入力が揃って初めて進む）と違い、こちらは**1つを選ぶ**（1つでも有効なら進む）。
+///
+/// 選択はcombの last-wins を使う：オフセットを遠い方から回し、`ptr`に近い有効入力が最後に
+/// 書かれて残る（＝RR優先）。`out_valid`は「どれか有効」（`in_valid.or_reduce()`）。
+/// `out_data`は選んだ入力の部分選択、`in_ready`は選ばれた1本だけ（`out_ready`のとき）。
+/// 出力が受理されたら`ptr`を選んだ位置の次へ進める。添字は幅拡張して積の桁あふれを防ぐ。
+///
+/// ジェネリックパラメータ:
+/// - Width: 1入力のビット幅（既定8、1以上）
+/// - N:     入力数（既定4、2以上）
+/// - Total／SelW／KW／IdxW: 導出（総幅、選択線幅、巡回計算幅、ビット位置幅）
+///
+/// ポート:
+/// - in_valid／in_data／in_ready: 入力側（N本、valid/readyはbit[N]、dataはパックド）
+/// - out_valid／out_data／out_ready: 出力側（選ばれた1本）
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod StreamArbiter[
+    Width: uint = 8,
+    N: uint = 4,
+    Total: uint = Width * N,
+    SelW: uint = $clog2(N),
+    KW: uint = $clog2(N) + 1,
+    IdxW: uint = $clog2(Width * N) + 1,
+]
+where
+    Width >= 1,
+    N >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  in_valid: bit[N],
+    in  in_data: bit[Total],
+    out in_ready: bit[N],
+    out out_valid: bit,
+    out out_data: bit[Width],
+    in  out_ready: bit,
+) {
+    var ptr: bit[SelW] = 0;
+    var gidx: bit[SelW] = 0;
+
+    comb {
+        // 遠いオフセットから処理し、近い（ptr寄りの）有効入力が last-wins で残る＝RR優先
+        gidx = 0;
+        for k in 0..N {
+            // cand = (ptr + (N-1-k)) を [0,N) に巻き戻した値（letはiris2sv非対応のためインライン）
+            if in_valid[if (ptr.resize(KW) + ((N - 1) - k)) >= N { (ptr.resize(KW) + ((N - 1) - k) - N).resize(SelW) } else { (ptr.resize(KW) + ((N - 1) - k)).resize(SelW) }] == 1 {
+                gidx = if (ptr.resize(KW) + ((N - 1) - k)) >= N { (ptr.resize(KW) + ((N - 1) - k) - N).resize(SelW) } else { (ptr.resize(KW) + ((N - 1) - k)).resize(SelW) };
+            }
+        }
+        out_valid = in_valid.or_reduce();
+        out_data = in_data[gidx.resize(IdxW) * Width +: Width];
+        for i in 0..N { in_ready[i] = 0; }
+        in_ready[gidx] = in_valid.or_reduce() & out_ready;
+    }
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            ptr = 0;
+        } else {
+            if in_valid.or_reduce() == 1 {
+                if out_ready == 1 {
+                    if gidx == N - 1 { ptr = 0; } else { ptr = (gidx + 1).resize(SelW); }
+                }
+            }
+        }
+    }
+}
