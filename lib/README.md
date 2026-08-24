@@ -5,14 +5,14 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在62部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は506/0を保つ（lib部品58個を検体に登録）。
+現在63部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は512/0を保つ（lib部品59個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 9 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot` |
 | `arith/` | 14 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator` |
-| `mem/` | 6 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister` |
+| `mem/` | 7 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 62 | |
+| 合計 | 63 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -236,6 +236,15 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 段は連結したパックドベクタ`bit[Width*Stages]`で持ち、`en`のとき段iに段i-1の値を送る。
 syncは非ブロッキング（右辺は前エッジの値を読む）なので、部分選択の代入がそのまま正しいシフトになる。
 `en`が0の間は保持する。パイプラインの整合遅延やサンプル遅延に使う。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `RingBuffer` | 循環バッファ（順次書込み＋ランダム読出し、登録読み出し） | `Width`（既定8、1以上）、`Depth`（既定8、2以上）、`AddrWidth`（導出） |
+
+`RingBuffer`は`we`のたびに書き込みポインタ`wp`へ`din`を書いて`wp`を進める（末尾で0へ循環）。
+読み出しは`raddr`で任意アドレスを指す（1サイクル遅れ）。`wptr`を出すので相対アクセスは利用側で
+`wp`から算出する。FIRの遅延線・行バッファ・履歴に使う（FIFOの順次読みと違い、書込みは自動進行・
+読出しは絶対アドレス）。中身はリセットしない（`mem`）。
 
 ### arbiter
 

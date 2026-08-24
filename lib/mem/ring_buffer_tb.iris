@@ -1,0 +1,40 @@
+/// RingBufferのテストベンチ
+///
+/// A0,A1,A2を順に書き込み（wptrが3へ進む）、addr1/addr2をランダム読み出しして
+/// A1/A2が返ることを確かめる（登録読み出し、1サイクル遅れ）。
+test RingBufferTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var we: bit = 0;
+    var din: bit[8] = 0;
+    var raddr: bit[3] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = RingBuffer { clk: clk, rst: rst, we: we, din: din, raddr: raddr };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd1 { we = 1; din = 8'hA0; }
+            if step == 8'd2 { din = 8'hA1; }
+            if step == 8'd3 { din = 8'hA2; }
+            if step == 8'd4 { we = 0; }
+            if step == 8'd5 { raddr = 3'd1; }
+            if step == 8'd6 { raddr = 3'd2; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd5 { assert dut.wptr == 3'd3, "wptr advanced to 3 after 3 writes"; }
+            if step == 8'd7 { assert dut.dout == 8'hA1, "read addr1 = A1"; }
+            if step == 8'd8 { assert dut.dout == 8'hA2, "read addr2 = A2"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(11);
+        $display("RingBufferTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,67 @@
+/// リングバッファ（循環バッファ、順次書込み＋ランダム読出し）
+///
+/// `we`のたびに書き込みポインタ`wp`の位置へ`din`を書き、`wp`を1つ進める（末尾で0へ循環）。
+/// 読み出しは`raddr`で任意アドレスを指す（登録読み出し、1サイクル遅れ）。
+/// FIRの遅延線、映像の行バッファ、履歴バッファなどに使う。`wptr`を出すので、
+/// 「最新からNサンプル前」といった相対アクセスは利用側で`wp`から算出する。
+///
+/// 書き込みは自動進行、読み出しは絶対アドレス指定という点でFIFO（先頭固定の順次読み）と異なる。
+/// 書き込みと読み出しが同アドレスのサイクルは`dout`に書き込み前の古い値が出る（read-before-write）。
+///
+/// ジェネリックパラメータ:
+/// - Width:     語のビット幅（既定8、1以上）
+/// - Depth:     語数（既定8、2以上。2のべき乗でなくても循環する）
+/// - AddrWidth: アドレス幅（導出＝$clog2(Depth)）
+///
+/// ポート:
+/// - we:    1で`wp`の位置へ書き込み、`wp`を進める
+/// - din:   書き込みデータ
+/// - raddr: 読み出しアドレス（絶対）
+/// - dout:  読み出しデータ（1サイクル遅れ）
+/// - wptr:  現在の書き込みポインタ
+///
+/// バッファの中身はリセットしない（メモリはリセット対象にしない）。
+/// リセットは`wp`と出力レジスタを0に戻す（非同期assert・同期deassert、能動High）。
+mod RingBuffer[
+    Width: uint = 8,
+    Depth: uint = 8,
+    AddrWidth: uint = $clog2(Depth),
+]
+where
+    Width >= 1,
+    Depth >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  we: bit,
+    in  din: bit[Width],
+    in  raddr: bit[AddrWidth],
+    out dout: bit[Width],
+    out wptr: bit[AddrWidth],
+) {
+    mem storage: bit[Width][Depth];
+    var wp: bit[AddrWidth] = 0;
+    var dout_r: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            wp = 0;
+            dout_r = 0;
+        } else {
+            if we {
+                storage[wp] = din;
+                if wp == Depth - 1 {
+                    wp = 0;
+                } else {
+                    wp = wp + 1;
+                }
+            }
+            dout_r = storage[raddr];
+        }
+    }
+
+    comb {
+        dout = dout_r;
+        wptr = wp;
+    }
+}

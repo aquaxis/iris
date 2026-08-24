@@ -5,15 +5,15 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-62 parts in 10 categories. Every part passes three checks: an `iris-sim`
+63 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 506/0 (58 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 512/0 (59 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 9 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot` |
 | `arith/` | 14 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator` |
-| `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
+| `mem/` | 7 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 62 | |
+| Total | 63 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -266,6 +266,17 @@ operands can be read at once. Registered reads, read-before-write.
 takes stage `i-1`. sync is non-blocking (the right-hand side reads the pre-edge
 value), so the part-select assignments are a correct shift; `en` low holds. Use it
 for pipeline delay matching or sample delay.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `RingBuffer` | circular buffer (sequential write + random read, registered read) | `Width` (default 8, >= 1), `Depth` (default 8, >= 2), `AddrWidth` (derived) |
+
+`RingBuffer` writes `din` at the write pointer `wp` on each `we` and advances `wp`
+(wrapping to 0 at the end); reads are addressable via `raddr` (registered, one-cycle
+delay). It exposes `wptr` so relative addressing is computed from `wp` by the user.
+Use it for FIR delay lines, line buffers, or history — unlike a FIFO's sequential
+front-read, the write auto-advances and the read is absolute-addressed. Contents are
+not reset (`mem`).
 
 ### arbiter
 
