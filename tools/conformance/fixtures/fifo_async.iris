@@ -1,0 +1,101 @@
+/// 非同期FIFO
+///
+/// 異なるクロックドメイン間でデータを渡すFIFO。書き込み側（wr_clk）と読み出し側
+/// （rd_clk）の2つのクロックを持つ。GRAY符号のポインタを2段で同期させ、
+/// メタステーブルが伝わらないようにする。`example/async_fifo`の設計を部品化したもの。
+///
+/// ジェネリックパラメータ:
+/// - DataWidth: データ幅（既定8、1以上）
+/// - Depth:     深さ（既定16、4以上の2のべき乗であること）
+/// - AddrWidth／PtrWidth: Depthから導出する
+///
+/// 2のべき乗という条件は比較のみのwhere句では表せないため、呼び出し側の責任とする。
+///
+/// リセットは能動Low（`wr_rst_n`／`rd_rst_n`）。非同期FIFOの定番に合わせた。
+/// 本ライブラリの既定（能動High）とは異なる部品なので注意する。
+///
+/// 注意: GRAY符号ポインタの同期は論理であって、配置制約（最大遅延SDC）はIRISから
+/// 出せない。制約付与は利用者の責任。2のべき乗という深さの条件も呼び出し側が守る。
+mod FifoAsync[
+    DataWidth: uint = 8,
+    Depth: uint = 16,
+    AddrWidth: uint = $clog2(Depth),
+    PtrWidth: uint = $clog2(Depth) + 1,
+]
+where
+    DataWidth >= 1,
+    Depth >= 4,
+(
+    in  wr_clk: clock,
+    in  wr_rst_n: reset(active_low: true),
+    in  wr_en: bit,
+    in  wr_data: bit[DataWidth],
+
+    in  rd_clk: clock,
+    in  rd_rst_n: reset(active_low: true),
+    in  rd_en: bit,
+
+    out full: bit,
+    out empty: bit,
+    out rd_data: bit[DataWidth],
+) {
+    var wr_ptr: bit[PtrWidth] = 0;
+    var wr_ptr_gray: bit[PtrWidth] = 0;
+    var rd_ptr_gray_sync1: bit[PtrWidth] = 0;
+    var rd_ptr_gray_sync2: bit[PtrWidth] = 0;
+
+    var rd_ptr: bit[PtrWidth] = 0;
+    var rd_ptr_gray: bit[PtrWidth] = 0;
+    var wr_ptr_gray_sync1: bit[PtrWidth] = 0;
+    var wr_ptr_gray_sync2: bit[PtrWidth] = 0;
+
+    mem storage: bit[DataWidth][Depth];
+
+    // 書き込みクロックドメイン
+    sync(wr_clk.posedge, wr_rst_n.async) {
+        if ~wr_rst_n {
+            wr_ptr = 0;
+            wr_ptr_gray = 0;
+            rd_ptr_gray_sync1 = 0;
+            rd_ptr_gray_sync2 = 0;
+        } else {
+            rd_ptr_gray_sync1 = rd_ptr_gray;
+            rd_ptr_gray_sync2 = rd_ptr_gray_sync1;
+            if wr_en {
+                if ~full {
+                    storage[wr_ptr[AddrWidth - 1 : 0]] = wr_data;
+                    wr_ptr = wr_ptr + 1;
+                    wr_ptr_gray = (wr_ptr + 1) ^ ((wr_ptr + 1) >> 1);
+                }
+            }
+        }
+    }
+
+    // 読み出しクロックドメイン
+    sync(rd_clk.posedge, rd_rst_n.async) {
+        if ~rd_rst_n {
+            rd_ptr = 0;
+            rd_ptr_gray = 0;
+            wr_ptr_gray_sync1 = 0;
+            wr_ptr_gray_sync2 = 0;
+        } else {
+            wr_ptr_gray_sync1 = wr_ptr_gray;
+            wr_ptr_gray_sync2 = wr_ptr_gray_sync1;
+            if rd_en {
+                if ~empty {
+                    rd_ptr = rd_ptr + 1;
+                    rd_ptr_gray = (rd_ptr + 1) ^ ((rd_ptr + 1) >> 1);
+                }
+            }
+        }
+    }
+
+    comb {
+        rd_data = storage[rd_ptr[AddrWidth - 1 : 0]];
+        empty = (rd_ptr_gray == wr_ptr_gray_sync2);
+        full = (wr_ptr_gray == {
+            ~rd_ptr_gray_sync2[PtrWidth - 1 : PtrWidth - 2],
+            rd_ptr_gray_sync2[PtrWidth - 3 : 0]
+        });
+    }
+}

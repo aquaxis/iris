@@ -340,6 +340,11 @@ impl Parser {
             } else {
                 None
             };
+            // A `logic` parameter with a literal default below 1 is a value
+            // parameter, not a bit-vector width (iris2sv emits both as
+            // `logic [31:0]`). Do not constrain it to `>= 1`, or its default
+            // would violate the fabricated constraint (e.g. a mode `Odd = 0`).
+            let constrained = constrained && !default_below_one(&default);
             params.push(Param { name, default, constrained });
             if self.at_sym(",") {
                 self.next();
@@ -1104,5 +1109,33 @@ fn binop_prec(op: &str) -> u8 {
         "+" | "-" => 9,
         "*" | "/" | "%" => 10,
         _ => 0,
+    }
+}
+
+/// A parameter default that is a literal integer below 1 marks a value
+/// parameter (not a bit-vector width), so it must not carry a `>= 1` constraint.
+fn default_below_one(default: &Option<Expr>) -> bool {
+    match default {
+        Some(Expr::Number(s)) => sv_number_value(s).map(|v| v < 1).unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// The integer value of a SystemVerilog numeric literal, if it is a plain one:
+/// `0`, `8`, `32'd8`, `'hFF`, `4'b10`. Returns `None` for anything else.
+fn sv_number_value(s: &str) -> Option<i64> {
+    let s = s.trim();
+    if let Some(pos) = s.find('\'') {
+        let rest = &s[pos + 1..];
+        let (radix, val) = match rest.as_bytes().first().copied() {
+            Some(b'd') | Some(b'D') => (10, &rest[1..]),
+            Some(b'h') | Some(b'H') => (16, &rest[1..]),
+            Some(b'b') | Some(b'B') => (2, &rest[1..]),
+            Some(b'o') | Some(b'O') => (8, &rest[1..]),
+            _ => (10, rest),
+        };
+        i64::from_str_radix(val.trim().replace('_', "").as_str(), radix).ok()
+    } else {
+        s.replace('_', "").parse::<i64>().ok()
     }
 }

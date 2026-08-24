@@ -1,0 +1,38 @@
+/// 線形帰還シフトレジスタ（Galois形）
+///
+/// 疑似乱数やPRBSの生成に使う。毎サイクル右へ1ビットシフトし、押し出された
+/// 最下位ビットが1なら`poly`とXORする（Galois形）。種は非ゼロ（既定1）。
+/// 多項式`poly`は幅ごとに異なるので入力ポートで与える（実行時に設定できる）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 幅（既定8、2以上）
+///
+/// リセットは非同期assert・同期deassert、能動High。種の1で始まる。
+mod Lfsr[
+    Width: uint = 8,
+]
+where
+    Width >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en: bit,
+    in  poly: bit[Width],
+    out q: bit[Width],
+) {
+    var lfsr_r: bit[Width] = 1;
+
+    sync(clk.posedge, rst.async) {
+        if en {
+            if lfsr_r[0] {
+                lfsr_r = (lfsr_r >> 1) ^ poly;
+            } else {
+                lfsr_r = lfsr_r >> 1;
+            }
+        }
+    }
+
+    comb {
+        q = lfsr_r;
+    }
+}
