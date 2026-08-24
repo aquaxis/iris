@@ -4,16 +4,21 @@
 /// `clear`で累算器を0に戻す。ベクトルの内積 Σ a[i]*b[i] を、対を1つずつ
 /// 流し込んで求めるのに使う（FIRの中核を単体で取り出したもの）。
 ///
-/// 乗算はオペランド幅に切り詰められるので、入力を一度AccWidth幅へ零拡張して
+/// 乗算はオペランド幅に切り詰められるので、入力を一度AccWidth幅へ拡張して
 /// から掛ける。IRISのsyncは非ブロッキング（RHSは前サイクルの値を読む）なので、
 /// 「幅を広げて登録する段」と「掛けて足す段」の2段パイプラインにする。
 /// このため入力から`acc`反映まで2サイクルの遅延がある（`valid_out`が同じ遅延で1になる）。
+///
+/// `Signed`が0なら符号なし（零拡張）、1なら符号付き（`.signed().sign_extend[AccWidth]()`で
+/// 符号拡張）。符号付きでも桁は2の補数で正しく積算されるので、和・積の式は同じでよい。
+/// 符号付きの結果は`acc.signed()`で読む。
 ///
 /// ジェネリックパラメータ:
 /// - AWidth:    aのビット幅（既定8、1以上）
 /// - BWidth:    bのビット幅（既定8、1以上）
 /// - GuardBits: 積の和のあふれ余裕（既定8）。多数回の積算に耐える
 /// - AccWidth:  累算・積・出力の幅（導出＝AWidth+BWidth+GuardBits）
+/// - Signed:    0=符号なし、1=符号付き（既定0）
 ///
 /// ポート:
 /// - clear: 1で累算器を0に戻す（enより優先）
@@ -22,13 +27,13 @@
 /// - acc:       現在の累算値
 /// - valid_out: enの積がaccに反映されたサイクルで1（enの2サイクル後）
 ///
-/// 数は符号なし。符号付きMACはint型が要る（今後の課題）。
 /// リセットは非同期assert・同期deassert、能動High。累算器は0で始まる。
 mod MacSerial[
     AWidth: uint = 8,
     BWidth: uint = 8,
     GuardBits: uint = 8,
     AccWidth: uint = AWidth + BWidth + GuardBits,
+    Signed: uint = 0,
 ]
 where
     AWidth >= 1,
@@ -43,7 +48,7 @@ where
     out acc: bit[AccWidth],
     out valid_out: bit,
 ) {
-    // 段1：入力を登録しつつAccWidth幅へ零拡張する（代入は零拡張する）。
+    // 段1：入力を登録しつつAccWidth幅へ拡張する。
     var aw: bit[AccWidth] = 0;
     var bw: bit[AccWidth] = 0;
     var en_d: bit = 0;
@@ -53,9 +58,15 @@ where
     var vout: bit = 0;
 
     sync(clk.posedge, rst.async) {
-        // 段1：今サイクルの入力を登録・零拡張する。
-        aw = a;
-        bw = b;
+        // 段1：今サイクルの入力を登録・拡張する。
+        // 符号なしは代入で零拡張、符号付きは.signed().sign_extend[]で符号拡張する。
+        if Signed == 0 {
+            aw = a;
+            bw = b;
+        } else {
+            aw = a.signed().sign_extend[AccWidth]();
+            bw = b.signed().sign_extend[AccWidth]();
+        }
         en_d = en;
         clr_d = clear;
 
