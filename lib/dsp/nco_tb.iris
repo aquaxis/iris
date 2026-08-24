@@ -1,0 +1,31 @@
+/// NcoのテストベンチPhaseWidth=4、incr=2
+///
+/// 位相が 0,2,4,…,14,0 と鋸波で回り、MSB（sq）が周期8（4低4高）の方形波になることを確かめる。
+test NcoTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var incr: bit[4] = 4'd2;
+    var step: bit[8] = 0;
+
+    inst dut = Nco[PhaseWidth: 4] { clk: clk, rst: rst, en: en, incr: incr };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else { step = step + 1; }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd1 { assert dut.phase == 4'd2, "phase 2"; assert dut.sq == 0, "sq low"; }
+            if step == 8'd4 { assert dut.phase == 4'd8, "phase 8"; assert dut.sq == 1, "sq high at MSB"; }
+            if step == 8'd7 { assert dut.phase == 4'd14, "phase 14"; assert dut.sq == 1, "sq high"; }
+            if step == 8'd8 { assert dut.phase == 4'd0, "phase wraps to 0"; assert dut.sq == 0, "sq low again"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(11);
+        $display("NcoTB: all checks passed");
+        $finish;
+    }
+}
