@@ -1,0 +1,82 @@
+/// 直列除算器（復元法、符号なし）
+///
+/// `start`で`dividend / divisor`の計算を始め、Widthサイクルかけて商と剰余を求める。
+/// 1サイクルに1ビットずつ、部分剰余を左シフトして被除数のビットを取り込み、
+/// 除数と比較して引ける場合だけ引いて商のビットを立てる（復元法）。
+///
+/// 部分剰余`p`はシフトで一時的にWidthビットを超えるのでWidth+1ビットで持つ。
+/// syncは非ブロッキングなので、各ステップの計算は前サイクルの`p`／`a`から式で作る。
+///
+/// ジェネリックパラメータ:
+/// - Width:    被除数・除数・商・剰余のビット幅（既定8、1以上）
+/// - CntWidth: ステップ計数の幅（導出＝$clog2(Width)+1）
+///
+/// ポート:
+/// - start:     1で計算開始（busyでないとき）
+/// - dividend:  被除数
+/// - divisor:   除数（0のときの結果は規定しない）
+/// - quotient:  商（done後に有効）
+/// - remainder: 剰余（done後に有効）
+/// - busy:      計算中は1
+/// - done:      計算完了の次に1サイクルだけ1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod DivSerial[
+    Width: uint = 8,
+    CntWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  dividend: bit[Width],
+    in  divisor: bit[Width],
+    out quotient: bit[Width],
+    out remainder: bit[Width],
+    out busy: bit,
+    out done: bit,
+) {
+    var st: bit = 0;
+    var p: bit[Width + 1] = 0;   // 部分剰余
+    var a: bit[Width] = 0;       // 被除数を入れ、商を作る
+    var div_r: bit[Width] = 0;   // 除数を保持
+    var cnt: bit[CntWidth] = 0;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if st == 0 {
+            if start {
+                p = 0;
+                a = dividend;
+                div_r = divisor;
+                cnt = 0;
+                st = 1;
+            }
+        } else {
+            // 1ステップ：{p, a}を左シフトし、引けるなら引いて商ビットを立てる。
+            // すべて前サイクルのp／aから式で作る（非ブロッキングに合わせる）。
+            if ((p << 1) | a[Width - 1]) >= div_r {
+                p = ((p << 1) | a[Width - 1]) - div_r;
+                a = (a << 1) | 1;
+            } else {
+                p = (p << 1) | a[Width - 1];
+                a = a << 1;
+            }
+            cnt = cnt + 1;
+            if cnt == Width - 1 {
+                st = 0;
+                done_r = 1;
+            }
+        }
+    }
+
+    comb {
+        quotient = a;
+        remainder = p[Width - 1 : 0];
+        busy = st != 0;
+        done = done_r;
+    }
+}

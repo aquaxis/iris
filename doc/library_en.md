@@ -12,12 +12,12 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-33 parts in 9 categories.
+34 parts in 9 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
 | `timing/` | 7 | Counter, EdgeDetect, GrayCounter, Lfsr, ClkDivider, Pwm, Debounce |
-| `arith/` | 7 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax |
+| `arith/` | 8 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial |
 | `mem/` | 4 | FifoSync, FifoAsync, RamSp, RamDp |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
 | `stream/` | 1 | SpillRegister |
@@ -46,7 +46,7 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 33 testbenches pass under `iris-sim`.
+All 34 testbenches pass under `iris-sim`.
 `tools/conformance/run.sh` stays at 158/0.
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)

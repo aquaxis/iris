@@ -5,14 +5,14 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-33 parts in 9 categories. Every part passes three checks: an `iris-sim`
+34 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 `tools/conformance/run.sh` stays at 158/0.
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
-| `arith/` | 7 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax` |
+| `arith/` | 8 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial` |
 | `mem/` | 4 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 1 | `SpillRegister` |
@@ -20,7 +20,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `coding/` | 3 | `Crc`, `Parity`, `Secded` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 33 | |
+| Total | 34 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -133,9 +133,17 @@ at the maximum (all ones) and the minimum (0). The maximum is detected with
 | `Gray2Bin` | gray code to binary (inverse of `Bin2Gray`) | `Width` (default 8, >= 1) |
 | `MinMax` | two-input min/max (unsigned or signed) | `Width` (default 8, >= 1), `Signed` (0/1, default 0), `Max` (0=min / 1=max, default 0) |
 
+| `DivSerial` | serial restoring divider (unsigned) | `Width` (default 8, >= 1), `CntWidth` (derived `$clog2(Width)+1`) |
+
 `MinMax` outputs the smaller or larger of `a` and `b`: it sets `out = a`, then
 overwrites with `out = b` when the comparison calls for it (a selection). With
 `Signed: 1` it compares with `.signed()` (a worked case of the signed-comparison fix).
+
+`DivSerial` starts on `start` and produces quotient and remainder in `Width`
+cycles (restoring division, one bit per cycle): it shifts the partial remainder,
+brings in a dividend bit, and subtracts the divisor when it fits, setting a
+quotient bit. `200/7 = 28 r 4` and others are checked; `done` pulses one cycle
+after completion.
 
 `Gray2Bin` builds each bit as `bin[i] = (gray >> i).xor_reduce()` (the XOR of the
 bits from `i` up). An XOR fold is expressible in `comb` with `.xor_reduce()` and
