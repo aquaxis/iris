@@ -1,0 +1,52 @@
+/// シフトレジスタ（固定段の遅延線、delay line）
+///
+/// `en`のたびに`din`を取り込み、Stagesサイクル遅れて`dout`へ出す（Widthビットの語をStages段遅らせる）。
+/// パイプラインの整合遅延、サンプルの遅延、タイミング合わせなどに使う。
+///
+/// 段は要素を連結したパックドベクタ`bit[Width*Stages]`で持ち、`en`のとき1段ずつ後ろへ送る。
+/// syncは非ブロッキング（右辺は前エッジの値を読む）なので、段iに段i-1の「前の値」が入る
+/// ＝正しいシフトになる。段0には`din`。`dout`は最終段（Stages-1）。
+///
+/// ジェネリックパラメータ:
+/// - Width:  語のビット幅（既定8、1以上）
+/// - Stages: 段数＝遅延サイクル数（既定4、1以上）
+/// - Total:  内部ベクタの総幅（導出＝Width*Stages）
+///
+/// ポート:
+/// - en:   1のとき1段進める（0なら保持）
+/// - din:  入力
+/// - dout: Stages段遅れた出力
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod ShiftRegister[
+    Width: uint = 8,
+    Stages: uint = 4,
+    Total: uint = Width * Stages,
+]
+where
+    Width >= 1,
+    Stages >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  din: bit[Width],
+    out dout: bit[Width],
+) {
+    var sr: bit[Total] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            sr = 0;
+        } else if en {
+            sr[0 +: Width] = din;
+            for i in 1..Stages {
+                sr[i * Width +: Width] = sr[(i - 1) * Width +: Width];
+            }
+        }
+    }
+
+    comb {
+        dout = sr[(Stages - 1) * Width +: Width];
+    }
+}
