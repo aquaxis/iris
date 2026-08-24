@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-38 parts in 9 categories. Every part passes three checks: an `iris-sim`
+40 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 362/0 (34 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 374/0 (36 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -15,18 +15,21 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `arith/` | 9 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial` |
 | `mem/` | 5 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
-| `stream/` | 3 | `SpillRegister`, `Serializer`, `Deserializer` |
+| `stream/` | 5 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 3 | `Crc`, `Parity`, `Secded` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 38 | |
+| Total | 40 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
 interfaces), and accumulation unrolled over time (CRC, LFSR, serial DSP) are
-written directly in IRIS. A combinational sum-fold (popcount, a parallel-CRC XOR
-tree), generic array ports (a multi-stream mux), and generic functions (a general
+written directly in IRIS. A multi-stream mux/demux is also expressible, using a
+**packed vector** (`bit[Width*N]`) with a part-select (`data[i*Width +: Width]`);
+`VecMux` and `VecDemux` are the examples, widening `sel` before the multiply so the
+index does not overflow. A combinational sum-fold (popcount, a parallel-CRC XOR
+tree), the `bit[W][N]` array-port syntax itself, and generic functions (a general
 math library) are not expressible today. (An XOR fold is expressible with
 `.xor_reduce()` and per-bit assignment — `Parity` and `Gray2Bin` are the
 examples.) Each part's description and the "Implementation notes" record what
@@ -237,6 +240,21 @@ only on the skid slot being free (not combinationally on `out_ready`).
 `Serializer` latches `din` on `load` and shifts out one bit per cycle on `dout`
 over `Width` cycles (LSB-first); `valid` is high while sending and `done` on the
 last bit. Sending `0xB4` and reassembling the bits recovers the byte.
+`Deserializer` is its dual (SIPO): each `en` latches `din`, and after `Width`
+bits it drives `dout` with `valid`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `VecMux` | N-to-1 select over a packed vector | `Width` (default 8, >= 1), `N` (default 4, >= 2), `SelWidth`/`IdxWidth`/`Total` (derived) |
+| `VecDemux` | 1-to-N routing over a packed vector | same |
+
+`VecMux`/`VecDemux` show how a multi-stream mux/demux is expressed without array
+ports: N `Width`-bit elements are concatenated into one `bit[Width*N]` vector and
+element `i` is selected with `[i*Width +: Width]`. `sel` is widened to `IdxWidth`
+before the multiply so `sel*Width` does not overflow (IRIS multiply wraps to the
+operand width). `VecDemux` fills `data` with 0 first, then overwrites the chosen
+element with a part-select write (combinational partial writes accumulate).
+Combinational only.
 
 ### cdc
 
@@ -359,11 +377,13 @@ parity (an XOR of a subset of bits) follows the same recipe. iris2sv converts
 `.xor_reduce()` / `.and_reduce()` / `.or_reduce()` to the SV reduction operators
 `(^d)` / `(&d)` / `(|d)`. A CRC works if made bit-serial (accumulation over time).
 
-**Array-typed ports and `var`s with a non-constant dimension are not
-expressible.** `in d: bit[Width][N]` or `var a: bit[W][N]` is rejected
-("expected integer"); only `mem` allows a generic dimension. So a mux/demux that
-bundles N streams is not expressible with a generic array port (it needs
-per-stream ports or an interface — future work).
+**The `bit[W][N]` array-port syntax is not expressible, but a packed vector
+replaces it.** `in d: bit[Width][N]` or `var a: bit[W][N]` is rejected
+("expected integer"); only `mem` allows a generic dimension. A mux/demux that
+bundles N streams is instead written over a **packed vector** `bit[Width*N]` with
+a part-select `data[i*Width +: Width]` — see `VecMux`/`VecDemux`. Widen the index
+before the multiply (`sel.resize(IdxWidth) * Width`) so it does not wrap. This
+covers the common cases; true `bit[W][N]` unpacked-array ports remain future work.
 
 **`iris2sv` now supports `for` loops.** A `for` with constant bounds becomes a
 synthesisable SystemVerilog `for` (inside `always_comb`/`always_ff`), so the
@@ -413,16 +433,17 @@ Do not write these in IRIS; instantiate them from the converted SystemVerilog.
 
 | Area | Reuse target (OSS) | License | Integration note |
 |---|---|---|---|
-| AXI set (xbar/dma/cdc/cut) | [pulp-platform/axi](https://github.com/pulp-platform/axi) | Solderpad 0.51 | Multi-master/slave needs array ports, not expressible in IRIS today; wire it in SV |
+| AXI set (xbar/dma/cdc/cut) | [pulp-platform/axi](https://github.com/pulp-platform/axi) | Solderpad 0.51 | A packed-vector mux (`VecMux`) covers the datapath, but the full multi-master protocol and arbitration is large and proof-sensitive; wire it in SV |
 | Common cells (deep FIFO, N-stage sync, ...) | [pulp-platform/common_cells](https://github.com/pulp-platform/common_cells) | Solderpad 0.51 | Variants this lib lacks (e.g. parameterizable sync depth, `fifo_v3`) |
 | Crypto (AES, SHA-2, PRNG) | [OpenTitan](https://github.com/lowRISC/opentitan) `hw/ip/*`, `prim_*` | Apache 2.0 | Correctness and SCA hardening; a round function's XOR net also hits the comb fold limit |
 | Floating-point units | [berkeley-hardfloat](https://github.com/ucb-bar/berkeley-hardfloat) / [pulp-platform/fpnew](https://github.com/pulp-platform/cvfpu) | BSD / Solderpad | IRIS `f32`/`f64` are for simulation; synthesizable units come from here |
 | Peripheral IF (Ethernet, PCIe, UART DMA, ...) | [alexforencich/verilog-*](https://github.com/alexforencich) | MIT | This lib's `uart`/`spi`/`i2c` are lightweight; full versions here |
 | Large DSP (FFT, ...) | vendor / OSS | varies | Large and proof-sensitive |
 
-The criteria are IRIS's `comb` limits (no XOR fold/accumulation) and no generic
-array ports: anything that can be made serial or written as an FSM goes in IRIS;
-anything heavy, proof-sensitive, or hitting those limits comes from OSS.
+The criterion is IRIS's `comb` sum-fold limit (no popcount/parallel-CRC XOR tree):
+anything that can be made serial, written as an FSM, or expressed over a packed
+vector goes in IRIS; anything heavy, proof-sensitive, or hitting that limit comes
+from OSS.
 
 ## What is not expressed in IRIS
 

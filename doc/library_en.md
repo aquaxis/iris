@@ -12,7 +12,7 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-38 parts in 9 categories.
+40 parts in 9 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
@@ -20,7 +20,7 @@ One directory per category.
 | `arith/` | 9 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial, MulSerial |
 | `mem/` | 5 | FifoSync, FifoAsync, RamSp, RamDp, Ram2r1w |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
-| `stream/` | 3 | SpillRegister, Serializer, Deserializer |
+| `stream/` | 5 | SpillRegister, Serializer, Deserializer, VecMux, VecDemux |
 | `cdc/` | 3 | Sync2ff, RstSync, PulseSync |
 | `coding/` | 3 | Crc, Parity, Secded |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
@@ -46,8 +46,8 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 38 testbenches pass under `iris-sim`.
-`tools/conformance/run.sh` stays at 362/0 (34 library parts registered as fixtures).
+All 40 testbenches pass under `iris-sim`.
+`tools/conformance/run.sh` stays at 374/0 (36 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 
@@ -64,20 +64,21 @@ Three kinds of parts are written directly in IRIS.
 | Accumulation unrolled over time | Crc, Lfsr, FirSerial, MacSerial | sync accumulation unrolls a convolution over time |
 | Signed arithmetic | MacSerial[Signed: 1] | `.signed()` + `.sign_extend[N]()` accumulate in two's complement; read with `acc.signed()` |
 | An XOR fold | Parity, Gray2Bin, Secded | `.xor_reduce()` plus per-bit assignment (`out[i]=...` accumulates bit by bit) |
+| A multi-stream mux/demux (packed vector) | VecMux, VecDemux | a concatenated `bit[Width*N]` with a part-select `[i*Width +: Width]` (widen the index before the multiply) |
 
 What could not be done is recorded, with the reason.
 
 | Not expressible | Reason |
 |---|---|
 | A combinational sum-fold (popcount, a parallel-CRC XOR tree) | `var` is not allowed in comb, and a whole-signal reassignment is last-write-wins, not a running sum (an XOR fold is fine via `.xor_reduce()`) |
-| Generic array ports and var arrays (multi-stream mux/demux) | array bounds need a constant (only `mem` allows a generic bound) |
+| The `bit[W][N]` array-port syntax and var arrays | array bounds need a constant (only `mem` allows a generic bound); the multi-stream mux/demux itself is expressible with a packed vector (table above) |
 | Generic functions (a general math library) | `fn f[Width](...)` does not parse; a fixed-width `fn` works |
 | A parameterizable synchronizer depth | a var array needs a constant bound, so the depth is fixed at two |
 
 Signed `==`/`!=` were fixed in iris-sim to compare by value (so a signed value compares against a negative literal; spec 9.3.1).
 
-What can be serialized or written as an FSM is written in IRIS.
-What hits the fold or array-port limits, or is heavy and needs proven silicon, reuses OSS.
+What can be serialized, written as an FSM, or expressed over a packed vector is written in IRIS.
+What hits the comb sum-fold limit, or is heavy and needs proven silicon, reuses OSS.
 The reuse targets for heavy IP (AXI, crypto, floating-point units, large DSP) are recorded in [`lib/README_en.md`](../lib/README_en.md).
 
 ## Technology cells are not modeled

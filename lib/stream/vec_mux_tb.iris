@@ -1,0 +1,33 @@
+/// VecMuxのテストベンチ
+///
+/// 4要素（AA/BB/CC/DD）をパックしたベクタからselで1つ選び、出力を確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test VecMuxTB {
+    let clk: clock(period: 10ns);
+    var data: bit[32] = 32'hDDCCBBAA;   // el0=AA el1=BB el2=CC el3=DD
+    var sel: bit[2] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = VecMux { data: data, sel: sel };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd1 { sel = 2'd0; }
+        if step == 8'd2 { sel = 2'd1; }
+        if step == 8'd3 { sel = 2'd2; }
+        if step == 8'd4 { sel = 2'd3; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.dout == 8'hAA, "sel=0 -> el0"; }
+        if step == 8'd3 { assert dut.dout == 8'hBB, "sel=1 -> el1"; }
+        if step == 8'd4 { assert dut.dout == 8'hCC, "sel=2 -> el2"; }
+        if step == 8'd5 { assert dut.dout == 8'hDD, "sel=3 -> el3"; }
+    }
+
+    seq {
+        await clk.cycles(7);
+        $display("VecMuxTB: all checks passed");
+        $finish;
+    }
+}

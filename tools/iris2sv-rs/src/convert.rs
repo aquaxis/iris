@@ -708,6 +708,22 @@ fn emit_stmt(
                 msg
             ))
         }
+        Statement::SliceWrite { target, low, width, value } => {
+            // `target[low +: width] = value`. The width is constant; the start
+            // may be an expression, which is legal in a synthesisable indexed
+            // part-select. The value is cast to the slice width, not the whole
+            // signal width, so a growing operation stays inside the field.
+            let wstr = emit_expr(width);
+            Ok(format!(
+                "{}{}[{} +: {}] {} {};",
+                pad,
+                target,
+                emit_expr(low),
+                wstr,
+                op,
+                emit_value(value, Some(&wstr))
+            ))
+        }
         _ => Err(unsupported("statement")),
     }
 }
@@ -867,7 +883,7 @@ fn method_to_sv(receiver: &Expression, method: &str, args: &[Expression]) -> Str
     match method {
         "sign_extend" => format!("{}'($signed({}))", width(), r),
         "zero_extend" => format!("{}'($unsigned({}))", width(), r),
-        "extend" | "truncate" => format!("{}'({})", width(), r),
+        "extend" | "truncate" | "resize" => format!("{}'({})", width(), r),
         "signed" => format!("$signed({})", r),
         "unsigned" => format!("$unsigned({})", r),
         // Reductions become SystemVerilog unary reduction operators.

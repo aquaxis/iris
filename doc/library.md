@@ -12,7 +12,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在38部品を9分類に置く。
+現在40部品を9分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `arith/` | 9 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial |
 | `mem/` | 5 | FifoSync、FifoAsync、RamSp、RamDp、Ram2r1w |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
-| `stream/` | 3 | SpillRegister、Serializer、Deserializer |
+| `stream/` | 5 | SpillRegister、Serializer、Deserializer、VecMux、VecDemux |
 | `cdc/` | 3 | Sync2ff、RstSync、PulseSync |
 | `coding/` | 3 | Crc、Parity、Secded |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
@@ -46,8 +46,8 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-38部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は362/0を保つ（lib部品34個を検体に登録）。
+40部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は374/0を保つ（lib部品36個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 
@@ -64,20 +64,21 @@ IRISで素直に書けるのは次の3種である。
 | 直列にして時間へ展開する積算 | Crc、Lfsr、FirSerial、MacSerial | syncの逐次加算で畳み込みを時間に展開できる |
 | 符号付き演算 | MacSerial[Signed: 1] | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
 | XORの畳み込み | Parity、Gray2Bin、Secded | `.xor_reduce()`と部分ビット代入（`out[i]=...`はビットごとに積む）で書ける |
+| 多ストリームのmux／demux（パックドベクタ） | VecMux、VecDemux | 要素を連結した`bit[Width*N]`と部分選択`[i*Width +: Width]`で表せる（添字は幅拡張してから掛ける） |
 
 書けなかったものは、理由とともに残す。
 
 | 書けないもの | 理由 |
 |---|---|
 | combの総和の畳み込み（popcount、並列CRCのXOR網） | combで`var`が使えず、まるごとの再代入はlast-winsで逐次和にならない（XOR畳み込みは`.xor_reduce()`で可） |
-| ジェネリックな配列ポート・var配列（多ストリームのmux／demux） | 配列の生成境界に定数が要る（`mem`だけがジェネリックを許す） |
+| `bit[W][N]`という構文の配列ポート・var配列 | 配列の生成境界に定数が要る（`mem`だけがジェネリックを許す）。多ストリームのmux／demux自体はパックドベクタで書ける（上表） |
 | ジェネリック関数（汎用math関数） | `fn f[Width](...)`がパースできない。固定幅の`fn`は動く |
 | 可変段数の同期化器 | var配列が生成境界に定数を要するため2段固定 |
 
 符号付きの`==`／`!=`が値で比較するよう、iris-simを修正した（負のリテラルと比較できる。仕様9.3.1）。
 
-直列にできるもの・FSMで書けるものはIRISで書き、
-畳み込みや配列ポートの限界に当たるもの・実証が要る重いものはOSSを流用する。
+直列にできるもの・FSMで書けるもの・パックドベクタで表せるものはIRISで書き、
+combの総和畳み込みの限界に当たるもの・実証が要る重いものはOSSを流用する。
 重いIP（AXI・暗号・浮動小数点演算器・大型DSP）の流用先は[`lib/README.md`](../lib/README.md)に残す。
 
 ## テクノロジ依存のセルは表さない
