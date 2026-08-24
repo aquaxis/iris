@@ -5,23 +5,23 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-48 parts in 10 categories. Every part passes three checks: an `iris-sim`
+50 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 422/0 (44 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 434/0 (46 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
-| `arith/` | 11 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub` |
+| `arith/` | 12 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck` |
 | `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 5 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
-| `coding/` | 4 | `Crc`, `Parity`, `Secded`, `TmrVoter` |
+| `coding/` | 5 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 48 | |
+| Total | 50 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -188,6 +188,14 @@ the top two bits disagree, and clamps a positive overflow to the maximum positiv
 (`0x7F..`) and a negative one to the minimum negative (`0x80..`) — the end values
 are built with per-bit assignment (set/clear just the MSB). Combinational only.
 
+| Part | Function | Parameters |
+|---|---|---|
+| `OneHotCheck` | exactly-one-bit detector | `Width` (default 8, >= 1) |
+
+`OneHotCheck` clears the lowest set bit with `din & (din - 1)`; if the result is 0
+and `din` is non-zero, `is_onehot` is 1 (no fold/popcount needed). `is_zero` is 1
+when all bits are 0. Combinational only.
+
 ### mem
 
 | Part | Function | Parameters |
@@ -308,6 +316,7 @@ expressible today (a `var` array needs a constant size), so the depth is two.
 | `Parity` | parity generator (even/odd) | `Width` (default 8, >= 1), `Odd` (0=even / 1=odd, default 0) |
 | `Secded` | single-error-correct, double-error-detect (extended Hamming (13,8) over 8-bit data) | none (data fixed at 8 bits); `SecdedEnc` + `SecdedDec` |
 | `TmrVoter` | triple-modular-redundancy vote (bitwise, with a mismatch flag) | `Width` (default 8, >= 1) |
+| `Checksum` | one's-complement sum checksum (end-around carry) | `Width` (default 8, >= 1), `Ext` (derived `Width+1`) |
 
 `Crc` takes one bit per cycle MSB-first and updates with `poly` (an LFSR with a
 data input); `clear` starts a new stream. A parallel CRC (a byte per cycle)
@@ -328,6 +337,13 @@ parity count, which IRIS cannot express as a generic width).
 `mismatch` from the OR-reduction of the three pairwise XORs, flagging a
 disagreement. Use it for SEU tolerance or a functional-safety output vote.
 Combinational only.
+
+`Checksum` accumulates `din` into a one's-complement sum on each `en` (the Internet
+checksum): the carry is folded back into the low bits (end-around carry), so the
+result is order-independent; `clear` resets it. A single addition cannot double-carry,
+so one fold is exact. The sum is formed in `comb` (reading a var written in the same
+`sync` block would give last cycle's value) and registered into `acc`; the
+transmitted checksum is the one's complement of `sum` (`~sum`). Bit-serial, like `Crc`.
 
 ### periph
 
