@@ -1,0 +1,36 @@
+/// 2段フリップフロップ同期化器
+///
+/// 別ドメインの信号を2段のFFで受け、メタステーブルが下流へ伝わる確率を下げる。
+/// 段数は同期化器の定番である2段に固定する（可変段数はvar配列が生成境界に
+/// 定数を要するため、現状のIRISでは書けない）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 幅（既定1、1以上）。制御信号なら1、グレイ符号ポインタなら複数ビット
+///
+/// リセットは非同期assert・同期deassert、能動High。両段とも0で始まる。
+///
+/// 注意: 物理的な同期化には配置制約（ASYNC_REG／dont_touch、最大遅延制約）が要るが、
+/// IRISからは属性やSDCを出せない。論理（2段FF）だけを与える。制約は利用者の責任。
+mod Sync2ff[
+    Width: uint = 1,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  d: bit[Width],
+    out q: bit[Width],
+) {
+    var s1: bit[Width] = 0;
+    var s2: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        s1 = d;
+        s2 = s1;
+    }
+
+    comb {
+        q = s2;
+    }
+}

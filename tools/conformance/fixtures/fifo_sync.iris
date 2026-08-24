@@ -1,0 +1,61 @@
+/// 同期FIFO
+///
+/// 単一クロックの先入れ先出しバッファ。書き込みと読み出しが同じクロックで動く。
+///
+/// ジェネリックパラメータ:
+/// - Width:     データ幅（既定8、1以上）
+/// - Depth:     深さ（既定4、2以上の2のべき乗であること）
+/// - AddrWidth: アドレス幅（既定`$clog2(Depth)`。呼び出し側は触らない）
+/// - PtrWidth:  ポインタ幅（既定`$clog2(Depth) + 1`。最上位をラップビットに使う）
+///
+/// 2のべき乗という条件は比較のみのwhere句では表せないため、呼び出し側の責任とする。
+///
+/// full／emptyの判定はポインタで行う。
+///   empty = 書き込みポインタ == 読み出しポインタ
+///   full  = ラップビットが異なり、下位アドレスが等しい
+///
+/// リセットは非同期assert・同期deassert、能動High。ポインタは0で始まる。
+mod FifoSync[
+    Width: uint = 8,
+    Depth: uint = 4,
+    AddrWidth: uint = $clog2(Depth),
+    PtrWidth: uint = $clog2(Depth) + 1,
+]
+where
+    Width >= 1,
+    Depth >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  wr_en: bit,
+    in  wr_data: bit[Width],
+    in  rd_en: bit,
+    out rd_data: bit[Width],
+    out full: bit,
+    out empty: bit,
+) {
+    mem storage: bit[Width][Depth];
+    var wr_ptr: bit[PtrWidth] = 0;
+    var rd_ptr: bit[PtrWidth] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if wr_en {
+            if ~full {
+                storage[wr_ptr[AddrWidth - 1 : 0]] = wr_data;
+                wr_ptr = wr_ptr + 1;
+            }
+        }
+        if rd_en {
+            if ~empty {
+                rd_ptr = rd_ptr + 1;
+            }
+        }
+    }
+
+    comb {
+        rd_data = storage[rd_ptr[AddrWidth - 1 : 0]];
+        empty = (wr_ptr == rd_ptr);
+        full = (wr_ptr[AddrWidth] != rd_ptr[AddrWidth])
+             & (wr_ptr[AddrWidth - 1 : 0] == rd_ptr[AddrWidth - 1 : 0]);
+    }
+}

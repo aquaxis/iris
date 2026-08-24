@@ -1,0 +1,26 @@
+/// エッジ検出
+///
+/// 入力`d`の立上り・立下りを1サイクル幅のパルスで出す。
+/// 前サイクルの値をレジスタに保ち、現在値と比べる。
+///   rise = d & ~prev   （0から1へ）
+///   fall = ~d & prev   （1から0へ）
+///
+/// リセットは非同期assert・同期deassert、能動High。prevは0で始まる。
+mod EdgeDetect(
+    in  clk: clock,
+    in  rst: reset,
+    in  d: bit,
+    out rise: bit,
+    out fall: bit,
+) {
+    var prev: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        prev = d;
+    }
+
+    comb {
+        rise = d & ~prev;
+        fall = ~d & prev;
+    }
+}
