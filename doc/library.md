@@ -12,15 +12,15 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在34部品を9分類に置く。
+現在37部品を9分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
 | `timing/` | 7 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce |
-| `arith/` | 8 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial |
+| `arith/` | 9 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial |
 | `mem/` | 4 | FifoSync、FifoAsync、RamSp、RamDp |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
-| `stream/` | 1 | SpillRegister |
+| `stream/` | 3 | SpillRegister、Serializer、Deserializer |
 | `cdc/` | 3 | Sync2ff、RstSync、PulseSync |
 | `coding/` | 3 | Crc、Parity、Secded |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
@@ -46,7 +46,7 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-34部品すべてのテストベンチが`iris-sim`で通る。
+37部品すべてのテストベンチが`iris-sim`で通る。
 `tools/conformance/run.sh`は158/0を保つ。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
@@ -72,7 +72,6 @@ IRISで素直に書けるのは次の3種である。
 | combの総和の畳み込み（popcount、並列CRCのXOR網） | combで`var`が使えず、まるごとの再代入はlast-winsで逐次和にならない（XOR畳み込みは`.xor_reduce()`で可） |
 | ジェネリックな配列ポート・var配列（多ストリームのmux／demux） | 配列の生成境界に定数が要る（`mem`だけがジェネリックを許す） |
 | ジェネリック関数（汎用math関数） | `fn f[Width](...)`がパースできない。固定幅の`fn`は動く |
-| `int[N]`／`uint[N]`型のジェネリック幅（`int[Width]`） | 型の幅にリテラルしか使えない（`bit[Width]`は書ける）。符号付き部品は`bit[N]`＋`.signed()`で書く |
 | 可変段数の同期化器 | var配列が生成境界に定数を要するため2段固定 |
 
 符号付きの`==`／`!=`が値で比較するよう、iris-simを修正した（負のリテラルと比較できる。仕様9.3.1）。

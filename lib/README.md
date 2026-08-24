@@ -5,21 +5,21 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在34部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+現在37部品を9分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
 `iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は158/0を保っている。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
-| `arith/` | 8 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial` |
+| `arith/` | 9 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial` |
 | `mem/` | 4 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
-| `stream/` | 1 | `SpillRegister` |
+| `stream/` | 3 | `SpillRegister`／`Serializer`／`Deserializer` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
 | `coding/` | 3 | `Crc`／`Parity`／`Secded` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
-| 合計 | 34 | |
+| 合計 | 37 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -124,8 +124,8 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 | `Rotator` | バレルローテータ（可変量の巡回シフト） | `Width`（既定8、2以上）、`Right`（0=左/1=右、既定0）、`ShWidth`（導出`$clog2(Width)`） |
 | `Gray2Bin` | GRAY符号 → 2進（`Bin2Gray`の逆） | `Width`（既定8、1以上） |
 | `MinMax` | 2入力の最小/最大（符号なし・符号付き） | `Width`（既定8、1以上）、`Signed`（0/1、既定0）、`Max`（0=最小/1=最大、既定0） |
-
 | `DivSerial` | 直列除算器（復元法、符号なし） | `Width`（既定8、1以上）、`CntWidth`（導出`$clog2(Width)+1`） |
+| `MulSerial` | 直列乗算器（シフト加算、符号なし、全幅の積） | `Width`（既定8、1以上）、`PWidth`（導出`Width+Width`）、`CntWidth`（導出） |
 
 `MinMax`は`a`と`b`の小さい方または大きい方を出す。`out = a`と置き、条件に合えば`out = b`で
 上書きする（選択）。`Signed`が1なら`.signed()`で符号付き比較する（符号付き比較の修正の実例）。
@@ -133,6 +133,10 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 `DivSerial`は`start`で除算を始め、Widthサイクルで商と剰余を求める（復元法、1サイクル1ビット）。
 部分剰余をシフトして被除数のビットを取り込み、除数と比べて引ければ引き商ビットを立てる。
 `200/7=28余り4`等を確認。`done`が完了の次に1サイクル1になる。
+
+`MulSerial`は`start`で乗算を始め、Widthサイクルで全幅（2*Width）の積を求める（シフト加算）。
+IRISの`*`はオペランド幅に切り詰められるが、これは全幅の積を出す（`200*200=40000`等を確認）。
+上位への加算は桁上げを含めるため1ビット零拡張してから足す（加算の結果幅は最大オペランド幅なので）。
 
 `Gray2Bin`は`bin[i] = (gray >> i).xor_reduce()`で各ビットを作る（第i位以上のXOR）。
 `.xor_reduce()`（XORリダクション）と部分ビット代入（`bin[i] = ...`はビットごとに積み上がる）で、
@@ -199,6 +203,15 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 `SpillRegister`は上流と下流のパスを切り、バックプレッシャでデータを落とさず、
 詰まっていなければ毎サイクル1語を通す。`in_ready`はスキッド段の空きだけで決まる
 （`out_ready`から組み合わせで作らない）。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Serializer` | パラレル入力・シリアル出力（PISO、LSB先頭） | `Width`（既定8、1以上）、`CntWidth`（導出） |
+
+`Serializer`は`load`で`din`を取り込み、Widthサイクルで1ビットずつ`dout`へ出す（LSB先頭）。
+`valid`は送出中1、`done`は最後のビットで1。0xB4を送って集め直すと元に戻ることを確認している。
+
+`Deserializer`はその対（SIPO）。`en`のたびに`din`を取り込み、Widthビットで`dout`＋`valid`を出す。
 
 ### cdc
 
@@ -290,8 +303,8 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 符号拡張してから掛ければ、2の補数で正しく積算される（`MacSerial[Signed: 1]`が実例）。
 符号付きの`==`／`!=`は値で比較するので、`acc.signed() == -68`のように負のリテラルと
 比較できる（この比較はiris-simの修正で対応した。9.3.1参照）。
-唯一の制約は、`int[N]`／`uint[N]`型のジェネリック幅（`int[Width]`）がまだ書けないこと
-（`bit[Width]`は書ける）。符号付き部品は`bit[N]`＋`.signed()`で書けば幅をジェネリックにできる。
+`int[Width]`／`uint[Width]`のジェネリック幅も書ける（`bit[Width]`と同様。パーサの不備を修正）。
+`bit[N]`＋`.signed()`でも、`int[N]`直接でも、どちらでも幅をジェネリックにできる。
 
 ## 実装上の注意
 
@@ -347,10 +360,20 @@ SystemVerilogへ出せる。
 
 重い層（DMA・暗号・DSP・周辺IF・オンチップバス）は、全部をIRISで書かない。
 
-- **IRISで書ける（必要時に追加）**：`uart`／`spi`／`i2c`（FSM＋シフト）、
-  直列/シストリック`fir`（syncで積算）、簡易`cache`（mem＋タグ＋FSM）。
-- **OSSを流用する**：AXI一式（pulp-platform/axi）、暗号（OpenTitan prim_*）、
-  浮動小数点演算器（hardfloat／FPnew）、大型DSP。実証済みのものを再実装しない。
+**IRISで書ける（必要時に追加）**：`uart`／`spi`／`i2c`（FSM＋シフト）、
+直列`fir`／`mac`（syncで積算）、簡易`cache`（mem＋タグ＋FSM）。
+
+**OSSを流用する（実証済みを再実装しない）。** 分野ごとの流用先は次のとおり。
+IRIS側で書かず、変換後のSystemVerilogからインスタンス化して接続する。
+
+| 分野 | 流用先（OSS） | ライセンス | 使い方の要点 |
+|---|---|---|---|
+| AXI一式（xbar／dma／cdc／cut） | [pulp-platform/axi](https://github.com/pulp-platform/axi) | Solderpad 0.51 | 多マスタ/スレーブは配列ポートが要り現状のIRISでは書けない。SVで接続 |
+| 汎用セル（深いFIFO／可変段数同期化器ほか） | [pulp-platform/common_cells](https://github.com/pulp-platform/common_cells) | Solderpad 0.51 | 本libに無い変種はこちら（例：段数可変の`sync`、`fifo_v3`） |
+| 暗号（AES／SHA-2／PRNG） | [OpenTitan](https://github.com/lowRISC/opentitan) `hw/ip/*`／`prim_*` | Apache 2.0 | 正しさとSCA対策のため自作しない。ラウンド関数のXOR網はcomb畳み込みにも当たる |
+| 浮動小数点演算器 | [berkeley-hardfloat](https://github.com/ucb-bar/berkeley-hardfloat)／[pulp-platform/fpnew](https://github.com/pulp-platform/cvfpu) | BSD／Solderpad | IRISの`f32`/`f64`は模擬実行用。合成する演算器はこちら |
+| 周辺IF（Ethernet／PCIe／UART DMA等） | [alexforencich/verilog-*](https://github.com/alexforencich) | MIT | 本libの`uart`/`spi`/`i2c`は軽量版。本格版はこちら |
+| 大型DSP（FFT等） | 各ベンダ／OSS | 各条件 | 規模が大きく実証が要る |
 
 判断基準は、IRISのcombの限界（XOR畳み込み/積算不可）と配列ポート不可。
 直列にできるもの・FSMで書けるものはIRIS、重い/実証が要る/限界に当たるものはOSS。

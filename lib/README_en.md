@@ -5,22 +5,22 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-34 parts in 9 categories. Every part passes three checks: an `iris-sim`
+37 parts in 9 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 `tools/conformance/run.sh` stays at 158/0.
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
-| `arith/` | 8 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial` |
+| `arith/` | 9 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial` |
 | `mem/` | 4 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
-| `stream/` | 1 | `SpillRegister` |
+| `stream/` | 3 | `SpillRegister`, `Serializer`, `Deserializer` |
 | `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
 | `coding/` | 3 | `Crc`, `Parity`, `Secded` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
-| Total | 34 | |
+| Total | 37 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -132,8 +132,8 @@ at the maximum (all ones) and the minimum (0). The maximum is detected with
 | `Rotator` | barrel rotator (variable-amount circular shift) | `Width` (default 8, >= 2), `Right` (0=left / 1=right, default 0), `ShWidth` (derived `$clog2(Width)`) |
 | `Gray2Bin` | gray code to binary (inverse of `Bin2Gray`) | `Width` (default 8, >= 1) |
 | `MinMax` | two-input min/max (unsigned or signed) | `Width` (default 8, >= 1), `Signed` (0/1, default 0), `Max` (0=min / 1=max, default 0) |
-
 | `DivSerial` | serial restoring divider (unsigned) | `Width` (default 8, >= 1), `CntWidth` (derived `$clog2(Width)+1`) |
+| `MulSerial` | serial shift-add multiplier (unsigned, full-width product) | `Width` (default 8, >= 1), `PWidth` (derived `Width+Width`), `CntWidth` (derived) |
 
 `MinMax` outputs the smaller or larger of `a` and `b`: it sets `out = a`, then
 overwrites with `out = b` when the comparison calls for it (a selection). With
@@ -144,6 +144,12 @@ cycles (restoring division, one bit per cycle): it shifts the partial remainder,
 brings in a dividend bit, and subtracts the divisor when it fits, setting a
 quotient bit. `200/7 = 28 r 4` and others are checked; `done` pulses one cycle
 after completion.
+
+`MulSerial` starts on `start` and produces the full `2*Width` product in `Width`
+cycles (shift-add). IRIS's `*` truncates to the operand width, but this yields the
+full product (`200*200 = 40000` is checked). The add into the high half
+zero-extends by one bit first to keep the carry (an add's result width is the max
+operand width).
 
 `Gray2Bin` builds each bit as `bin[i] = (gray >> i).xor_reduce()` (the XOR of the
 bits from `i` up). An XOR fold is expressible in `comb` with `.xor_reduce()` and
@@ -219,6 +225,14 @@ wraps to the lowest — so no all-ones literal is needed.
 `SpillRegister` breaks the upstream/downstream path, loses no data under
 backpressure, and passes one word per cycle when not stalled. `in_ready` depends
 only on the skid slot being free (not combinationally on `out_ready`).
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Serializer` | parallel-in serial-out (PISO, LSB-first) | `Width` (default 8, >= 1), `CntWidth` (derived) |
+
+`Serializer` latches `din` on `load` and shifts out one bit per cycle on `dout`
+over `Width` cycles (LSB-first); `valid` is high while sending and `done` on the
+last bit. Sending `0xB4` and reassembling the bits recovers the byte.
 
 ### cdc
 
@@ -321,9 +335,9 @@ sign-extend with `.sign_extend[M]()`; the two's-complement product accumulates
 correctly (`MacSerial[Signed: 1]` is the worked example). Signed `==`/`!=` compare
 by value, so a signed result compares against a negative literal
 (`acc.signed() == -68`); this comparison was fixed in iris-sim (see spec 9.3.1).
-The one remaining limit is that `int[N]`/`uint[N]` types take no generic width yet
-(`int[Width]` does not parse, though `bit[Width]` does) — write signed parts over
-`bit[N]` with `.signed()` to keep the width generic.
+A generic width on `int[Width]`/`uint[Width]` also works now (like `bit[Width]`; a
+parser limitation was fixed) — so signed parts can use either `bit[N]` + `.signed()`
+or `int[N]` directly and keep the width generic.
 
 ## Implementation notes
 
@@ -386,12 +400,21 @@ in SV.
 The heavy layer (DMA, crypto, DSP, peripheral IF, on-chip bus) is not all
 written in IRIS.
 
-- **Buildable in IRIS (added when needed)**: `uart`/`spi`/`i2c` (FSM + shift
-  register), serial/systolic `fir` (accumulate in `sync`), a simple `cache`
-  (mem + tags + FSM).
-- **Reuse OSS**: the AXI set (pulp-platform/axi), crypto (OpenTitan prim_*),
-  floating-point units (hardfloat/FPnew), large DSP. Do not re-implement proven
-  IP.
+**Buildable in IRIS (added when needed)**: `uart`/`spi`/`i2c` (FSM + shift
+register), serial `fir`/`mac` (accumulate in `sync`), a simple `cache`
+(mem + tags + FSM).
+
+**Reuse OSS (do not re-implement proven IP).** Reuse targets by area, below.
+Do not write these in IRIS; instantiate them from the converted SystemVerilog.
+
+| Area | Reuse target (OSS) | License | Integration note |
+|---|---|---|---|
+| AXI set (xbar/dma/cdc/cut) | [pulp-platform/axi](https://github.com/pulp-platform/axi) | Solderpad 0.51 | Multi-master/slave needs array ports, not expressible in IRIS today; wire it in SV |
+| Common cells (deep FIFO, N-stage sync, ...) | [pulp-platform/common_cells](https://github.com/pulp-platform/common_cells) | Solderpad 0.51 | Variants this lib lacks (e.g. parameterizable sync depth, `fifo_v3`) |
+| Crypto (AES, SHA-2, PRNG) | [OpenTitan](https://github.com/lowRISC/opentitan) `hw/ip/*`, `prim_*` | Apache 2.0 | Correctness and SCA hardening; a round function's XOR net also hits the comb fold limit |
+| Floating-point units | [berkeley-hardfloat](https://github.com/ucb-bar/berkeley-hardfloat) / [pulp-platform/fpnew](https://github.com/pulp-platform/cvfpu) | BSD / Solderpad | IRIS `f32`/`f64` are for simulation; synthesizable units come from here |
+| Peripheral IF (Ethernet, PCIe, UART DMA, ...) | [alexforencich/verilog-*](https://github.com/alexforencich) | MIT | This lib's `uart`/`spi`/`i2c` are lightweight; full versions here |
+| Large DSP (FFT, ...) | vendor / OSS | varies | Large and proof-sensitive |
 
 The criteria are IRIS's `comb` limits (no XOR fold/accumulation) and no generic
 array ports: anything that can be made serial or written as an FSM goes in IRIS;

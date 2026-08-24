@@ -12,15 +12,15 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-34 parts in 9 categories.
+37 parts in 9 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
 | `timing/` | 7 | Counter, EdgeDetect, GrayCounter, Lfsr, ClkDivider, Pwm, Debounce |
-| `arith/` | 8 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial |
+| `arith/` | 9 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial, MulSerial |
 | `mem/` | 4 | FifoSync, FifoAsync, RamSp, RamDp |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
-| `stream/` | 1 | SpillRegister |
+| `stream/` | 3 | SpillRegister, Serializer, Deserializer |
 | `cdc/` | 3 | Sync2ff, RstSync, PulseSync |
 | `coding/` | 3 | Crc, Parity, Secded |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
@@ -46,7 +46,7 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 34 testbenches pass under `iris-sim`.
+All 37 testbenches pass under `iris-sim`.
 `tools/conformance/run.sh` stays at 158/0.
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
@@ -72,7 +72,6 @@ What could not be done is recorded, with the reason.
 | A combinational sum-fold (popcount, a parallel-CRC XOR tree) | `var` is not allowed in comb, and a whole-signal reassignment is last-write-wins, not a running sum (an XOR fold is fine via `.xor_reduce()`) |
 | Generic array ports and var arrays (multi-stream mux/demux) | array bounds need a constant (only `mem` allows a generic bound) |
 | Generic functions (a general math library) | `fn f[Width](...)` does not parse; a fixed-width `fn` works |
-| A generic width on `int[N]`/`uint[N]` (`int[Width]`) | a type's width takes only a literal (`bit[Width]` works); write signed parts over `bit[N]` with `.signed()` |
 | A parameterizable synchronizer depth | a var array needs a constant bound, so the depth is fixed at two |
 
 Signed `==`/`!=` were fixed in iris-sim to compare by value (so a signed value compares against a negative literal; spec 9.3.1).
