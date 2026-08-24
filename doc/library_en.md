@@ -12,12 +12,12 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-63 parts in 10 categories.
+64 parts in 10 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
 | `timing/` | 9 | Counter, EdgeDetect, GrayCounter, Lfsr, ClkDivider, Pwm, Debounce, Timer, OneShot |
-| `arith/` | 14 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial, MulSerial, SatAdd, SatSub, OneHotCheck, Abs, Accumulator |
+| `arith/` | 15 | PriorityEncoder, Lzc, Bin2Gray, Decoder, Rotator, Gray2Bin, MinMax, DivSerial, MulSerial, SatAdd, SatSub, OneHotCheck, Abs, Accumulator, PopcountSerial |
 | `mem/` | 7 | FifoSync, FifoAsync, RamSp, RamDp, Ram2r1w, ShiftRegister, RingBuffer |
 | `arbiter/` | 2 | ArbiterFixed, ArbiterRr |
 | `stream/` | 11 | SpillRegister, Serializer, Deserializer, VecMux, VecDemux, StreamDownsizer, StreamUpsizer, StreamFork, StreamJoin, StreamFilter, CreditCounter |
@@ -47,8 +47,8 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 63 testbenches pass under `iris-sim`.
-`tools/conformance/run.sh` stays at 512/0 (59 library parts registered as fixtures).
+All 64 testbenches pass under `iris-sim`.
+`tools/conformance/run.sh` stays at 518/0 (60 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 
@@ -63,6 +63,7 @@ Three kinds of parts are written directly in IRIS.
 | Single-clock logic | Counter, FifoSync, ArbiterRr | expressible directly with comb/sync and mem |
 | FSM + shift register | UartTx/Rx, SpiMaster, I2cMaster | a state machine and a shift register build a peripheral interface |
 | Accumulation unrolled over time | Crc, Lfsr, FirSerial, MacSerial | sync accumulation unrolls a convolution over time |
+| A sum-fold unrolled over time | PopcountSerial | the comb fold, done serially over `Width` cycles |
 | Signed arithmetic | MacSerial[Signed: 1] | `.signed()` + `.sign_extend[N]()` accumulate in two's complement; read with `acc.signed()` |
 | An XOR fold | Parity, Gray2Bin, Secded | `.xor_reduce()` plus per-bit assignment (`out[i]=...` accumulates bit by bit) |
 | A multi-stream mux/demux (packed vector) | VecMux, VecDemux | a concatenated `bit[Width*N]` with a part-select `[i*Width +: Width]` (widen the index before the multiply) |
@@ -72,7 +73,7 @@ What could not be done is recorded, with the reason.
 
 | Not expressible | Reason |
 |---|---|
-| A combinational sum-fold (popcount, a parallel-CRC XOR tree) | `var` is not allowed in comb, and a whole-signal reassignment is last-write-wins, not a running sum (an XOR fold is fine via `.xor_reduce()`) |
+| A combinational sum-fold (popcount, a parallel-CRC XOR tree) | `var` is not allowed in comb, and a whole-signal reassignment is last-write-wins, not a running sum (an XOR fold is fine via `.xor_reduce()`; **serially it is expressible** — `PopcountSerial`) |
 | The `bit[W][N]` array-port syntax and var arrays | array bounds need a constant (only `mem` allows a generic bound); the multi-stream mux/demux itself is expressible with a packed vector (table above) |
 | Generic functions (a general math library) | `fn f[Width](...)` does not parse; a fixed-width `fn` works |
 | A parameterizable synchronizer depth | a var array needs a constant bound, so the depth is fixed at two |

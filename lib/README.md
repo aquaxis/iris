@@ -5,13 +5,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在63部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は512/0を保つ（lib部品59個を検体に登録）。
+現在64部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は518/0を保つ（lib部品60個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 9 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot` |
-| `arith/` | 14 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator` |
+| `arith/` | 15 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial` |
 | `mem/` | 7 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 63 | |
+| 合計 | 64 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -28,7 +28,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 多ストリームのmux／demuxも、要素を連結した**パックドベクタ**（`bit[Width*N]`）と
 部分選択（`data[i*Width +: Width]`）で書ける。`VecMux`／`VecDemux`が実例で、
 `sel`は積が桁あふれしないよう幅拡張してから掛ける。
-一方、combでの総和の畳み込み（popcount／並列CRC）、`bit[W][N]`という構文の配列ポートそのもの、
+combでの総和の畳み込み（popcount／並列CRC）は書けないが、**直列に時間へ展開すれば書ける**（`PopcountSerial`が実例）。
+一方、`bit[W][N]`という構文の配列ポートそのもの、
 ジェネリック関数（汎用math）は現状のIRISでは書けない。
 （XORの畳み込みは`.xor_reduce()`と部分ビット代入で書ける。`Parity`／`Gray2Bin`が実例。）
 詳しくは各部品の説明と「実装上の注意」に、できなかった理由まで残している。
@@ -196,6 +197,14 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 `Abs`は負なら`~a + 1`、非負ならそのまま。最小負値（0x80..）は同幅で表せずラップする（明記）。
 `Accumulator`は`en`のたびに`acc += din`、`clear`で0に戻す。乗算のない単純な積算器
 （積和は`MacSerial`、飽和が要るなら`SatAdd`と組み合わせる）。加算はWidth幅でラップする。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `PopcountSerial` | 直列ポップカウント（1の個数、ハミング重み） | `Width`（既定8、1以上）、`CntWidth`（導出`$clog2(Width)+1`） |
+
+`PopcountSerial`は`start`で`din`を取り込み、Widthサイクルで1ビットずつ`sr[0]`を`cnt`へ足す
+（毎サイクル右シフト）。**combでは総和の畳み込みが書けないが、直列に時間へ展開すれば書ける**
+という方針の実例（CRC・FIR・移動平均と同じ）。`done`は最後のビットで1、`busy`は計数中1。
 
 ### mem
 

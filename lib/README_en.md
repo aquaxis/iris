@@ -5,14 +5,14 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-63 parts in 10 categories. Every part passes three checks: an `iris-sim`
+64 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 512/0 (59 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 518/0 (60 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 9 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot` |
-| `arith/` | 14 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator` |
+| `arith/` | 15 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial` |
 | `mem/` | 7 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 63 | |
+| Total | 64 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -29,8 +29,9 @@ interfaces), and accumulation unrolled over time (CRC, LFSR, serial DSP) are
 written directly in IRIS. A multi-stream mux/demux is also expressible, using a
 **packed vector** (`bit[Width*N]`) with a part-select (`data[i*Width +: Width]`);
 `VecMux` and `VecDemux` are the examples, widening `sel` before the multiply so the
-index does not overflow. A combinational sum-fold (popcount, a parallel-CRC XOR
-tree), the `bit[W][N]` array-port syntax itself, and generic functions (a general
+index does not overflow. A combinational sum-fold (popcount, a parallel-CRC XOR tree) is not expressible in
+`comb`, but **is expressible serially over time** (`PopcountSerial` is the example).
+The `bit[W][N]` array-port syntax itself, and generic functions (a general
 math library) are not expressible today. (An XOR fold is expressible with
 `.xor_reduce()` and per-bit assignment — `Parity` and `Gray2Bin` are the
 examples.) Each part's description and the "Implementation notes" record what
@@ -220,6 +221,16 @@ when all bits are 0. Combinational only.
 `Accumulator` does `acc += din` on each `en` and resets on `clear` — a plain
 accumulator with no multiply (use `MacSerial` for multiply-accumulate, or combine
 with `SatAdd` for saturation); the add wraps at `Width`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `PopcountSerial` | serial popcount (number of set bits / Hamming weight) | `Width` (default 8, >= 1), `CntWidth` (derived `$clog2(Width)+1`) |
+
+`PopcountSerial` latches `din` on `start` and adds `sr[0]` into `cnt` one bit per
+cycle over `Width` cycles (shifting right each cycle). It is the worked example that
+**a combinational sum-fold is not expressible, but is expressible serially over
+time** (same approach as CRC/FIR/moving-average); `done` pulses on the last bit,
+`busy` is high while counting.
 
 ### mem
 
