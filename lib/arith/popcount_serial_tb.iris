@@ -1,0 +1,37 @@
+/// PopcountSerialのテストベンチ
+///
+/// 0b1011_0010（1が4個）を数え、Widthサイクル後にcount=4・done=1になることを確かめる。
+/// 続けて0xFF（1が8個）も数える。
+test PopcountSerialTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var start: bit = 0;
+    var din: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = PopcountSerial { clk: clk, rst: rst, start: start, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd1  { start = 1; din = 8'b1011_0010; }  // 4個
+            if step == 8'd2  { start = 0; }
+            if step == 8'd13 { start = 1; din = 8'hFF; }         // 8個
+            if step == 8'd14 { start = 0; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd11 { assert dut.count == 8'd4, "popcount(1011_0010) = 4"; assert dut.done == 1, "done pulse"; }
+            if step == 8'd12 { assert dut.busy == 0, "idle after done"; }
+            if step == 8'd23 { assert dut.count == 8'd8, "popcount(0xFF) = 8"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(26);
+        $display("PopcountSerialTB: all checks passed");
+        $finish;
+    }
+}

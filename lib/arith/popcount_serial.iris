@@ -1,0 +1,73 @@
+/// 直列ポップカウント（1の個数、ハミング重み、ビット直列）
+///
+/// `start`で`din`を取り込み、Widthサイクルで1ビットずつ見て立っているビット数（1の個数）を数える。
+/// ハミング重み、ビット密度、疎ベクトルの要素数などに使う。
+///
+/// combでは総和の畳み込み（毎ビットを一度に足す）が書けない（`var`不可＋再代入はlast-wins）。
+/// そこで**直列に時間へ展開**して1ビットずつsyncで逐次加算する（CRC・FIR・移動平均と同じ方針）。
+/// `sr`を1ビットずつ右シフトし、`sr[0]`を`cnt`へ足す。`done`は最後のビットのサイクルに1、
+/// `busy`は計数中1。結果はWidthサイクル後に`count`へ出る。
+///
+/// ジェネリックパラメータ:
+/// - Width:    入力語のビット幅（既定8、1以上）
+/// - CntWidth: 計数の幅（導出＝$clog2(Width)+1、0〜Widthを表せる）
+///
+/// ポート:
+/// - start: 1で`din`を取り込み計数を始める（busyでないとき）
+/// - din:   入力語
+/// - count: 立っているビット数（計数完了後に有効）
+/// - done:  最後のビットのサイクルに1（1サイクル幅）
+/// - busy:  計数中は1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod PopcountSerial[
+    Width: uint = 8,
+    CntWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  start: bit,
+    in  din: bit[Width],
+    out count: bit[CntWidth],
+    out done: bit,
+    out busy: bit,
+) {
+    var sr: bit[Width] = 0;
+    var cnt: bit[CntWidth] = 0;
+    var n: bit[CntWidth] = 0;
+    var busy_r: bit = 0;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if rst {
+            busy_r = 0;
+            cnt = 0;
+            n = 0;
+        } else if busy_r == 0 {
+            if start == 1 {
+                sr = din;
+                cnt = 0;
+                n = 0;
+                busy_r = 1;
+            }
+        } else {
+            cnt = cnt + sr[0];
+            sr = sr >> 1;
+            n = n + 1;
+            if n == Width - 1 {
+                busy_r = 0;
+                done_r = 1;
+            }
+        }
+    }
+
+    comb {
+        count = cnt;
+        done = done_r;
+        busy = busy_r;
+    }
+}
