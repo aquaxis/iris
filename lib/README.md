@@ -5,22 +5,22 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在48部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は422/0を保つ（lib部品44個を検体に登録）。
+現在50部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は434/0を保つ（lib部品46個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
-| `arith/` | 11 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub` |
+| `arith/` | 12 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck` |
 | `mem/` | 6 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 5 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux` |
 | `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
-| `coding/` | 4 | `Crc`／`Parity`／`Secded`／`TmrVoter` |
+| `coding/` | 5 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 48 | |
+| 合計 | 50 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -169,6 +169,13 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 演算し、上位2ビットの不一致であふれを検出、正のあふれは最大正（0x7F..）、負のあふれは
 最小負（0x80..）へ飽和させる（端の値は部分ビット代入でMSBだけ立てる/落として作る）。組み合わせのみ。
 
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `OneHotCheck` | one-hot妥当性判定（ちょうど1ビット立っているか） | `Width`（既定8、1以上） |
+
+`OneHotCheck`は`din & (din - 1)`で最下位の1を1つ落とし、結果が0でかつ`din`が0でなければ
+`is_onehot`を1にする（畳み込み・popcount不要）。全0なら`is_zero`を1にする。組み合わせのみ。
+
 ### mem
 
 | 部品 | 機能 | パラメータ |
@@ -277,6 +284,7 @@ Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを
 | `Parity` | パリティ生成（偶/奇） | `Width`（既定8、1以上）、`Odd`（0=偶/1=奇、既定0） |
 | `Secded` | 単一誤り訂正・二重誤り検出（8ビットデータの拡張ハミング(13,8)） | なし（データ8ビット固定）。`SecdedEnc`＋`SecdedDec` |
 | `TmrVoter` | 三重冗長多数決（ビットごと、不一致フラグ付き） | `Width`（既定8、1以上） |
+| `Checksum` | 1の補数和チェックサム（エンドアラウンドキャリー） | `Width`（既定8、1以上）、`Ext`（導出＝Width+1） |
 
 `Crc`はMSB先頭で1サイクルに1ビット取り込み、`poly`で更新する（LFSRにデータ入力を足した形）。
 `clear`で区切れる。並列CRC（1バイト同時）はXOR網の畳み込みが要り、現状のcombでは書けない。
@@ -295,6 +303,11 @@ iris2svは`.xor_reduce()`をSystemVerilogの縮約演算子`(^d)`へ変換する
 （`y = a&b | b&c | a&c`）。どれか1つがビット反転しても正しい値が残る（単一故障の吸収）。
 3対の差（XOR）のORリダクションで`mismatch`を立て、食い違いを検出する。
 SEU耐性や機能安全の出力合流に使う。組み合わせのみ。
+
+`Checksum`は`en`のたびに`din`を1の補数和で積む（インターネットチェックサム方式）。
+桁上げは捨てず下位へ回して足す（end-around carry）ので語順に依存しない。`clear`で0に戻す。
+1回の加算では二重桁上げが起きないので1段の畳み込みで正しい。和はcombで作り（syncで同じvarを
+読むと前サイクル値になるため）、accに登録する。送出値は出力`sum`の1の補数（`~sum`）。CRCと同じく直列。
 
 ### periph
 

@@ -1,0 +1,58 @@
+/// チェックサム（1の補数和、エンドアラウンドキャリー）
+///
+/// `en`のたびに`din`を1の補数和で積む（インターネットチェックサム方式）。
+/// 桁上げは捨てず下位へ回して足し直す（end-around carry）ので、語順に依存しない。
+/// `clear`で0に戻す。送出するチェックサムは出力`sum`の1の補数（`~sum`）である。
+/// パケットのヘッダ検査、簡易な整合性チェックなどに使う。
+///
+/// 1回の加算では二重桁上げが起きない（両オペランドが最大でも和は2^Width未満の桁上げ1つ）ため、
+/// 1段の畳み込み（`低位 + 桁上げ`）で正しく1の補数和になる。CRCと同じく直列（毎サイクル1語）で積む。
+///
+/// ジェネリックパラメータ:
+/// - Width: 語のビット幅（既定8、1以上）
+/// - Ext:   内部和の幅（導出＝Width+1）
+///
+/// ポート:
+/// - en:    1のとき`din`を加える
+/// - clear: 1で累算を0に戻す（enより優先）
+/// - din:   入力語
+/// - sum:   1の補数和（送出値は`~sum`）
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Checksum[
+    Width: uint = 8,
+    Ext: uint = Width + 1,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  clear: bit,
+    in  din: bit[Width],
+    out sum: bit[Width],
+) {
+    var acc: bit[Width] = 0;
+    var ext: bit[Ext] = 0;
+
+    // 和はcombで作る（syncは非ブロッキングで、同じブロック内で書いたvarを読むと
+    // 前サイクルの値になるため、中間結果はcombに置く）。
+    comb {
+        ext = (({ 1'b0, acc }) + ({ 1'b0, din }));
+    }
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            acc = 0;
+        } else if clear {
+            acc = 0;
+        } else if en {
+            acc = ext[0 +: Width] + ext[Width];   // エンドアラウンドキャリー
+        }
+    }
+
+    comb {
+        sum = acc;
+    }
+}

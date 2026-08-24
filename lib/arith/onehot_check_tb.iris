@@ -1,0 +1,31 @@
+/// OneHotCheckのテストベンチ
+///
+/// one-hot・複数ビット・全0の3状況で、is_onehotとis_zeroを確かめる。
+/// 組み合わせなので入力を変えて次のサイクルで読む。
+test OneHotCheckTB {
+    let clk: clock(period: 10ns);
+    var din: bit[8] = 8'b0001_0000;
+    var step: bit[8] = 0;
+
+    inst dut = OneHotCheck { din: din };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd2 { din = 8'b0001_0100; }   // 2ビット
+        if step == 8'd3 { din = 8'b0000_0000; }   // 全0
+        if step == 8'd4 { din = 8'b1000_0000; }   // one-hot（MSB）
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.is_onehot == 1, "one-hot"; assert dut.is_zero == 0, "not zero"; }
+        if step == 8'd3 { assert dut.is_onehot == 0, "two bits -> not onehot"; }
+        if step == 8'd4 { assert dut.is_onehot == 0, "zero -> not onehot"; assert dut.is_zero == 1, "zero"; }
+        if step == 8'd5 { assert dut.is_onehot == 1, "MSB one-hot"; }
+    }
+
+    seq {
+        await clk.cycles(7);
+        $display("OneHotCheckTB: all checks passed");
+        $finish;
+    }
+}

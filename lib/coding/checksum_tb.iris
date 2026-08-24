@@ -1,0 +1,43 @@
+/// Checksumのテストベンチ
+///
+/// 通常の加算（0x30+0x40=0x70）、clearで0に戻ること、
+/// 0xFF+0xFF が1の補数和で0xFF（0x1FEを畳み込み）になることを確かめる。
+/// 位相を分けて（間にアイドルを挟んで）確実に落ち着いた値を照合する。
+test ChecksumTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 0;
+    var clear: bit = 0;
+    var din: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst dut = Checksum { clk: clk, rst: rst, en: en, clear: clear, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd1 { en = 1; din = 8'h30; }
+            if step == 8'd2 { en = 1; din = 8'h40; }   // 0x30+0x40 = 0x70
+            if step == 8'd3 { en = 0; }
+            if step == 8'd6 { clear = 1; }             // 0へ
+            if step == 8'd7 { clear = 0; }
+            if step == 8'd10 { en = 1; din = 8'hFF; }
+            if step == 8'd11 { en = 1; din = 8'hFF; }  // 0xFF+0xFF -> fold 0xFF
+            if step == 8'd12 { en = 0; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd5  { assert dut.sum == 8'h70, "0x30+0x40 -> 0x70"; }
+            if step == 8'd9  { assert dut.sum == 8'h00, "clear -> 0"; }
+            if step == 8'd14 { assert dut.sum == 8'hFF, "0xFF+0xFF fold -> 0xFF"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(16);
+        $display("ChecksumTB: all checks passed");
+        $finish;
+    }
+}

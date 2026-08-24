@@ -1,0 +1,29 @@
+/// one-hot妥当性判定（ちょうど1ビットだけ立っているか）
+///
+/// `din`がちょうど1ビットだけ立っているとき`is_onehot`を1にする。
+/// 全ビット0のとき`is_zero`を1にする。
+/// one-hot符号のFSM状態の検査、選択線の妥当性チェック、フォールト検出などに使う。組み合わせのみ。
+///
+/// `din & (din - 1)`は最下位の立っているビットを1つ落とす。結果が0で、かつ`din`が0でなければ、
+/// 立っているビットはちょうど1つ（畳み込み・popcount不要でone-hotを判定できる）。
+///
+/// ジェネリックパラメータ:
+/// - Width: ビット幅（既定8、1以上）
+///
+/// ポート:
+/// - din:       入力
+/// - is_onehot: ちょうど1ビットだけ立っていれば1
+/// - is_zero:   全ビット0なら1
+mod OneHotCheck[Width: uint = 8]
+where
+    Width >= 1,
+(
+    in  din: bit[Width],
+    out is_onehot: bit,
+    out is_zero: bit,
+) {
+    comb {
+        is_zero = din == 0;
+        is_onehot = (din != 0) & ((din & (din - 1)) == 0);
+    }
+}

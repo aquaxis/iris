@@ -12,17 +12,17 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在48部品を10分類に置く。
+現在50部品を10分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
 | `timing/` | 7 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce |
-| `arith/` | 11 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial、SatAdd、SatSub |
+| `arith/` | 12 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial、SatAdd、SatSub、OneHotCheck |
 | `mem/` | 6 | FifoSync、FifoAsync、RamSp、RamDp、Ram2r1w、ShiftRegister |
 | `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
 | `stream/` | 5 | SpillRegister、Serializer、Deserializer、VecMux、VecDemux |
 | `cdc/` | 3 | Sync2ff、RstSync、PulseSync |
-| `coding/` | 4 | Crc、Parity、Secded、TmrVoter |
+| `coding/` | 5 | Crc、Parity、Secded、TmrVoter、Checksum |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
 | `dsp/` | 3 | FirSerial、MacSerial、MovingAverage |
 | `util/` | 3 | BitReverse、EndianSwap、ByteEnableExpand |
@@ -47,8 +47,8 @@ iris sv      <分類>/<name>.iris -o out/
 iris lint    <分類>/<name>.iris
 ```
 
-48部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は422/0を保つ（lib部品44個を検体に登録）。
+50部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は434/0を保つ（lib部品46個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 
