@@ -1,0 +1,57 @@
+/// ウォッチドッグタイマ（一定時間kickされないとアラーム）
+///
+/// `en`のあいだカウンタを進め、`timeout`に達したら`alarm`を1にして保持する。
+/// `kick`が来るとカウンタと`alarm`を0に戻す（生存確認）。定期的に`kick`できなくなった＝
+/// ハングや異常を検出する用途（機能安全、監視）に使う。Timer（周期tick）とは別で、
+/// 「期限内にkickが来るか」を見る。
+///
+/// `kick`は`en`より優先。`alarm`はkick（またはリセット）まで下がらない。`timeout`は毎サイクル
+/// 参照するので動的に変えられる。周期は`timeout + 1`サイクル（0からtimeoutまで数える）。
+///
+/// ジェネリックパラメータ:
+/// - Width: カウンタ／timeoutのビット幅（既定16、1以上）
+///
+/// ポート:
+/// - en:      1でカウンタを進める
+/// - kick:    1でカウンタとalarmを0に戻す（生存信号、enより優先）
+/// - timeout: この値に達するとalarm
+/// - alarm:   期限超過で1（kick／リセットまで保持）
+/// - count:   現在のカウンタ値
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Watchdog[Width: uint = 16]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  kick: bit,
+    in  timeout: bit[Width],
+    out alarm: bit,
+    out count: bit[Width],
+) {
+    var cnt: bit[Width] = 0;
+    var alarm_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            cnt = 0;
+            alarm_r = 0;
+        } else if kick == 1 {
+            cnt = 0;
+            alarm_r = 0;
+        } else if en == 1 {
+            if cnt == timeout {
+                alarm_r = 1;
+            } else {
+                cnt = cnt + 1;
+            }
+        }
+    }
+
+    comb {
+        alarm = alarm_r;
+        count = cnt;
+    }
+}

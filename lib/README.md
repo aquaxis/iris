@@ -5,12 +5,12 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在64部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は518/0を保つ（lib部品60個を検体に登録）。
+現在65部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は524/0を保つ（lib部品61個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
-| `timing/` | 9 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot` |
+| `timing/` | 10 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog` |
 | `arith/` | 15 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial` |
 | `mem/` | 7 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 64 | |
+| 合計 | 65 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 64/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 65/0）
 ```
 
 ## 部品一覧
@@ -137,6 +137,14 @@ bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（
 
 `OneShot`は`trig`の立上りを検出すると`pulse`をLenサイクルのあいだ1にする（前値との比較でエッジ検出、
 カウンタを`Len-1`から数え下げ）。短いイベントを一定幅の制御信号に伸ばす。発火中の追加トリガは無視する。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Watchdog` | ウォッチドッグ（一定時間kickされないとalarm） | `Width`（既定16、1以上） |
+
+`Watchdog`は`en`のあいだカウンタを進め、`timeout`に達したら`alarm`を1にして保持する。`kick`が来ると
+カウンタと`alarm`を0に戻す（生存確認）。`kick`は`en`より優先。定期的にkickできなくなった＝ハングや
+異常を検出する（機能安全・監視）。Timer（周期tick）と違い「期限内にkickが来るか」を見る。
 
 ### arith
 

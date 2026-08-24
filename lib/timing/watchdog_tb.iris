@@ -1,0 +1,37 @@
+/// Watchdogのテストベンチ
+///
+/// timeout=3で、kickでカウンタが0に戻ること、その後kickが来なければtimeout超過で
+/// alarmが立ち保持されることを確かめる。
+test WatchdogTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var kick: bit = 0;
+    var timeout: bit[16] = 16'd3;
+    var step: bit[8] = 0;
+
+    inst dut = Watchdog { clk: clk, rst: rst, en: en, kick: kick, timeout: timeout };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd2 { kick = 1; }   // kickでリセット（step3で反映）
+            if step == 8'd3 { kick = 0; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd4 { assert dut.count == 16'd0, "kick reset count"; assert dut.alarm == 0, "no alarm"; }
+            if step == 8'd7 { assert dut.alarm == 0, "not yet timed out"; assert dut.count == 16'd3, "count at timeout"; }
+            if step == 8'd8 { assert dut.alarm == 1, "alarm on timeout"; }
+            if step == 8'd10 { assert dut.alarm == 1, "alarm held"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(13);
+        $display("WatchdogTB: all checks passed");
+        $finish;
+    }
+}
