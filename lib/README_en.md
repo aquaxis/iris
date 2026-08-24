@@ -5,14 +5,14 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-45 parts in 10 categories. Every part passes three checks: an `iris-sim`
+47 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 404/0 (41 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 416/0 (43 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
 | `timing/` | 7 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce` |
-| `arith/` | 9 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial` |
+| `arith/` | 11 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub` |
 | `mem/` | 6 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 5 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux` |
@@ -21,7 +21,7 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 2 | `FirSerial`, `MacSerial` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 45 | |
+| Total | 47 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -174,6 +174,19 @@ with combinational last-write-wins.
 It does not use `1 << sel`: the untyped literal `1` is inferred as one bit wide,
 so the shift overflows to 0; selecting one bit with a width-bounded `for` is
 reliable.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `SatAdd` | saturating add (clamps at the range end instead of wrapping) | `Width` (default 8, >= 2), `Signed` (0/1, default 0), `Ext` (derived `Width+1`) |
+| `SatSub` | saturating subtract (unsigned floors at 0; signed clamps at ±) | `Width` (default 8, >= 2), `Signed` (0/1, default 0), `Ext` (derived `Width+1`) |
+
+`SatAdd`/`SatSub` form the sum/difference in a one-bit-wider `bit[Width+1]` to see
+the carry / sign overflow. Unsigned decides on the top bit (carry/borrow):
+`SatAdd` saturates to all ones (`0 - 1` is all ones at `Width`), `SatSub` floors at
+0. Signed sign-extends with `.signed().sign_extend[Ext]()`, detects overflow when
+the top two bits disagree, and clamps a positive overflow to the maximum positive
+(`0x7F..`) and a negative one to the minimum negative (`0x80..`) — the end values
+are built with per-bit assignment (set/clear just the MSB). Combinational only.
 
 ### mem
 

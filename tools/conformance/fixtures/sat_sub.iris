@@ -1,0 +1,54 @@
+/// 飽和減算（アンダーフローで折り返さず下限/上限に貼り付く）
+///
+/// `a - b`を計算し、あふれたら値を折り返さず範囲の端に飽和させる。
+/// 符号なし（Signed=0）は`a < b`のとき0で飽和（下限0）。
+/// 符号付き（Signed=1）は上限=最大正（0x7F..）、下限=最小負（0x80..）で飽和。
+/// カウンタの下限クランプ、差分の頭打ち、DSPの減算などに使う。組み合わせのみ。
+///
+/// 符号なしは`a < b`の比較で0に貼り付ける。符号付きは1ビット広い`Ext=Width+1`で差を作り、
+/// 上位2ビットの不一致であふれを判定し、正負に応じて端へ飽和させる（SatAddと同じ要領）。
+///
+/// ジェネリックパラメータ:
+/// - Width:  ビット幅（既定8、2以上）
+/// - Signed: 0=符号なし / 1=符号付き（既定0）
+/// - Ext:    内部差の幅（導出＝Width+1）
+///
+/// ポート:
+/// - a／b: 被演算数（a - b）
+/// - diff: 飽和減算の結果
+mod SatSub[
+    Width: uint = 8,
+    Signed: uint = 0,
+    Ext: uint = Width + 1,
+]
+where
+    Width >= 2,
+(
+    in  a: bit[Width],
+    in  b: bit[Width],
+    out diff: bit[Width],
+) {
+    var ext: bit[Ext] = 0;
+    comb {
+        if Signed == 1 {
+            ext = (a.signed().sign_extend[Ext]() - b.signed().sign_extend[Ext]());
+            diff = ext[0 +: Width];
+            // 符号あふれ＝上位2ビットが食い違う
+            if ext[Width] != ext[Width - 1] {
+                if ext[Width] == 0 {
+                    // 正のあふれ → 最大正 0x7F..
+                    for i in 0..Width { diff[i] = 1; }
+                    diff[Width - 1] = 0;
+                } else {
+                    // 負のあふれ → 最小負 0x80..
+                    diff = 0;
+                    diff[Width - 1] = 1;
+                }
+            }
+        } else {
+            diff = a - b;
+            // 借りが出る（a < b）なら下限0で飽和
+            if a < b { diff = 0; }
+        }
+    }
+}

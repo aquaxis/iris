@@ -5,13 +5,13 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在45部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は404/0を保つ（lib部品41個を検体に登録）。
+現在47部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は416/0を保つ（lib部品43個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
-| `arith/` | 9 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial` |
+| `arith/` | 11 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub` |
 | `mem/` | 6 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 5 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 2 | `FirSerial`／`MacSerial` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 45 | |
+| 合計 | 47 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -157,6 +157,17 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 `Decoder`は`sel`に一致する1ビットだけを立てる（`PriorityEncoder`の逆向き）。
 `1 << sel`は使わない。無型リテラル`1`が1ビット幅と推論され、シフトで桁があふれて0になる
 ためである。幅付きの`for`で1ビットを選べば確実である。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `SatAdd` | 飽和加算（あふれで折り返さず端に貼り付く） | `Width`（既定8、2以上）、`Signed`（0/1、既定0）、`Ext`（導出＝Width+1） |
+| `SatSub` | 飽和減算（符号なしは下限0、符号付きは±飽和） | `Width`（既定8、2以上）、`Signed`（0/1、既定0）、`Ext`（導出＝Width+1） |
+
+`SatAdd`／`SatSub`は桁上げ・符号あふれを見るため1ビット広い`bit[Width+1]`で和/差を作る。
+符号なしは最上位ビット（桁上げ/借り）で判定し、`SatAdd`は全ビット1（`0-1`はWidth幅で全1）、
+`SatSub`は下限0へ飽和させる。符号付きは`.signed().sign_extend[Ext]()`で符号拡張してから
+演算し、上位2ビットの不一致であふれを検出、正のあふれは最大正（0x7F..）、負のあふれは
+最小負（0x80..）へ飽和させる（端の値は部分ビット代入でMSBだけ立てる/落として作る）。組み合わせのみ。
 
 ### mem
 
