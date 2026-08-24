@@ -1,0 +1,63 @@
+/// ワンショット（パルスストレッチャ、trigの立上りでLenサイクル幅のパルスを出す）
+///
+/// `trig`の立上りエッジを検出すると、`pulse`をLenサイクルのあいだ1にする。
+/// パルス幅の伸長、短いイベントを一定幅の制御信号に直す、モノステーブル動作などに使う。
+/// 発火中の追加トリガは無視する（再トリガ不可、幅が伸びない）。
+///
+/// 前サイクルの`trig`を保って立上りを検出し、発火するとカウンタを`Len-1`にして数え下げる。
+/// `pulse`は発火中（running）1。0に達したサイクルで発火を終える（幅はちょうどLen）。
+///
+/// ジェネリックパラメータ:
+/// - Len:      パルス幅（サイクル数、既定4、1以上）
+/// - CntWidth: カウンタの幅（導出＝$clog2(Len)+1）
+///
+/// ポート:
+/// - trig:  立上りで発火するトリガ
+/// - pulse: Lenサイクル幅の出力パルス
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod OneShot[
+    Len: uint = 4,
+    CntWidth: uint = $clog2(Len) + 1,
+]
+where
+    Len >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  trig: bit,
+    out pulse: bit,
+) {
+    var cnt: bit[CntWidth] = 0;
+    var running: bit = 0;
+    var trig_prev: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            cnt = 0;
+            running = 0;
+            trig_prev = 0;
+        } else {
+            trig_prev = trig;
+            if running == 0 {
+                // trigの立上りエッジで発火
+                if trig == 1 {
+                    if trig_prev == 0 {
+                        running = 1;
+                        cnt = Len - 1;
+                    }
+                }
+            } else {
+                if cnt == 0 {
+                    running = 0;
+                } else {
+                    cnt = cnt - 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        pulse = running;
+    }
+}

@@ -1,0 +1,34 @@
+/// Timerのテストベンチ
+///
+/// reload=2（周期3）で、tickが3サイクルごとに1になることと、カウンタが2→1→0を
+/// 繰り返すことを確かめる。
+test TimerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var reload: bit[16] = 16'd2;
+    var step: bit[8] = 0;
+
+    inst dut = Timer { clk: clk, rst: rst, en: en, reload: reload };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else { step = step + 1; }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            // reload=2 -> period 3, tick at step 1,4,7,...
+            if step == 8'd1 { assert dut.tick == 1, "tick at reload"; assert dut.count == 16'd2, "loaded 2"; }
+            if step == 8'd2 { assert dut.tick == 0, "no tick"; assert dut.count == 16'd1, "count 1"; }
+            if step == 8'd3 { assert dut.count == 16'd0, "count 0"; }
+            if step == 8'd4 { assert dut.tick == 1, "tick period 3"; }
+            if step == 8'd7 { assert dut.tick == 1, "tick period 3 again"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(10);
+        $display("TimerTB: all checks passed");
+        $finish;
+    }
+}

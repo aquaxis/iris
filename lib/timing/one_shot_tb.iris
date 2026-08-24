@@ -1,0 +1,36 @@
+/// OneShotのテストベンチ
+///
+/// Len=4（既定）で、trigの立上りからpulseがちょうど4サイクル1になることを確かめる。
+/// 1サイクルだけのtrigでも、pulseは4サイクル伸びる。
+test OneShotTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var trig: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = OneShot { clk: clk, rst: rst, trig: trig };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else {
+            step = step + 1;
+            if step == 8'd3 { trig = 1; }
+            if step == 8'd4 { trig = 0; }   // 1サイクル幅のtrig
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            // trig立上り(step4で可視) -> pulseはstep5..8の4サイクル
+            if step == 8'd4 { assert dut.pulse == 0, "before pulse"; }
+            if step == 8'd5 { assert dut.pulse == 1, "pulse cycle 1"; }
+            if step == 8'd8 { assert dut.pulse == 1, "pulse cycle 4"; }
+            if step == 8'd9 { assert dut.pulse == 0, "pulse ended (width 4)"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(12);
+        $display("OneShotTB: all checks passed");
+        $finish;
+    }
+}

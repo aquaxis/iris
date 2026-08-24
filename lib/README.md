@@ -5,12 +5,12 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在50部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は434/0を保つ（lib部品46個を検体に登録）。
+現在52部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は446/0を保つ（lib部品48個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
-| `timing/` | 7 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce` |
+| `timing/` | 9 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot` |
 | `arith/` | 12 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck` |
 | `mem/` | 6 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 50 | |
+| 合計 | 52 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -116,6 +116,18 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 上限の判定は`count + 1 == 0`で行う（全ビット1に1を足すとWidthビットで0へ戻る）。
 
 `EdgeDetect`は前サイクルの値をレジスタに保ち、`rise = d & ~prev`、`fall = ~d & prev`で出す。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Timer` | 周期タイマ（ダウンカウンタ、0で1サイクルtick、自動リロード） | `Width`（既定16、1以上） |
+| `OneShot` | ワンショット（trigの立上りでLenサイクル幅のパルス） | `Len`（パルス幅、既定4、1以上）、`CntWidth`（導出`$clog2(Len)+1`） |
+
+`Timer`は`en`のあいだ`reload`から0へ数え下げ、0のサイクルで`tick`を1サイクル出して`reload`を
+読み直す（周期＝`reload+1`）。`reload`は毎サイクル参照するので動的に変えられる。周期割り込みや
+レート生成に使う。
+
+`OneShot`は`trig`の立上りを検出すると`pulse`をLenサイクルのあいだ1にする（前値との比較でエッジ検出、
+カウンタを`Len-1`から数え下げ）。短いイベントを一定幅の制御信号に伸ばす。発火中の追加トリガは無視する。
 
 ### arith
 
