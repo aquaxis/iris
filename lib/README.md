@@ -5,8 +5,8 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在65部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は524/0を保つ（lib部品61個を検体に登録）。
+現在66部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は530/0を保つ（lib部品62個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
@@ -15,12 +15,12 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `mem/` | 7 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
-| `cdc/` | 3 | `Sync2ff`／`RstSync`／`PulseSync` |
+| `cdc/` | 4 | `Sync2ff`／`RstSync`／`PulseSync`／`HandshakeSync` |
 | `coding/` | 7 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum`／`Scrambler`／`Descrambler` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 3 | `BitReverse`／`EndianSwap`／`ByteEnableExpand` |
-| 合計 | 65 | |
+| 合計 | 66 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 65/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 66/0）
 ```
 
 ## 部品一覧
@@ -361,6 +361,16 @@ Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを
 **CDC部品は論理だけを与える。** 物理的な同期化に要る配置制約（`ASYNC_REG`／
 `dont_touch`、最大遅延のSDC）はIRISからは出せない。制約の付与は利用者の責任である。
 可変段数はvar配列が生成境界に定数を要するため現状のIRISでは書けない（2段に固定）。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `HandshakeSync` | 多ビット値のクロック跨ぎ（2相トグルのハンドシェイク） | `Width`（既定8、1以上） |
+
+`HandshakeSync`は送信ドメインの1語を受信ドメインへ安全に渡す（非同期FIFOより軽い、たまに1語を
+確実に渡す用途）。`send`（src_readyのとき）で取り込みリクエストのトグルを反転し、受信側は2段FFで
+同期して変化を検出、保持レジスタ（安定な多サイクルパス）を取り込み`valid`を1サイクル出してackを返す。
+送信側はackを2段FFで同期し、追いついたら`src_ready`を戻す。データ線自体は同期しない（ack戻りまで
+送信側が保持し安定なので安全）。配置制約（トグル・データ線の最大遅延SDC）は利用者の責任。
 
 ### coding
 

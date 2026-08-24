@@ -1,0 +1,54 @@
+/// HandshakeSyncのテストベンチ
+///
+/// 送信10ns・受信14nsの2クロックで、0x5A→0x3Cの2語をハンドシェイクで送り、
+/// 受信側でvalidとともに順序どおり受け取れることを確かめる。リセットは能動High。
+///
+/// 送信側は小さなFSMで「1語送る→src_readyが落ちる（受理）のを待つ→戻るのを待つ→次の語」
+/// と進める（src_readyの1サイクル遅れによる二重送信を避ける）。
+test HandshakeSyncTB {
+    let sclk: clock(period: 10ns);
+    let dclk: clock(period: 14ns);
+    let srst: reset;
+    let drst: reset;
+    var send: bit = 0;
+    var din: bit[8] = 8'h5A;
+    var sst: bit[3] = 0;
+
+    var expected: bit[8] = 8'h5A;
+    var got: bit[8] = 0;
+
+    inst dut = HandshakeSync {
+        src_clk: sclk, src_rst: srst, send: send, din: din,
+        dst_clk: dclk, dst_rst: drst
+    };
+
+    sync(sclk.posedge, srst.async) {
+        if srst {
+            send = 0; din = 8'h5A; sst = 0;
+        } else {
+            send = 0;
+            if sst == 3'd0 { send = 1; din = 8'h5A; sst = 3'd1; }       // 1語目を出す
+            else if sst == 3'd1 { if dut.src_ready == 0 { sst = 3'd2; } } // 受理待ち
+            else if sst == 3'd2 { if dut.src_ready == 1 { send = 1; din = 8'h3C; sst = 3'd3; } } // 2語目
+        }
+    }
+
+    sync(dclk.posedge, drst.async) {
+        if drst {
+            expected = 8'h5A; got = 0;
+        } else {
+            if dut.valid == 1 {
+                assert dut.dout == expected, "received value in order across domains";
+                if expected == 8'h5A { expected = 8'h3C; } else { expected = 8'hFF; }
+                got = got + 1;
+            }
+        }
+    }
+
+    seq {
+        await sclk.cycles(120);
+        assert got == 8'd2, "both words crossed the domain in order";
+        $display("HandshakeSyncTB: all checks passed");
+        $finish;
+    }
+}

@@ -5,9 +5,9 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-65 parts in 10 categories. Every part passes three checks: an `iris-sim`
+66 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 524/0 (61 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 530/0 (62 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
@@ -16,12 +16,12 @@ testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
 | `mem/` | 7 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter` |
-| `cdc/` | 3 | `Sync2ff`, `RstSync`, `PulseSync` |
+| `cdc/` | 4 | `Sync2ff`, `RstSync`, `PulseSync`, `HandshakeSync` |
 | `coding/` | 7 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
 | `dsp/` | 3 | `FirSerial`, `MacSerial`, `MovingAverage` |
 | `util/` | 3 | `BitReverse`, `EndianSwap`, `ByteEnableExpand` |
-| Total | 65 | |
+| Total | 66 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -100,7 +100,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 65/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 66/0)
 ```
 
 ## Parts
@@ -409,6 +409,19 @@ the usual two stages.
 needs (`ASYNC_REG`/`dont_touch`, a max-delay SDC) cannot be emitted from IRIS;
 adding them is the user's responsibility. A parameterizable stage count is not
 expressible today (a `var` array needs a constant size), so the depth is two.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `HandshakeSync` | multi-bit value across clock domains (2-phase toggle handshake) | `Width` (default 8, >= 1) |
+
+`HandshakeSync` passes one word from the source domain to the destination domain
+(lighter than an async FIFO, for occasional single-word transfers). On `send` (when
+`src_ready`) it latches the word and flips a request toggle; the destination 2-flop
+syncs the toggle, captures the held register (a stable multi-cycle path) on a change,
+pulses `valid`, and returns an ack toggle; the source 2-flop syncs the ack and, once
+it catches up, re-raises `src_ready`. The data lines themselves are not synchronized
+(the source holds them until the ack returns, so they are stable). Max-delay SDC on
+the toggle/data lines is the user's responsibility.
 
 ### coding
 
