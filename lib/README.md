@@ -5,14 +5,14 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在70部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は554/0を保つ（lib部品66個を検体に登録）。
+現在71部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は560/0を保つ（lib部品67個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
 | `timing/` | 11 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog`／`JohnsonCounter` |
 | `arith/` | 16 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator` |
-| `mem/` | 7 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer` |
+| `mem/` | 8 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer`／`Lifo` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
 | `stream/` | 11 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter` |
 | `cdc/` | 4 | `Sync2ff`／`RstSync`／`PulseSync`／`HandshakeSync` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 4 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco` |
 | `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 70 | |
+| 合計 | 71 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 70/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 71/0）
 ```
 
 ## 部品一覧
@@ -286,6 +286,14 @@ syncは非ブロッキング（右辺は前エッジの値を読む）なので�
 読み出しは`raddr`で任意アドレスを指す（1サイクル遅れ）。`wptr`を出すので相対アクセスは利用側で
 `wp`から算出する。FIRの遅延線・行バッファ・履歴に使う（FIFOの順次読みと違い、書込みは自動進行・
 読出しは絶対アドレス）。中身はリセットしない（`mem`）。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Lifo` | LIFO（スタック、後入れ先出し） | `Width`（既定8、1以上）、`Depth`（既定8、2以上）、`AddrWidth`／`PtrWidth`（導出） |
+
+`Lifo`は`push`で`storage[sp]`へ積み`sp`を+1、`pop`で最上段`storage[sp-1]`を読み`sp`を-1する
+（登録読み出し、1サイクル遅れ）。`sp`は要素数。`push`優先（同時発行せず片方ずつ）。
+FIFO（先入れ先出し）と対で、退避・括弧対応・バックトラッキング・逆順処理に使う。中身はリセットしない（`mem`）。
 
 ### arbiter
 
