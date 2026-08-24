@@ -1,0 +1,95 @@
+/// ハンドシェイク同期化器（多ビット値のクロック跨ぎ、2相トグル方式）
+///
+/// 送信ドメイン(src)の1語を受信ドメイン(dst)へ安全に渡す。非同期FIFOより軽く、
+/// 「たまに1語を確実に渡したい」用途（設定値・状態・コマンドのクロック跨ぎ）に使う。
+///
+/// 動作：`send`（src_readyのとき）で`din`を保持レジスタに取り込み、リクエストのトグルを反転する。
+/// dstはそのトグルを2段FFで同期し、変化を検出したら保持レジスタ（安定・多サイクルパス）を取り込み、
+/// `valid`を1サイクル出してackトグルを合わせる。srcはackを2段FFで同期し、リクエストに追いついたら
+/// 転送完了として`src_ready`を戻す。データ線自体は同期しない（ack戻りまでsrcが保持して安定なので安全）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 転送する語のビット幅（既定8、1以上）
+///
+/// ポート（送信ドメイン）:
+/// - src_clk／src_rst: 送信側クロック・リセット
+/// - send:      1で`din`を送る（src_readyのときのみ受け付け）
+/// - din:       送るデータ
+/// - src_ready: 次の`send`を受け付けられる（転送中でない）とき1
+/// ポート（受信ドメイン）:
+/// - dst_clk／dst_rst: 受信側クロック・リセット
+/// - valid:     新しいデータを取り込んだサイクルに1（1サイクル幅）
+/// - dout:      受信データ
+///
+/// リセットは各ドメインで非同期assert・同期deassert、能動High。
+/// 配置制約（トグル線とデータ線の最大遅延SDC、ASYNC_REG）はIRISからは出せない（利用者の責任）。
+mod HandshakeSync[Width: uint = 8]
+where
+    Width >= 1,
+(
+    in  src_clk: clock,
+    in  src_rst: reset,
+    in  send: bit,
+    in  din: bit[Width],
+    out src_ready: bit,
+    in  dst_clk: clock,
+    in  dst_rst: reset,
+    out valid: bit,
+    out dout: bit[Width],
+) {
+    // 送信ドメイン
+    var req_tog: bit = 0;
+    var data_hold: bit[Width] = 0;
+    var ack_sync: bit[2] = 0;
+    var busy: bit = 0;
+    // 受信ドメイン
+    var req_sync: bit[2] = 0;
+    var ack_tog: bit = 0;
+    var dout_r: bit[Width] = 0;
+    var valid_r: bit = 0;
+
+    sync(src_clk.posedge, src_rst.async) {
+        if src_rst {
+            req_tog = 0;
+            data_hold = 0;
+            ack_sync = 0;
+            busy = 0;
+        } else {
+            ack_sync = { ack_sync[0], ack_tog };   // ackを2段FFで同期
+            if busy == 0 {
+                if send == 1 {
+                    data_hold = din;
+                    req_tog = ~req_tog;
+                    busy = 1;
+                }
+            } else {
+                if ack_sync[1] == req_tog {          // ackがreqに追いついた＝完了
+                    busy = 0;
+                }
+            }
+        }
+    }
+
+    sync(dst_clk.posedge, dst_rst.async) {
+        if dst_rst {
+            req_sync = 0;
+            ack_tog = 0;
+            dout_r = 0;
+            valid_r = 0;
+        } else {
+            valid_r = 0;
+            req_sync = { req_sync[0], req_tog };      // reqを2段FFで同期
+            if req_sync[1] != ack_tog {                // リクエストの変化を検出
+                dout_r = data_hold;                    // 安定な保持レジスタを取り込む
+                ack_tog = req_sync[1];
+                valid_r = 1;
+            }
+        }
+    }
+
+    comb {
+        src_ready = busy == 0;
+        valid = valid_r;
+        dout = dout_r;
+    }
+}
