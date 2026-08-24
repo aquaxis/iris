@@ -1,0 +1,40 @@
+/// ジョンソンカウンタ（ツイストリングカウンタ、2N状態）
+///
+/// Widthビットのレジスタを左シフトし、最上位ビットを反転して最下位へ戻す。
+/// 0…0 → 0…01 → 0…011 → … → 1…1 → 1…10 → … → 10…0 → 0…0 と、2*Width状態を巡る。
+/// 隣接状態が1ビットしか変わらないので、位相／直交（クアドラチャ）生成、
+/// グリッチのない状態デコード、低ノイズの計数などに使う。
+///
+/// `r = { r[Width-2:0], ~r[Width-1] }`（左シフト＋反転MSBを下位へ）。`en`が0の間は保持。
+///
+/// ジェネリックパラメータ:
+/// - Width: ビット幅（既定4、1以上、状態数は2*Width）
+///
+/// ポート:
+/// - en: 1で1状態進める（0なら保持）
+/// - q:  現在の状態
+///
+/// リセットは非同期assert・同期deassert、能動High（0…0から始まる）。
+mod JohnsonCounter[Width: uint = 4]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    out q: bit[Width],
+) {
+    var r: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            r = 0;
+        } else if en {
+            r = { r[Width - 2 : 0], ~r[Width - 1] };
+        }
+    }
+
+    comb {
+        q = r;
+    }
+}

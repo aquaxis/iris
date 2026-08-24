@@ -1,0 +1,33 @@
+/// JohnsonCounterのテストベンチ
+///
+/// Width=4（既定）で、2N=8状態の系列（0001,0011,0111,1111,1110,…,0000）を巡ることを確かめる。
+test JohnsonCounterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var step: bit[8] = 0;
+
+    inst dut = JohnsonCounter { clk: clk, rst: rst, en: en };
+
+    sync(clk.posedge, rst.async) {
+        if rst { step = 0; } else { step = step + 1; }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd1 { assert dut.q == 4'b0001, "s1"; }
+            if step == 8'd2 { assert dut.q == 4'b0011, "s2"; }
+            if step == 8'd4 { assert dut.q == 4'b1111, "s4 full"; }
+            if step == 8'd5 { assert dut.q == 4'b1110, "s5"; }
+            if step == 8'd7 { assert dut.q == 4'b1000, "s7"; }
+            if step == 8'd8 { assert dut.q == 4'b0000, "s8 wrap"; }
+            if step == 8'd9 { assert dut.q == 4'b0001, "s9 repeat"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(11);
+        $display("JohnsonCounterTB: all checks passed");
+        $finish;
+    }
+}

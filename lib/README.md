@@ -5,12 +5,12 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在68部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は542/0を保つ（lib部品64個を検体に登録）。
+現在69部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は548/0を保つ（lib部品65個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
-| `timing/` | 10 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog` |
+| `timing/` | 11 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog`／`JohnsonCounter` |
 | `arith/` | 16 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator` |
 | `mem/` | 7 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer` |
 | `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
@@ -20,7 +20,7 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
 | `dsp/` | 3 | `FirSerial`／`MacSerial`／`MovingAverage` |
 | `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 68 | |
+| 合計 | 69 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -96,7 +96,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 68/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 69/0）
 ```
 
 ## 部品一覧
@@ -145,6 +145,14 @@ bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（
 `Watchdog`は`en`のあいだカウンタを進め、`timeout`に達したら`alarm`を1にして保持する。`kick`が来ると
 カウンタと`alarm`を0に戻す（生存確認）。`kick`は`en`より優先。定期的にkickできなくなった＝ハングや
 異常を検出する（機能安全・監視）。Timer（周期tick）と違い「期限内にkickが来るか」を見る。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `JohnsonCounter` | ジョンソンカウンタ（ツイストリング、2N状態） | `Width`（既定4、1以上、状態数2*Width） |
+
+`JohnsonCounter`は`r = { r[Width-2:0], ~r[Width-1] }`（左シフト＋反転MSBを下位へ）で
+2*Width状態を巡る（0…0→0…01→…→1…1→1…10→…→10…0→0…0）。隣接状態が1ビットしか変わらないので、
+位相／直交（クアドラチャ）生成やグリッチのない状態デコードに使う。`en`が0の間は保持。
 
 ### arith
 
