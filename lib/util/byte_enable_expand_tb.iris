@@ -1,0 +1,27 @@
+/// ByteEnableExpandのテストベンチ
+///
+/// 4ビットのバイトイネーブルを32ビットマスクへ展開する（1010 -> FF00FF00）。
+/// 組み合わせなので入力を与えて次のサイクルで読む。
+test ByteEnableExpandTB {
+    let clk: clock(period: 10ns);
+    var be: bit[4] = 4'b1010;
+    var step: bit[8] = 0;
+
+    inst dut = ByteEnableExpand { be: be };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd2 { be = 4'b0001; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd2 { assert dut.mask == 32'hFF00FF00, "1010 -> FF00FF00"; }
+        if step == 8'd3 { assert dut.mask == 32'h000000FF, "0001 -> 000000FF"; }
+    }
+
+    seq {
+        await clk.cycles(5);
+        $display("ByteEnableExpandTB: all checks passed");
+        $finish;
+    }
+}

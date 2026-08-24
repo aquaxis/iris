@@ -12,7 +12,7 @@ The full list and each part's parameters are in [`lib/README_en.md`](../lib/READ
 ## Layout
 
 One directory per category.
-40 parts in 9 categories.
+43 parts in 10 categories.
 
 | Category | Count | Main parts |
 |---|---|---|
@@ -25,6 +25,7 @@ One directory per category.
 | `coding/` | 3 | Crc, Parity, Secded |
 | `periph/` | 4 | UartTx, UartRx, SpiMaster, I2cMaster |
 | `dsp/` | 2 | FirSerial, MacSerial |
+| `util/` | 3 | BitReverse, EndianSwap, ByteEnableExpand |
 
 A part is three pieces.
 The implementation (`<category>/<name>.iris`), the test (`<category>/<name>_tb.iris`), and the documentation (`lib/README_en.md`).
@@ -46,8 +47,8 @@ iris sv      <category>/<name>.iris -o out/
 iris lint    <category>/<name>.iris
 ```
 
-All 40 testbenches pass under `iris-sim`.
-`tools/conformance/run.sh` stays at 374/0 (36 library parts registered as fixtures).
+All 43 testbenches pass under `iris-sim`.
+`tools/conformance/run.sh` stays at 392/0 (39 library parts registered as fixtures).
 Parts converted to SystemVerilog are accepted by Verilator with exit 0.
 (Width warnings appear because untyped literals and parameters become 32-bit in SV, but the values are correct.)
 
@@ -65,6 +66,7 @@ Three kinds of parts are written directly in IRIS.
 | Signed arithmetic | MacSerial[Signed: 1] | `.signed()` + `.sign_extend[N]()` accumulate in two's complement; read with `acc.signed()` |
 | An XOR fold | Parity, Gray2Bin, Secded | `.xor_reduce()` plus per-bit assignment (`out[i]=...` accumulates bit by bit) |
 | A multi-stream mux/demux (packed vector) | VecMux, VecDemux | a concatenated `bit[Width*N]` with a part-select `[i*Width +: Width]` (widen the index before the multiply) |
+| Vocabulary conversions (bit/byte order, mask expand) | BitReverse, EndianSwap, ByteEnableExpand | `for` plus per-bit assignment / part-select fills one element at a time |
 
 What could not be done is recorded, with the reason.
 

@@ -1,0 +1,24 @@
+/// BitReverseのテストベンチ
+///
+/// 8ビットのビット順反転を確かめる。組み合わせなので入力を与えて次のサイクルで読む。
+test BitReverseTB {
+    let clk: clock(period: 10ns);
+    var din: bit[8] = 8'b1101_0010;
+    var step: bit[8] = 0;
+
+    inst dut = BitReverse { din: din };
+
+    sync(clk.posedge) { step = step + 1; }
+
+    sync(clk.posedge) {
+        if step == 8'd2 {
+            assert dut.dout == 8'b0100_1011, "1101_0010 -> 0100_1011";
+            $display("BitReverseTB: all checks passed");
+        }
+    }
+
+    seq {
+        await clk.cycles(4);
+        $finish;
+    }
+}

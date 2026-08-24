@@ -1,0 +1,31 @@
+/// バイトイネーブル展開（バイトEN→ビットマスク）
+///
+/// `be`の各ビットを8ビットへ展開し、`mask`を作る（`be[i]`が1ならバイトiが`8'hFF`、0なら`8'h00`）。
+/// 部分書き込み（write strobe）をビットマスクに直す用途、RMWのマスク生成などに使う。
+/// 組み合わせのみ。
+///
+/// バイト単位の部分選択への書き込みを`for`で1バイトずつ行う。値はif式で選ぶ。
+///
+/// ジェネリックパラメータ:
+/// - Bytes: バイト数（既定4、1以上）
+/// - Width: マスクのビット幅（導出＝Bytes*8）
+///
+/// ポート:
+/// - be:   バイトイネーブル（Bytesビット、各ビットが1バイトに対応）
+/// - mask: 展開したビットマスク（Bytes*8ビット）
+mod ByteEnableExpand[
+    Bytes: uint = 4,
+    Width: uint = Bytes * 8,
+]
+where
+    Bytes >= 1,
+(
+    in  be:   bit[Bytes],
+    out mask: bit[Width],
+) {
+    comb {
+        for i in 0..Bytes {
+            mask[i * 8 +: 8] = if be[i] { 8'hFF } else { 8'h00 };
+        }
+    }
+}

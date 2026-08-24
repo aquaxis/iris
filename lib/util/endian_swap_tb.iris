@@ -1,0 +1,25 @@
+/// EndianSwapのテストベンチ
+///
+/// 4バイトのバイト順反転を確かめる（AABBCCDD -> DDCCBBAA）。
+/// 組み合わせなので入力を与えて次のサイクルで読む。
+test EndianSwapTB {
+    let clk: clock(period: 10ns);
+    var din: bit[32] = 32'hAABBCCDD;
+    var step: bit[8] = 0;
+
+    inst dut = EndianSwap { din: din };
+
+    sync(clk.posedge) { step = step + 1; }
+
+    sync(clk.posedge) {
+        if step == 8'd2 {
+            assert dut.dout == 32'hDDCCBBAA, "AABBCCDD -> DDCCBBAA";
+            $display("EndianSwapTB: all checks passed");
+        }
+    }
+
+    seq {
+        await clk.cycles(4);
+        $finish;
+    }
+}
