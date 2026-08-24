@@ -232,8 +232,18 @@ impl Parser {
         let mut return_type = None;
         let mut body = None;
         let mut bindings = Vec::new();
+        let mut generics = Vec::new();
         for item in inner {
             match item.as_rule() {
+                Rule::generics => {
+                    // Only the generic parameter names are kept; the widths they
+                    // stand for vanish when the function is inlined at call sites.
+                    for gp in item.into_inner() {
+                        if let Some(id) = gp.into_inner().next() {
+                            generics.push(id.as_str().to_string());
+                        }
+                    }
+                }
                 Rule::fn_let => {
                     let mut parts = item.into_inner();
                     let name = Self::next_str(&mut parts, "binding name")?;
@@ -272,6 +282,7 @@ impl Parser {
         Ok(FnDecl {
             name,
             is_public,
+            generics,
             params,
             return_type,
             bindings,

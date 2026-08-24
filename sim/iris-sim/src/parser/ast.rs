@@ -215,6 +215,12 @@ pub struct FnDecl {
     pub name: String,
     /// Declared `pub`, so other packages may import it
     pub is_public: bool,
+    /// Generic parameter names, e.g. `[W]` in `fn max2[W](...)`. Empty for a
+    /// fixed-width function. Inlining erases these (the body is pasted with the
+    /// argument expressions), so a generic function only needs its call sites
+    /// inlined — which is what tools that emit SystemVerilog do, since an SV
+    /// `function` cannot be generic over a width.
+    pub generics: Vec<String>,
     /// Parameters in order, with their types
     pub params: Vec<(String, Type)>,
     /// The declared return type, if one was given

@@ -29,7 +29,19 @@ pub fn transpile(source: &str) -> Result<String, String> {
         out.push_str(&convert::interface_decl_to_sv(i)?);
         out.push_str("\n\n\n");
     }
+    // A generic function (`fn f[W](...)`) has no fixed-width SystemVerilog
+    // `function` form, so it is inlined at its call sites (below) instead of
+    // emitted here. Ordinary functions are still written as SV `function`s.
+    let generic_fns: std::collections::HashMap<String, iris_sim::parser::FnDecl> = parsed
+        .functions
+        .iter()
+        .filter(|f| !f.generics.is_empty())
+        .map(|f| (f.name.clone(), f.clone()))
+        .collect();
     for f in &parsed.functions {
+        if !f.generics.is_empty() {
+            continue;
+        }
         out.push_str(&convert::function_decl_to_sv(f)?);
         out.push_str("\n\n\n");
     }
@@ -37,11 +49,16 @@ pub fn transpile(source: &str) -> Result<String, String> {
     // have its output ports wired.
     let mut modules = std::collections::HashMap::new();
     for m in &parsed.modules {
-        modules.insert(m.name.clone(), m.clone());
+        let mut m = m.clone();
+        // Inline calls to generic functions before emitting.
+        iris_sim::project::inline_functions_in_module(&mut m, &generic_fns);
+        modules.insert(m.name.clone(), m);
     }
     // Each module is followed by a blank line, so modules are separated and the
     // file ends with one.
-    for module in &parsed.modules {
+    let ordered: Vec<String> = parsed.modules.iter().map(|m| m.name.clone()).collect();
+    for name in &ordered {
+        let module = &modules[name];
         out.push_str(&convert::module_to_sv(module, &modules)?);
         out.push('\n');
     }

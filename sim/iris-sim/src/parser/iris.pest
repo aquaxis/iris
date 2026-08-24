@@ -37,7 +37,7 @@ import_list = { "{" ~ identifier ~ ("," ~ identifier)* ~ ","? ~ "}" }
 export_decl = { "export" ~ identifier ~ ";" }
 
 // User-defined function (spec 12.1). The body is a single `return`.
-fn_decl = { "pub"? ~ "fn" ~ identifier ~ "(" ~ (fn_param ~ ("," ~ fn_param)*)? ~ ")" ~ ("->" ~ type_expr)? ~ "{" ~ fn_let* ~ return_stmt ~ "}" }
+fn_decl = { "pub"? ~ "fn" ~ identifier ~ generics? ~ "(" ~ (fn_param ~ ("," ~ fn_param)*)? ~ ")" ~ ("->" ~ type_expr)? ~ "{" ~ fn_let* ~ return_stmt ~ "}" }
 // A binding used by the returned expression
 fn_let = { "let" ~ identifier ~ (":" ~ type_expr)? ~ "=" ~ expr ~ ";" }
 fn_param = { identifier ~ ":" ~ type_expr }

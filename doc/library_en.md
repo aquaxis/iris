@@ -69,6 +69,7 @@ Three kinds of parts are written directly in IRIS.
 | An XOR fold | Parity, Gray2Bin, Secded | `.xor_reduce()` plus per-bit assignment (`out[i]=...` accumulates bit by bit) |
 | A multi-stream mux/demux (packed vector) | VecMux, VecDemux | a concatenated `bit[Width*N]` with a part-select `[i*Width +: Width]` (widen the index before the multiply) |
 | Vocabulary conversions (bit/byte order, mask expand) | BitReverse, EndianSwap, ByteEnableExpand | `for` plus per-bit assignment / part-select fills one element at a time |
+| Generic functions (width-agnostic) | `fn max2[W](a,b)` | inlined at call sites; works at any width when the body needs no numeric `W` |
 
 What could not be done is recorded, with the reason.
 
@@ -76,7 +77,7 @@ What could not be done is recorded, with the reason.
 |---|---|
 | A combinational sum-fold (popcount, a parallel-CRC XOR tree) | `var` is not allowed in comb, and a whole-signal reassignment is last-write-wins, not a running sum (an XOR fold is fine via `.xor_reduce()`; **serially it is expressible** — `PopcountSerial`) |
 | The `bit[W][N]` array-port syntax and var arrays | array bounds need a constant (only `mem` allows a generic bound); the multi-stream mux/demux itself is expressible with a packed vector (table above) |
-| Generic functions (a general math library) | `fn f[Width](...)` does not parse; a fixed-width `fn` works |
+| Generic functions whose body needs the numeric width | `fn f[W]` itself works (inlined); but using `W` as a value in the body leaves it unresolved after inlining |
 | A parameterizable synchronizer depth | a var array needs a constant bound, so the depth is fixed at two |
 
 Signed `==`/`!=` were fixed in iris-sim to compare by value (so a signed value compares against a negative literal; spec 9.3.1).

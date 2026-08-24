@@ -1,0 +1,26 @@
+// ジェネリック関数（fn f[Width]）— 幅に依らない関数を1つ書き、複数幅で使う。
+// 関数は呼び出し位置に展開（インライン）されるため、幅注釈は消え、どの幅でも動く。
+fn max2[W: uint](a: bit[W], b: bit[W]) -> bit[W] {
+    return if a > b { a } else { b };
+}
+
+fn clamp_lo[W: uint](x: bit[W], lo: bit[W]) -> bit[W] {
+    return if x < lo { lo } else { x };
+}
+
+mod GenericFnDemo(
+    in  a: bit[8],
+    in  b: bit[8],
+    out y8: bit[8],
+    in  c: bit[4],
+    in  d: bit[4],
+    out y4: bit[4],
+    in  lo: bit[8],
+    out z8: bit[8],
+) {
+    comb {
+        y8 = max2(a, b);
+        y4 = max2(c, d);
+        z8 = clamp_lo(a, lo);
+    }
+}
