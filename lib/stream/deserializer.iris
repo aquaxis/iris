@@ -1,0 +1,54 @@
+/// デシリアライザ（シリアル入力・パラレル出力、SIPO、LSB先頭）
+///
+/// `en`のサイクルごとに`din`を1ビットずつ取り込み、Widthビット集まったら`dout`へ出して
+/// `valid`を1サイクル1にする。LSB先頭（`Serializer`と対）。取り込みは下位から詰め、
+/// 先に来たビットが最終的に下位に来る（`din`を最上位へ入れて右へシフト）。
+///
+/// ジェネリックパラメータ:
+/// - Width:    語のビット幅（既定8、2以上。シフトで`sr[Width-1:1]`を使うため）
+/// - CntWidth: ビット計数の幅（導出＝$clog2(Width)+1）
+///
+/// ポート:
+/// - en:    1で`din`を1ビット取り込む
+/// - din:   シリアル入力（LSB先頭）
+/// - dout:  組み上がったパラレル出力（`valid`のとき有効）
+/// - valid: Widthビット集まったサイクルに1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Deserializer[
+    Width: uint = 8,
+    CntWidth: uint = $clog2(Width) + 1,
+]
+where
+    Width >= 2,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en: bit,
+    in  din: bit,
+    out dout: bit[Width],
+    out valid: bit,
+) {
+    var sr: bit[Width] = 0;
+    var cnt: bit[CntWidth] = 0;
+    var valid_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        valid_r = 0;
+        if en {
+            // dinを最上位へ入れ、右へ1シフトする（LSB先頭で詰める）。
+            sr = { din, sr[Width - 1 : 1] };
+            if cnt == Width - 1 {
+                cnt = 0;
+                valid_r = 1;
+            } else {
+                cnt = cnt + 1;
+            }
+        }
+    }
+
+    comb {
+        dout = sr;
+        valid = valid_r;
+    }
+}

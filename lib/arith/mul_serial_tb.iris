@@ -1,0 +1,49 @@
+/// MulSerialのテストベンチ
+///
+/// 3つの掛け算を順に流して全幅（16ビット）の積を確かめる。
+///   200 * 200 = 40000（`*`では切り詰められる値。全幅で正しく出る）
+///   255 * 255 = 65025
+///    12 *  10 = 120
+test MulSerialTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var start: bit = 0;
+    var a: bit[8] = 0;
+    var b: bit[8] = 0;
+
+    var p1: bit[16] = 0;
+    var p2: bit[16] = 0;
+    var p3: bit[16] = 0;
+
+    inst dut = MulSerial { clk: clk, rst: rst, start: start, a: a, b: b };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            start = 0;
+        } else {
+            step = step + 1;
+            start = 0;
+
+            if step == 1  { start = 1; a = 8'd200; b = 8'd200; }
+            if step == 14 { p1 = dut.product; }
+
+            if step == 20 { start = 1; a = 8'd255; b = 8'd255; }
+            if step == 33 { p2 = dut.product; }
+
+            if step == 40 { start = 1; a = 8'd12; b = 8'd10; }
+            if step == 53 { p3 = dut.product; }
+        }
+    }
+
+    seq {
+        await clk.cycles(60);
+        assert p1 == 16'd40000, "200*200 = 40000 (full width)";
+        assert p2 == 16'd65025, "255*255 = 65025";
+        assert p3 == 16'd120,   "12*10 = 120";
+        $display("MulSerialTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,48 @@
+/// Serializerのテストベンチ
+///
+/// 0xB4をloadし、8サイクルのシリアル出力をLSB先頭で集めて、元のバイトに戻ることを確かめる。
+/// `done`が最後のビットで1になることも見る。
+test SerializerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+
+    var step: bit[16] = 0;
+    var load: bit = 0;
+    var din: bit[8] = 0;
+
+    var got: bit[8] = 0;
+    var idx: bit[8] = 0;
+    var done_seen: bit = 0;
+
+    inst dut = Serializer { clk: clk, rst: rst, load: load, din: din };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            load = 0;
+            got = 0;
+            idx = 0;
+            done_seen = 0;
+        } else {
+            step = step + 1;
+            load = 0;
+            if step == 1 { load = 1; din = 8'hB4; }
+
+            // 送出中のビットをLSB先頭で集める（dout をidx位置へ置く）
+            if dut.valid {
+                if dut.dout { got[idx[2:0]] = 1; }
+                idx = idx + 1;
+            }
+            if dut.done { done_seen = 1; }
+        }
+    }
+
+    seq {
+        await clk.cycles(16);
+        assert got == 8'hB4, "serial bits reassemble to 0xB4 (LSB first)";
+        assert idx == 8'd8, "eight bits were emitted";
+        assert done_seen == 1, "done pulsed on the last bit";
+        $display("SerializerTB: all checks passed");
+        $finish;
+    }
+}
