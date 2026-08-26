@@ -1,0 +1,58 @@
+/// トリップカウンタ（閾値到達で出力を立てる、飽和カウンタ）
+///
+/// `en`のたびに1つ数え、計数値`count`が閾値`threshold`以上になると`trip`を立てる。
+/// イベント回数の監視、リトライ上限の検出、エラー計数のアラームなどに使う。
+/// カウンタは上限（全ビット1）で飽和し、折り返さない（一度立った`trip`が計数の
+/// 巻き戻りで落ちない）。`clear`で計数値を0に戻す（`trip`も自然に落ちる）。
+/// 閾値は入力ポートなので実行時に変えられる。
+///
+/// `trip`は組み合わせで`count >= threshold`とする。飽和カウンタなので、いったん
+/// 閾値に達すると`clear`まで`count`は下がらず、`trip`は立ったままになる（ラッチと同じ挙動）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 計数値と閾値のビット幅（既定8、1以上）
+///
+/// ポート:
+/// - en:        1のとき1つ数える（0なら保持）
+/// - clear:     1で計数値を0に戻す（enより優先）
+/// - threshold: この値以上でtripを立てる
+/// - count:     現在の計数値
+/// - trip:      count >= threshold のとき1
+///
+/// リセットは非同期assert・同期deassert、能動High。0で始まる。
+mod TripCounter[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk:       clock,
+    in  rst:       reset,
+    in  en:        bit,
+    in  clear:     bit,
+    in  threshold: bit[Width],
+    out count:     bit[Width],
+    out trip:      bit,
+) {
+    var q: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            q = 0;
+        } else if clear {
+            q = 0;
+        } else if en {
+            // 上限（全ビット1）で飽和し、折り返さない。
+            // q+1はWidth幅で巻き上がるので、全ビット1のとき q+1==0 となり増やさない
+            // （`0-1`は無サイズの32ビット-1になり幅比較にならないため、この形で判定する）
+            if q + 1 != 0 {
+                q = q + 1;
+            }
+        }
+    }
+
+    comb {
+        count = q;
+        trip = q >= threshold;
+    }
+}

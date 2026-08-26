@@ -1,0 +1,81 @@
+/// CICデシメータ（1次、間引きフィルタ、乗算器不要）
+///
+/// 入力標本を積分器（累算器）に足し込み、Rサンプルごとに1回だけ、その時点の累算値と
+/// 前回間引き時点の累算値との差を出力する（積分器＋コム器の1次CIC、間引き率R）。
+/// 差は「直近Rサンプルの総和」に等しく、乗算器を使わずに間引き（デシメーション）と
+/// 移動和（ボックスカー）を同時に行う。ダウンサンプリング前のアンチエイリアス、
+/// ΣΔ変調器の後段デシメーションなどに使う。
+///
+/// CICは合同算術（モジュロ）で成り立つ：積分器は`AccWidth`ビットで自然に巻き上がり、
+/// コム器の差が正しい総和を復元する（`AccWidth = Width + $clog2(R)`で1次のビット成長を吸収）。
+/// syncは非ブロッキング（右辺は前エッジの値）なので、更新後の累算値は`acc + din`と
+/// 書き下す（同一ブロックで`acc`を読み直せないため）。積分器・コム器・遅延はすべて
+/// 前エッジの値で決まり、自己参照がない。
+///
+/// ジェネリックパラメータ:
+/// - Width:      入力標本のビット幅（既定8、1以上）
+/// - R:          間引き率（何サンプルごとに1出力を出すか、既定4、2以上）
+/// - CntWidth:   間引きカウンタ幅（導出＝$clog2(R)、0からR-1を数える）
+/// - AccWidth:   積分器・出力の幅（導出＝Width+$clog2(R)、1次のビット成長を吸収）
+///
+/// ポート:
+/// - en:     1のとき入力標本を1つ取り込む（0なら保持）
+/// - din:    入力標本（符号なし）
+/// - dout:   間引き出力（直近Rサンプルの総和、`AccWidth`幅）
+/// - dvalid: doutが更新された間引きタイミングで1サイクル1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod CicDecimator[
+    Width: uint = 8,
+    R: uint = 4,
+    CntWidth: uint = $clog2(R),
+    AccWidth: uint = Width + $clog2(R),
+]
+where
+    Width >= 1,
+    R >= 2,
+(
+    in  clk:    clock,
+    in  rst:    reset,
+    in  en:     bit,
+    in  din:    bit[Width],
+    out dout:   bit[AccWidth],
+    out dvalid: bit,
+) {
+    var acc:      bit[AccWidth] = 0;
+    var acc_prev: bit[AccWidth] = 0;
+    var cnt:      bit[CntWidth] = 0;
+    var q_dout:   bit[AccWidth] = 0;
+    var q_dvalid: bit           = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            acc = 0;
+            acc_prev = 0;
+            cnt = 0;
+            q_dout = 0;
+            q_dvalid = 0;
+        } else {
+            // 既定では間引き出力はこのサイクル無効
+            q_dvalid = 0;
+            if en {
+                // 積分器：入力を累算する（AccWidthで自然に巻き上がる）
+                acc = acc + din;
+                if cnt == R - 1 {
+                    // 間引きタイミング：コム器＝更新後の累算値と前回時点との差
+                    cnt = 0;
+                    q_dout = acc + din - acc_prev;
+                    acc_prev = acc + din;
+                    q_dvalid = 1;
+                } else {
+                    cnt = cnt + 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        dout = q_dout;
+        dvalid = q_dvalid;
+    }
+}

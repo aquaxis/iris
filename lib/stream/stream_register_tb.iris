@@ -1,0 +1,64 @@
+/// StreamRegisterのテストベンチ
+///
+/// 前半（step3〜11）は上流を10から送り続け下流も受け取り続け、深さ1ゆえ
+/// 2サイクルに1語（スループット50%、out_validが1サイクルおき）で、値が順に
+/// 1サイクル遅れて出ることを確かめる。in_readyはout_readyに依らず自段の空きだけで
+/// 決まる（後方パス切断）ことも見る。
+/// 後半（step12〜）はflushを張り続け、下流を止めても（out_ready=0）段が空のまま
+/// （out_valid=0、in_ready=1）で、格納中の語が捨てられることを確かめる。
+/// 駆動も検査もsyncで行い、既知のサイクルで読む。
+test StreamRegisterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var flush: bit = 0;
+    var in_valid: bit = 0;
+    var in_data: bit[8] = 0;
+    var out_ready: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = StreamRegister {
+        clk: clk,
+        rst: rst,
+        flush: flush,
+        in_valid: in_valid,
+        in_data: in_data,
+        out_ready: out_ready,
+    };
+
+    // 上流：受理されたら次の値へ。下流：step3〜11は受け取る。
+    sync(clk.posedge) {
+        step = step + 1;
+        if step >= 8'd3 & step <= 8'd11 & in_valid & dut.in_ready {
+            in_data = in_data + 1;
+        }
+        if step == 8'd3 { in_valid = 1; in_data = 8'd10; }
+        if step >= 8'd3 & step <= 8'd11 { out_ready = 1; }
+        // 後半：flushを張り続け、下流を止める。in_validは張ったまま。
+        if step == 8'd12 { out_ready = 0; flush = 1; in_data = 8'd99; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd6 {
+            assert dut.out_valid == 1, "first item is presented";
+            assert dut.out_data == 8'd11, "first item value";
+            assert dut.in_ready == 0, "slot full while holding";
+        }
+        if step == 8'd7 {
+            assert dut.out_valid == 0, "bubble every other cycle (50% throughput)";
+            assert dut.in_ready == 1, "slot free again";
+        }
+        if step == 8'd8 { assert dut.out_data == 8'd12, "next item in order"; }
+        if step == 8'd10 { assert dut.out_data == 8'd13, "in order at registered latency"; }
+        if step == 8'd14 {
+            assert dut.out_valid == 0, "flush keeps stage empty";
+            assert dut.in_ready == 1, "empty stage stays ready";
+        }
+        if step == 8'd16 { assert dut.out_valid == 0, "flush held keeps it empty"; }
+    }
+
+    seq {
+        await clk.cycles(18);
+        $display("StreamRegisterTB: all checks passed");
+        $finish;
+    }
+}

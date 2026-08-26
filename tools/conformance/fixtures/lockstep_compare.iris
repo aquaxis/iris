@@ -1,0 +1,81 @@
+/// ロックステップ比較器（二重化コアの出力比較）
+///
+/// 同じ計算をする2つの冗長コアの出力を突き合わせ、食い違えば`error`を上げる。
+/// 共通原因故障（同一タイミングのグリッチ等）を避けるため、コアBはコアAより`Delay`
+/// サイクル遅れて走らせる（時間ずらしロックステップ）のが定石で、この比較器は
+/// コアAの出力を`Delay`段の遅延線で遅らせてコアBの現在値と揃えてから比較する。
+/// 機能安全（ISO 26262のロックステップ）、二重化コアの照合に使う。
+///
+/// 遅延線は要素を連結したパックドベクタ`bit[Width*Delay]`で持つ（`ShiftRegister`と同型）。
+/// 立ち上がりで遅延線が埋まるまでの誤検出を避けるため、1ビットの妥当性遅延線`bit[Delay]`を
+/// 並走させ、遅延出力が本物になってから比較する。`error_sticky`は一度でも食い違うと
+/// リセットまで1を保持する（故障のラッチ）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 語のビット幅（既定8、1以上）
+/// - Delay: コア間のずらし段数＝遅延サイクル数（既定1、1以上）
+/// - Total: 遅延線の総幅（導出＝Width*Delay）
+///
+/// ポート:
+/// - in_a:         先行コアの出力
+/// - in_b:         Delayサイクル遅れて走る後続コアの出力
+/// - error:        この比較サイクルで食い違えば1（妥当性が立ってから）
+/// - error_sticky: 一度でも食い違うとリセットまで1
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod LockstepCompare[
+    Width: uint = 8,
+    Delay: uint = 1,
+    Total: uint = Width * Delay,
+]
+where
+    Width >= 1,
+    Delay >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  in_a: bit[Width],
+    in  in_b: bit[Width],
+    out error: bit,
+    out error_sticky: bit,
+) {
+    var sr: bit[Total] = 0;      // コアAの遅延線
+    var vld: bit[Delay] = 0;     // 妥当性の遅延線（1ビット/段）
+    var err_q: bit = 0;          // 故障ラッチ
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            sr = 0;
+            vld = 0;
+            err_q = 0;
+        } else {
+            // 遅延出力が本物（vldの最終段が1）で、遅延A ≠ B なら故障をラッチ。
+            // 右辺は前エッジの値（＝combが見るのと同じ遅延値・同じin_b）を読む。
+            if vld[Delay - 1 +: 1] == 1 {
+                if sr[(Delay - 1) * Width +: Width] != in_b {
+                    err_q = 1;
+                }
+            }
+            // 遅延線を1段進める（常時イネーブル）。段0に現在値、段iに段i-1の前の値。
+            sr[0 +: Width] = in_a;
+            for i in 1..Delay {
+                sr[i * Width +: Width] = sr[(i - 1) * Width +: Width];
+            }
+            vld[0 +: 1] = 1;
+            for i in 1..Delay {
+                vld[i +: 1] = vld[i - 1 +: 1];
+            }
+        }
+    }
+
+    comb {
+        // 妥当性が立っている間だけ、遅延A ≠ B を故障として出す（last-winsで既定0を上書き）。
+        error = 0;
+        if vld[Delay - 1 +: 1] == 1 {
+            if sr[(Delay - 1) * Width +: Width] != in_b {
+                error = 1;
+            }
+        }
+        error_sticky = err_q;
+    }
+}

@@ -1,0 +1,63 @@
+/// Semaphoreのテストベンチ
+///
+/// Width=4、容量max=3。acquireで0→3まで取得し満杯でgrantが下がること、
+/// releaseで3→0まで返し空でemptyが立つこと、acquireとreleaseの同時は相殺で
+/// countが変わらないことを確かめる（seq基準、入力を与えて1サイクル進めてから観測）。
+test SemaphoreTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var acquire: bit = 0;
+    var rel: bit = 0;
+    var max:     bit[4] = 4'd3;
+
+    inst dut = Semaphore {
+        clk: clk,
+        rst: rst,
+        acquire: acquire,
+        rel: rel,
+        max: max,
+    };
+
+    seq {
+        await clk.cycles(6);
+        assert dut.empty == 1, "starts empty";
+
+        // 取得で 0->1->2->3、満杯で grant が下がる
+        acquire = 1;
+        await clk.cycles(1);
+        assert dut.count == 4'd1, "acquire 1";
+        await clk.cycles(1);
+        assert dut.count == 4'd2, "acquire 2";
+        await clk.cycles(1);
+        assert dut.count == 4'd3, "acquire 3";
+        assert dut.full == 1, "full at max";
+        assert dut.grant == 0, "no grant when full";
+        await clk.cycles(1);
+        assert dut.count == 4'd3, "stays at max, cannot over-acquire";
+
+        // 返却で 3->2->1->0、空で empty
+        acquire = 0;
+        rel = 1;
+        await clk.cycles(1);
+        assert dut.count == 4'd2, "rel 2";
+        await clk.cycles(1);
+        assert dut.count == 4'd1, "rel 1";
+        await clk.cycles(1);
+        assert dut.count == 4'd0, "rel 0";
+        assert dut.empty == 1, "empty again";
+        await clk.cycles(1);
+        assert dut.count == 4'd0, "stays at 0, cannot over-rel";
+
+        // 同時 acquire+rel：空きも在庫もあれば相殺で不変
+        rel = 0;
+        acquire = 1;
+        await clk.cycles(1);
+        assert dut.count == 4'd1, "acquire from empty (rel fails at 0)";
+        rel = 1;  // now both, count=1 in (0,max)
+        await clk.cycles(1);
+        assert dut.count == 4'd1, "simultaneous acquire+rel cancels";
+
+        $display("SemaphoreTB: all checks passed");
+        $finish;
+    }
+}

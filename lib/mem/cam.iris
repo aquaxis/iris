@@ -1,0 +1,82 @@
+/// 連想メモリ（CAM、キー検索・ワンホット一致）
+///
+/// `Entries`個のエントリにキーを蓄え、検索キー`key`に一致するエントリをワンホットの
+/// `match_oh`ビットで示す（`hit`はどれか一致したかの論理和）。ルーティングテーブル、
+/// タグ照合（キャッシュ）、アドレス比較などに使う。
+///
+/// エントリは`waddr`で指定した位置に`we`で書き込み、`valid`ビットで有効化する。
+/// `clear`で全エントリを一括無効化する。IRISは配列ポートを持たないので、エントリは
+/// 連結したパックドベクタ`bit[Width*Entries]`に格納し、部分選択・部分書き込みで出し入れする
+/// （`VecMux`/`VecDemux`と同じ）。書き込み位置は`waddr.resize(IdxWidth)*Width`と幅拡張して
+/// 積の桁あふれを防ぐ。検索は各エントリを`key`と比較し、有効かつ一致なら`match_oh`ビットを立てる
+/// （比較はループ定数の添字なので固定部分選択。combの選択で書ける）。`hit = match_oh != 0`。
+///
+/// 同じキーが複数エントリにあれば`match_oh`は複数ビット立つ（ワンホットとは限らない）。
+/// 先頭一致のインデックスが要るなら`PriorityEncoder`と組む。
+///
+/// ジェネリックパラメータ:
+/// - Width:    キーのビット幅（既定8、1以上）
+/// - Entries:  エントリ数（既定4、2以上）
+/// - SelWidth: 書込みアドレス幅（導出＝$clog2(Entries)）
+/// - IdxWidth: ビット位置計算の幅（導出＝$clog2(Width*Entries)+1）
+/// - Total:    パックドベクタの総幅（導出＝Width*Entries）
+///
+/// ポート:
+/// - we:    1で`waddr`のエントリに`wdata`を書き、有効化する
+/// - waddr: 書込みエントリ番号（0..Entries-1）
+/// - wdata: 書き込むキー
+/// - clear: 1で全エントリを無効化する（weより優先）
+/// - key:   検索キー
+/// - match_oh: 一致したエントリのワンホット（有効かつkey一致）
+/// - hit:   どれか一致すれば1
+///
+/// リセットは非同期assert・同期deassert、能動High。全エントリ無効で始まる。
+mod Cam[
+    Width: uint = 8,
+    Entries: uint = 4,
+    SelWidth: uint = $clog2(Entries),
+    IdxWidth: uint = $clog2(Width * Entries) + 1,
+    Total: uint = Width * Entries,
+]
+where
+    Width >= 1,
+    Entries >= 2,
+(
+    in  clk:   clock,
+    in  rst:   reset,
+    in  we:    bit,
+    in  waddr: bit[SelWidth],
+    in  wdata: bit[Width],
+    in  clear: bit,
+    in  key:   bit[Width],
+    out match_oh: bit[Entries],
+    out hit:   bit,
+) {
+    var store: bit[Total]   = 0;
+    var valid: bit[Entries] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            valid = 0;
+        } else if clear {
+            valid = 0;
+        } else if we {
+            // waddrのエントリにキーを書き、有効化する（位置は幅拡張して積の桁あふれを防ぐ）
+            store[waddr.resize(IdxWidth) * Width +: Width] = wdata;
+            valid[waddr +: 1] = 1;
+        }
+    }
+
+    comb {
+        // 各エントリを検索キーと比較し、有効かつ一致ならmatchビットを立てる
+        match_oh = 0;
+        for i in 0..Entries {
+            if valid[i] {
+                if store[i * Width +: Width] == key {
+                    match_oh[i] = 1;
+                }
+            }
+        }
+        hit = match_oh != 0;
+    }
+}

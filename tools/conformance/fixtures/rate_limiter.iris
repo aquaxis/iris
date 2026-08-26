@@ -1,0 +1,102 @@
+/// レートリミッタ（トークンバケット型の帯域制限）
+///
+/// トークンを一定間隔でバケツに貯め、要求`req`が来たときトークンが1つ以上あれば
+/// `grant`を立てて1つ消費する。トークンが無ければ`grant`は下がり、要求は通さない。
+/// 平均レートを`refill`で、瞬間的に許すバースト量をバケツ容量`burst`で決める。
+/// 帯域制限、送出ペーシング、リトライの間隔制御、割込みレートの上限などに使う。
+///
+/// トークンの補充は内部の位相カウンタで数え、`en`が有効なサイクルを`refill`個
+/// 数えるごとに1トークン足す（`Prescaler`と同じ`>=`終端。`refill`は実行時に変えられる）。
+/// バケツは`burst`で飽和し、それ以上は貯めない（あふれ分は捨てる）。
+/// `grant`は組み合わせで`en & req & (トークンが1つ以上)`とし、消費は同じサイクルの
+/// クロックエッジで行う。補充と消費が同じサイクルで重なったときは差し引き0で保つ。
+///
+/// `grant`は現在のトークン残量だけで判断する（このサイクルに補充で届く1トークンは
+/// 次のサイクルから使える）。使う側は`refill >= 1`と`burst >= 1`を守ること
+/// （`refill = 1`なら有効サイクルごとに1トークン補充）。
+///
+/// ジェネリックパラメータ:
+/// - Width: トークン残量・容量・補充間隔のビット幅（既定8、1以上）
+///
+/// ポート:
+/// - en:     1のとき時間を進める（0なら位相・残量とも保持し、grantも出さない）
+/// - req:    1でトークンを1つ要求する
+/// - refill: 補充間隔（この数の有効サイクルごとに1トークン足す）
+/// - burst:  バケツ容量（この値でトークンが飽和する）
+/// - grant:  要求が通ったとき1（1サイクル幅、消費が起きたサイクル）
+/// - tokens: 現在のトークン残量
+///
+/// リセットは非同期assert・同期deassert、能動High。0で始まる（バケツは空）。
+mod RateLimiter[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk:    clock,
+    in  rst:    reset,
+    in  en:     bit,
+    in  req:    bit,
+    in  refill: bit[Width],
+    in  burst:  bit[Width],
+    out grant:  bit,
+    out tokens: bit[Width],
+) {
+    var tok:   bit[Width] = 0;
+    var phase: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            tok = 0;
+            phase = 0;
+        } else if en {
+            // 位相：有効サイクルを数え、refillで巻き戻す（>=終端で取り残さない）。
+            if phase + 1 >= refill {
+                phase = 0;
+            } else {
+                phase = phase + 1;
+            }
+            // トークン更新：reqで1消費、補充ティックで1加算、burstで飽和。
+            // 判定はすべて登録済み（クロック前）のtok・phaseを読む。
+            if req {
+                if tok != 0 {
+                    if phase + 1 >= refill {
+                        // 消費と補充が相殺（残量は保つ。既にburst以下）。
+                        tok = tok;
+                    } else {
+                        tok = tok - 1;
+                    }
+                } else {
+                    // 消費できるトークンが無い。補充ティックなら容量未満で1足す。
+                    if phase + 1 >= refill {
+                        if tok < burst {
+                            tok = tok + 1;
+                        }
+                    }
+                }
+            } else {
+                // 要求なし。補充ティックなら容量未満で1足す。
+                if phase + 1 >= refill {
+                    if tok < burst {
+                        tok = tok + 1;
+                    }
+                }
+            }
+        }
+    }
+
+    comb {
+        // 現在の残量が1つ以上あるときだけ、有効な要求を通す。
+        // `en & req & (tok != 0)`のように`&`と`!=`を混ぜるとiris2svが片方を
+        // 1ビットに切り詰める式を出すため、if文で書いて確実に変換させる。
+        grant = 0;
+        if en {
+            if req {
+                if tok != 0 {
+                    grant = 1;
+                }
+            }
+        }
+        tokens = tok;
+    }
+}

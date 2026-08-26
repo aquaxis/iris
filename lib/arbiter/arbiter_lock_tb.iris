@@ -1,0 +1,46 @@
+/// ArbiterLockのテストベンチ
+///
+/// N=4。master2(0100)にgrantした後、lock=1の間はmaster1(0010、より高優先)が要求しても
+/// grantを保持し、lock=0で固定優先度に戻ってmaster1へ切り替わることを確かめる。
+/// step基準の同期チェッカ（monitorの実測に一致）。
+///   s0→0100, s3→0100(lock保持), s5→0100(保持), s6→0010(解放後は最下位)
+test ArbiterLockTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var req: bit[4] = 4'b0100;
+    var lock: bit = 0;
+    var s: bit[8] = 0;
+
+    inst d = ArbiterLock {
+        clk: clk,
+        rst: rst,
+        req: req,
+        lock: lock,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            s = 0;
+        } else {
+            s = s + 1;
+            if s == 8'd1 { lock = 1; }
+            if s == 8'd2 { req = 4'b0110; }
+            if s == 8'd5 { lock = 0; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if s == 8'd0 { assert d.grant == 4'b0100, "master2 granted"; assert d.valid == 1, "valid"; }
+            if s == 8'd3 { assert d.grant == 4'b0100, "lock holds master2 vs master1"; }
+            if s == 8'd5 { assert d.grant == 4'b0100, "still held under lock"; }
+            if s == 8'd6 { assert d.grant == 4'b0010, "lock released -> fixed priority master1"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(9);
+        $display("ArbiterLockTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,47 @@
+/// AbsDiffのテストベンチ
+///
+/// 符号なし（既定）と符号付きの2インスタンスで |a - b| を確かめる。
+///   - 符号なし: 順序によらず同じ大きさ（10,3→7 / 3,10→7 / 200,50→150 / 50,200→150）
+///   - 符号付き: 負を含む差（5,-5→10 / -128,127→255 / 127,-128→255）
+/// 組み合わせ回路なので入力varを変えて1サイクル待てば追従する。
+test AbsDiffTB {
+    let clk: clock(period: 10ns);
+
+    var ua: bit[8] = 8'd10;
+    var ub: bit[8] = 8'd3;
+    var sa: bit[8] = 8'd5;
+    var sb: bit[8] = 8'hFB;   // -5
+
+    inst u = AbsDiff { a: ua, b: ub };
+    inst s = AbsDiff[Signed: 1] { a: sa, b: sb };
+
+    seq {
+        await clk.cycles(1);
+        assert u.diff == 8'd7, "unsigned |10-3| = 7";
+        assert s.diff == 8'd10, "signed |5-(-5)| = 10";
+
+        ua = 8'd3; ub = 8'd10;
+        await clk.cycles(1);
+        assert u.diff == 8'd7, "unsigned |3-10| = 7 (order independent)";
+
+        ua = 8'd200; ub = 8'd50;
+        await clk.cycles(1);
+        assert u.diff == 8'd150, "unsigned |200-50| = 150";
+
+        ua = 8'd50; ub = 8'd200;
+        await clk.cycles(1);
+        assert u.diff == 8'd150, "unsigned |50-200| = 150 (no wrap)";
+
+        // 符号付きの端: |-128 - 127| = 255
+        sa = 8'h80; sb = 8'd127;   // -128, 127
+        await clk.cycles(1);
+        assert s.diff == 8'd255, "signed |-128-127| = 255";
+
+        sa = 8'd127; sb = 8'h80;   // 127, -128
+        await clk.cycles(1);
+        assert s.diff == 8'd255, "signed |127-(-128)| = 255";
+
+        $display("AbsDiffTB: all checks passed");
+        $finish;
+    }
+}

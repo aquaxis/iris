@@ -1,0 +1,55 @@
+/// Histogramのテストベンチ
+///
+/// Bins=4。ビン列 1,1,2,1,3,3 を集計し、各ビンの度数が bin0=0, bin1=3, bin2=1, bin3=2 に
+/// なることを確かめる（同じビンの連続加算をレジスタ方式で取りこぼさないこと）。
+/// 最後にclearで全ビンが0に戻ることも確かめる。rcountは組み合わせ読み出し。
+test HistogramTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var clear: bit = 0;
+    var en: bit = 0;
+    var bin: bit[2] = 0;
+    var raddr: bit[2] = 0;
+
+    inst d = Histogram[Bins: 4] {
+        clk: clk,
+        rst: rst,
+        clear: clear,
+        en: en,
+        bin: bin,
+        raddr: raddr,
+    };
+
+    seq {
+        await clk.cycles(6);
+
+        // 集計：bin1 を3回、bin2 を1回、bin3 を2回（bin1は連続を含む）
+        en = 1; bin = 2'd1; await clk.cycles(1);
+        en = 1; bin = 2'd1; await clk.cycles(1);
+        en = 1; bin = 2'd2; await clk.cycles(1);
+        en = 1; bin = 2'd1; await clk.cycles(1);
+        en = 1; bin = 2'd3; await clk.cycles(1);
+        en = 1; bin = 2'd3; await clk.cycles(1);
+        en = 0;
+        await clk.cycles(1);
+
+        // 各ビンの度数を読む（組み合わせ読み出し）
+        raddr = 2'd0; await clk.cycles(1);
+        assert d.rcount == 8'd0, "bin 0 = 0";
+        raddr = 2'd1; await clk.cycles(1);
+        assert d.rcount == 8'd3, "bin 1 = 3 (consecutive counted)";
+        raddr = 2'd2; await clk.cycles(1);
+        assert d.rcount == 8'd1, "bin 2 = 1";
+        raddr = 2'd3; await clk.cycles(1);
+        assert d.rcount == 8'd2, "bin 3 = 2";
+
+        // clearで全ビン0
+        clear = 1; await clk.cycles(1);
+        clear = 0;
+        raddr = 2'd1; await clk.cycles(1);
+        assert d.rcount == 8'd0, "bin 1 = 0 after clear";
+
+        $display("HistogramTB: all checks passed");
+        $finish;
+    }
+}

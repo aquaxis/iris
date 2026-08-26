@@ -5,22 +5,22 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 
 ## 全体像
 
-現在74部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
-`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は584/0を保つ（lib部品70個を検体に登録）。
+現在105部品を10分類に置く。各部品は`iris-sim`のテストベンチ・`iris sv`（SystemVerilog変換）・
+`iris lint`（命名規約）の3つを通し、`tools/conformance/run.sh`は770/0を保つ（lib部品101個を検体に登録）。
 
 | 分類 | 部品数 | 部品 |
 |---|---|---|
-| `timing/` | 11 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog`／`JohnsonCounter` |
-| `arith/` | 17 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator`／`Bin2Bcd` |
-| `mem/` | 8 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer`／`Lifo` |
-| `arbiter/` | 2 | `ArbiterFixed`／`ArbiterRr` |
-| `stream/` | 12 | `SpillRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter`／`StreamArbiter` |
-| `cdc/` | 4 | `Sync2ff`／`RstSync`／`PulseSync`／`HandshakeSync` |
-| `coding/` | 7 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum`／`Scrambler`／`Descrambler` |
+| `timing/` | 16 | `Counter`／`EdgeDetect`／`GrayCounter`／`Lfsr`／`ClkDivider`／`Pwm`／`Debounce`／`Timer`／`OneShot`／`Watchdog`／`JohnsonCounter`／`TripCounter`／`Prescaler`／`DeltaCounter`／`RingCounter`／`RateLimiter` |
+| `arith/` | 25 | `PriorityEncoder`／`Lzc`／`Bin2Gray`／`Decoder`／`Rotator`／`Gray2Bin`／`MinMax`／`DivSerial`／`MulSerial`／`SatAdd`／`SatSub`／`OneHotCheck`／`Abs`／`Accumulator`／`PopcountSerial`／`Comparator`／`Bin2Bcd`／`Clamp`／`Mux1H`／`AbsDiff`／`Extend`／`Thermometer`／`BarrelShift`／`Ctz`／`Negate` |
+| `mem/` | 9 | `FifoSync`／`FifoAsync`／`RamSp`／`RamDp`／`Ram2r1w`／`ShiftRegister`／`RingBuffer`／`Lifo`／`Cam` |
+| `arbiter/` | 4 | `ArbiterFixed`／`ArbiterRr`／`ArbiterLock`／`Semaphore` |
+| `stream/` | 14 | `SpillRegister`／`StreamRegister`／`Serializer`／`Deserializer`／`VecMux`／`VecDemux`／`StreamDownsizer`／`StreamUpsizer`／`StreamFork`／`StreamJoin`／`StreamFilter`／`CreditCounter`／`StreamArbiter`／`StreamThrottle` |
+| `cdc/` | 6 | `Sync2ff`／`RstSync`／`PulseSync`／`HandshakeSync`／`GrayCodeSync`／`RstSequencer` |
+| `coding/` | 10 | `Crc`／`Parity`／`Secded`／`TmrVoter`／`Checksum`／`Scrambler`／`Descrambler`／`DiffPair`／`Interleaver`／`LockstepCompare` |
 | `periph/` | 4 | `UartTx`／`UartRx`／`SpiMaster`／`I2cMaster` |
-| `dsp/` | 5 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco`／`ComplexMult` |
-| `util/` | 4 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask` |
-| 合計 | 74 | |
+| `dsp/` | 12 | `FirSerial`／`MacSerial`／`MovingAverage`／`Nco`／`ComplexMult`／`PeakDetect`／`CicDecimator`／`PidController`／`IirBiquad`／`Median3`／`Histogram`／`Correlator` |
+| `util/` | 5 | `BitReverse`／`EndianSwap`／`ByteEnableExpand`／`RangeMask`／`SignMag` |
+| 合計 | 105 | |
 
 **書けたもの／書けなかったものの線引きが、この一覧の要点である。**
 単一クロックの論理（カウンタ・FIFO・調停）、FSM＋シフト（周辺IF）、直列にして時間へ
@@ -98,7 +98,7 @@ iris lint    <分類>/<name>.iris                  # 命名規約に沿うこと
 **振る舞いの回帰**を捕まえる（iris-simはassert失敗でexit 1）。
 
 ```
-bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 74/0）
+bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（現在 105/0）
 ```
 
 ## 部品一覧
@@ -156,6 +156,59 @@ bash tools/lib_test.sh    # lib/ の全 <name>_tb.iris を iris-sim で実行（
 2*Width状態を巡る（0…0→0…01→…→1…1→1…10→…→10…0→0…0）。隣接状態が1ビットしか変わらないので、
 位相／直交（クアドラチャ）生成やグリッチのない状態デコードに使う。`en`が0の間は保持。
 
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `RingCounter` | リングカウンタ（ワンホット巡回、N状態） | `Width`（状態数、既定8、2以上）、`Right`（回転の向き、0=左/1=右、既定0） |
+
+`RingCounter`は1ビットだけ立てたレジスタを`en`のたびに1つ隣へ巡回させる（`{r[Width-2:0], r[Width-1]}`の
+左回転、`Right`で右回転）。0…01→0…10→…→10…0→0…01とワンホットのままWidth状態を巡る。
+`JohnsonCounter`（2*Width状態のツイストリング）と対で、全0が吸収状態のためリセット値は`1`とする。
+位相生成、ワンホットFSMの歩進、マルチプレクサの選択に使う。`en`が0の間は保持。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `TripCounter` | トリップカウンタ（閾値到達で出力を立てる、飽和カウンタ） | `Width`（計数値・閾値の幅、既定8、1以上） |
+
+`TripCounter`は`en`のたびに1つ数え、`count >= threshold`で`trip`を立てる。イベント回数の監視、
+リトライ上限の検出、エラー計数のアラームに使う。カウンタは上限（全ビット1）で飽和し折り返さない
+ので、一度立った`trip`は`clear`まで落ちない（ラッチと同じ挙動）。飽和判定は`q + 1 != 0`で行う
+（`0 - 1`は無サイズの32ビット-1になり幅比較にならないため、Width幅で巻き上がる`q+1`で全ビット1を検出）。
+閾値は入力ポートで実行時に変えられる。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Prescaler` | プリスケーラ（実行時可変の分周、ティック生成） | `Width`（分周比・カウンタ幅、既定8、1以上） |
+
+`Prescaler`は`en`のサイクルを`ratio`個ごとに1サイクル幅の`tick`で分周する。`ClkDivider`が分周比を
+コンパイル時`Div`で固定するのに対し、`ratio`を入力ポートで受け実行時に変えられる（ボーレート生成、
+タイマのプリスケーラに使う）。終端判定を`cnt + 1 >= ratio`（`==`でなく`>=`）にしているのは、`ratio`を
+今の`cnt`より小さく変えても取り残されず次で巻き戻すため。分周比3→2の実行時変更で即復帰し、
+en=0でtickが出ないことを確認。`tick`は`en`と終端条件を`&`で混ぜるとiris2svが片方を1ビットに
+切り詰める式を出すため、if文で書いて確実に変換させた。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `DeltaCounter` | デルタカウンタ（可変増減量・プリセット付き） | `Width`（計数値・増減量の幅、既定8、1以上） |
+
+`DeltaCounter`は`en`のたびに計数値へ`step`を足す（`Counter`が±1固定なのに対し増減量を実行時に指定できる）。
+`step`は2の補数として解釈すれば正で加算・負で減算になる（加算そのものは符号に依らず同じ桁なので符号の区別は
+使う側の解釈だけでよい）。`load`で任意の初期値`load_val`にプリセットできる。DSPのストライドアクセスの
+アドレス生成、ランプ／スイープ生成、可変レートの位相累算に使う。計数はWidth幅で自然に巻き上がる。
+step=3で加算、load=100でプリセット、step=-2(0xFE)で減算になることを確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `RateLimiter` | レートリミッタ（トークンバケット型の帯域制限） | `Width`（残量・容量・補充間隔の幅、既定8、1以上） |
+
+`RateLimiter`はトークンを一定間隔でバケツに貯め、要求`req`が来たとき残量が1つ以上あれば`grant`を
+立てて1つ消費する。平均レートを`refill`（この数の有効サイクルごとに1トークン補充、`Prescaler`と同じ
+`>=`終端）で、瞬間的に許すバースト量を容量`burst`で決める。帯域制限、送出ペーシング、リトライの
+間隔制御に使う。バケツは`burst`で飽和しあふれ分は捨てる。`grant`は現在の残量だけで判断する（この
+サイクルに補充で届く1トークンは次から使える）。`refill`を実行時に大きくすると補充が止まり純粋に
+ドレインできる。`grant`は`en & req & (残量!=0)`を`&`で混ぜるとiris2svが片方を1ビットに切り詰める式を
+出すため、if文で書いて確実に変換させた。refill=2・burst=3で容量まで貯まり飽和すること、要求で
+1つずつ消費して空でgrantが下がること、en=0でgrantを出さず残量を保つことを確認。verilatorは`-Wall`で警告なし。
+
 ### arith
 
 | 部品 | 機能 | パラメータ |
@@ -210,6 +263,16 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 
 | 部品 | 機能 | パラメータ |
 |---|---|---|
+| `Clamp` | 範囲制限（クランプ／リミッタ、任意の値を`[lo, hi]`へ丸める） | `Width`（既定8、1以上）、`Signed`（0/1、既定0） |
+
+`Clamp`は入力`a`を下限`lo`・上限`hi`の範囲へ収める（`a<lo`なら`lo`、`a>hi`なら`hi`、間はそのまま）。
+`SatAdd`/`SatSub`が加減算の桁あふれで飽和するのに対し、これは任意の値を実行時に与えた範囲へ丸める
+（`lo`/`hi`は入力ポート）。信号のリミッタ、インデックス・座標の範囲丸め、AGC出力の制限などに使う。
+combの選択（`out=a`を既定に、`<`比較の2文で上書き。比較は入力だけを読む）で書ける（`MinMax`と同じ）。
+`Signed`で符号なし/符号付き比較を切り替える。使う側は`lo<=hi`を守ること。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
 | `OneHotCheck` | one-hot妥当性判定（ちょうど1ビット立っているか） | `Width`（既定8、1以上） |
 
 `OneHotCheck`は`din & (din - 1)`で最下位の1を1つ落とし、結果が0でかつ`din`が0でなければ
@@ -248,6 +311,74 @@ XORの畳み込みをcombで書ける。`Bin2Gray`と往復して元に戻るこ
 （7セグ表示・10進出力の前段）。毎サイクル「各桁が5以上なら+3」をcombで作り（`adj`）、
 syncで左シフトして2進の最上位ビットを送り込む。255→0x255、99→0x099を確認。直列DSP/CRCと同じ
 「combの中間結果はcombに置き、syncは非ブロッキング」の手筋。`done`は完了サイクルに1。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Mux1H` | ワンホットマルチプレクサ（N入力1出力、ワンホット選択） | `Width`（1語幅、既定8、1以上）、`N`（入力語数＝選択線幅、既定4、2以上）、`Total`（導出） |
+
+`Mux1H`はワンホットの`sel`（1つだけ1）でN個の入力語から1つを選ぶ。`VecMux`が2進`sel`で選ぶのに対し、
+こちらはワンホット制御が自然な場面（命令デコード、ALU結果選択）向き。入力は連結パックドベクタ
+`bit[Width*N]`で受け、要素iは`data[i*Width +: Width]`。combの論理和の畳み込みはできないが、これは選択なので
+`out = 0`を既定に`sel[i]`が1の要素で上書きして書ける（ワンホットならちょうど1回。`sel`が0なら0、
+複数ビット立てば最大添字が勝つ）。{0x11,0x22,0x33,0x44}を各ワンホットで選べることを確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `AbsDiff` | 絶対差（`|a - b|`、符号なし・符号付き） | `Width`（既定8、1以上）、`Signed`（0/1、既定0） |
+
+`AbsDiff`は2入力の差の絶対値を1サイクルで出す。SAD（絶対差の総和）の核、距離計算に使う
+（`Abs`が1入力の絶対値なのに対し、こちらは2入力の差の大きさ）。大きい方から小さい方を引けば
+非負になるので、combの選択で書ける：既定`a - b`とし、`a < b`のときだけ`b - a`で上書きする
+（`MinMax`と同じ）。`Signed`で符号なし／符号付き比較を切り替え。符号付きの端`|-128-127|=255`が
+Widthビットに収まることを確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Extend` | ビット幅拡張（ゼロ拡張・符号拡張） | `InWidth`（既定8、1以上）、`OutWidth`（既定16、InWidth以上）、`Signed`（0/1、既定0） |
+
+`Extend`は`InWidth`ビットを`OutWidth`ビットへ広げる。`Signed=0`はゼロ拡張、`1`は符号拡張
+（最上位ビットを上位へ複製、2の補数を保つ）。狭い信号を広いバス・演算幅へ橋渡しする定番の変換。
+符号拡張は`.signed().sign_extend[OutWidth]()`、ゼロ拡張は`din.resize(OutWidth)`で幅を明示する
+（幅なしの代入は上位を0で埋めるがverilator幅警告になるため`.resize`で明示）。`OutWidth >= InWidth`前提。
+4→8ビットで0xF→0xFF（符号）/0x0F（ゼロ）等を確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Thermometer` | サーモメータ符号化（2進→温度計コード） | `Width`（出力幅、既定8、1以上）、`ValWidth`（導出＝$clog2(Width+1)） |
+
+`Thermometer`は`value`（0..Width）を下位`value`ビットが1のWidthビットへ符号化する
+（`therm[i]=1 ⇔ i<value`）。フラッシュADC/DACの符号、単項表現、「下位N本を開く」用途に使う
+（`Decoder`が2進→one-hotなのに対し、こちらは2進→温度計＝下位から連続してvalueビット1）。
+各ビットは`i < value`（`i`はループ定数）で独立に決まるので、combの選択で書ける
+（`therm=0`を既定に条件を満たすビットだけ上書き）。value=3→0x07, 5→0x1F, 8→0xFFを確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `BarrelShift` | バレルシフタ（可変量の論理／算術シフト） | `Width`（既定8、2以上）、`Right`（0=左/1=右、既定0）、`Arith`（0=論理/1=算術、右のみ、既定0）、`ShWidth`（導出） |
+
+`BarrelShift`は`din`を`amt`ビットだけシフトする（`Rotator`が巡回なのに対し、空いた側を0または符号で埋める）。
+左（下位0埋め）、論理右（上位0埋め）、算術右（符号複製）に対応。**IRISの`>>`は`.signed()`でも論理シフト**
+（上位0埋め）と分かったので、算術右シフトは手で組む：論理右シフトに、符号ビットが1のときだけ上位`amt`ビットの
+マスク`~((din|~din)>>amt)`をORする（全ビット1は`din|~din`で作る。combは更新信号を読み直せないので1式に書く）。
+0x80(-128)>>1=0xC0、0xF0(-16)>>4=0xFF、正値は論理と一致、amt=0はそのままを確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Ctz` | 末尾ゼロ数（最下位の1の添字） | `Width`（既定8、1以上）、`CountWidth`（導出`$clog2(Width)+1`） |
+
+`Ctz`は最下位側から数えた0の個数（＝最下位の1の添字、全0ならWidth）を出す。`Lzc`（先頭ゼロ数）の対で、
+優先エンコーダ、アライメント、2の冪判定に使う。combは選択（最後の代入が勝つ）なので、最下位の1を最後に
+処理すればよい。IRISの`for`は低→高なので添字を`Width-1-i`として高→低に走らせ、最下位の1を最後に勝たせる。
+ctz(0x08)=3, 0x0A=1, 0x01=0, 0x80=7, 0x00=8を確認。`count = Width;`のWIDTHTRUNCは`Lzc`と同じ既存パターン。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Negate` | 符号反転（2の補数の否定、オーバーフロー検出付き） | `Width`（既定8、2以上） |
+
+`Negate`は符号付き`a`（2の補数）の`-a`を出す（`~a + 1`と等価）。減算器の被減数生成、係数の極性反転、
+符号切替に使う。組み合わせのみ。否定は`0 - a`で書き、`~a`を32ビット文脈に置かないので`SignMag`と同じく
+verilatorが`-Wall`でも幅警告を出さない。最小負値（0x80..）だけは同じ幅で正に表せず否定してもそのまま
+戻る（ラップ）ので、その1点だけ`ovf`を1にして知らせる。-(5)=0xFB、-(-5)=5、-(0x80)=0x80でovf=1を確認。
 
 ### mem
 
@@ -306,6 +437,19 @@ syncは非ブロッキング（右辺は前エッジの値を読む）なので�
 （登録読み出し、1サイクル遅れ）。`sp`は要素数。`push`優先（同時発行せず片方ずつ）。
 FIFO（先入れ先出し）と対で、退避・括弧対応・バックトラッキング・逆順処理に使う。中身はリセットしない（`mem`）。
 
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Cam` | 連想メモリ（キー検索、ワンホット一致） | `Width`（キー幅、既定8、1以上）、`Entries`（既定4、2以上）、`SelWidth`／`IdxWidth`／`Total`（導出） |
+
+`Cam`は`Entries`個のエントリにキーを蓄え、検索キー`key`に一致するエントリを`match_oh`（ワンホット）で
+示す（`hit = match_oh != 0`）。ルーティングテーブル、キャッシュのタグ照合、アドレス比較に使う。
+エントリは`waddr`で`we`書き込みし`valid`ビットで有効化、`clear`で全無効化する。配列ポートはないので
+エントリは連結パックドベクタ`bit[Width*Entries]`に格納し、部分選択・部分書き込みで出し入れする
+（`VecMux`/`VecDemux`と同じ。書込み位置は`waddr.resize(IdxWidth)*Width`と幅拡張。ただし1ビットの`valid`
+書込みは`waddr`をそのまま添字にする＝過剰な幅拡張はverilator幅警告になるため）。検索は各エントリを
+`key`と固定部分選択で比較しcombで`match_oh`を組む。`match`はIRISの予約語なので出力名は`match_oh`にした。
+同じキーが複数あれば複数ビット立つ（先頭一致の添字が要れば`PriorityEncoder`と組む）。verilatorは`-Wall`で警告なし。
+
 ### arbiter
 
 | 部品 | 機能 | パラメータ |
@@ -318,6 +462,29 @@ FIFO（先入れ先出し）と対で、退避・括弧対応・バックトラ�
 `mask = ~(grant | (grant - 1))`とし、最上位を選ぶとmaskが0になって最下位へ回り込む
 （全ビット1のリテラルを使わずに巡回を実現する）。
 
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `ArbiterLock` | ロック付き固定優先度アービタ（lock中は現在のgrantを保持） | `N`（要求本数、既定4、2以上） |
+
+`ArbiterLock`は基本は`ArbiterFixed`と同じ最下位優先だが、`lock`が1の間は直前に選んだマスタが要求を
+出し続ける限りそのgrantを保持する（原子的／連続バーストの途中で高優先の要求へ切り替わらない）。
+DMAのロック転送、read-modify-write、分割不可なトランザクションの調停に使う。前回grantを1レジスタに
+登録し、`lock かつ (held & req) != 0`なら`grant = held & req`、それ以外は`req & (~req + 1)`の選択
+（foldなし、ビット演算と0比較のみ）。`&`と比較の混在はif文の入れ子で避ける。master2をlock保持し、
+より高優先のmaster1が来ても切り替わらず、lock解放で切り替わることを確認。`~req+1`のWIDTHEXPANDは
+`ArbiterFixed`と同じ既存パターン。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Semaphore` | 計数セマフォ（取得・返却、容量制限） | `Width`（計数値・容量の幅、既定4、1以上） |
+
+`Semaphore`は0から容量`max`までのトークンを数え、`acquire`で1つ取得（空きがあれば`grant`）、`rel`で
+1つ返す。共有資源の同時使用数の制限、未完了要求の上限、生産者消費者の在庫管理に使う。容量1にすれば
+ミューテックス（二値セマフォ）になる。`grant`は組み合わせで`acquire & (count < max)`（`&`と比較の混在は
+if入れ子で切り詰め回避）、`rel`は`count > 0`のときだけ減らす（下限0で飽和）。`acquire`と`rel`が同時に
+成立すると±1が相殺して`count`は不変。`release`はSystemVerilog予約語なので入力名を`rel`にした。容量3で
+0→3まで取得し満杯でgrantが下がること、3→0まで返し空でemptyが立つこと、同時取得返却の相殺を確認。
+
 ### stream
 
 | 部品 | 機能 | パラメータ |
@@ -327,6 +494,16 @@ FIFO（先入れ先出し）と対で、退避・括弧対応・バックトラ�
 `SpillRegister`は上流と下流のパスを切り、バックプレッシャでデータを落とさず、
 詰まっていなければ毎サイクル1語を通す。`in_ready`はスキッド段の空きだけで決まる
 （`out_ready`から組み合わせで作らない）。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `StreamRegister` | ready/validの深さ1登録ステージ（前後の組み合わせパスを両方切る、`flush`付き） | `Width`（既定8、1以上） |
+
+`StreamRegister`は前方（valid/data）をレジスタ出力で、後方（`in_ready=~valid_q`）を
+自段の空きだけで作り、上流と下流の間の組み合わせパスを前後とも切る。深さ1なので連続流では
+2サイクルに1語（スループット50%）になる。100%を保ちたいときは深さ2の`SpillRegister`を使い、
+パス最短・最小面積を採るときは`StreamRegister`を使う。`flush`が1のサイクルは格納中の語を捨てて
+段を空にする（パイプフラッシュ・バブル注入用）。
 
 | 部品 | 機能 | パラメータ |
 |---|---|---|
@@ -388,6 +565,17 @@ Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを
 `out_valid`は「どれか有効」、`in_ready`は選ばれた1本だけ、出力受理で`ptr`を次へ進める。StreamJoin
 （全入力必須）と違い1つを選ぶ。共有バスへの合流に使う。
 
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `StreamThrottle` | 未完了トランザクション数の制限 | `Width`（既定8、1以上）、`CntWidth`（既定4）、`MaxOutstanding`（既定4） |
+
+`StreamThrottle`はready/validのストリームをそのまま通すが、発行済みで未完了の（in-flightな）数を
+`MaxOutstanding`までに制限する。上限に達している間は前方を止める（`out_valid=0`・`in_ready=0`）。
+発行は`out_valid & out_ready`のサイクル、完了は`done`のサイクルで、両者が同時なら相殺する。
+読み出しの追い越し数やバス上の未応答数を縛るのに使う。判定は`&`と比較の混在を避けてif文の入れ子で書く。
+`cnt < MaxOutstanding`は幅の違う定数比較のためverilatorがWIDTHEXPANDを出すが、値は正しい
+（`ArbiterFixed`と同種の警告）。
+
 ### cdc
 
 | 部品 | 機能 | パラメータ |
@@ -415,6 +603,30 @@ Widの要素をN個連結した1本の`bit[Width*N]`を入出力し、要素iを
 同期して変化を検出、保持レジスタ（安定な多サイクルパス）を取り込み`valid`を1サイクル出してackを返す。
 送信側はackを2段FFで同期し、追いついたら`src_ready`を戻す。データ線自体は同期しない（ack戻りまで
 送信側が保持し安定なので安全）。配置制約（トグル・データ線の最大遅延SDC）は利用者の責任。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `GrayCodeSync` | グレイコード値の同期化（多ビットCDCポインタ受信） | `Width`（値の幅、既定8、1以上） |
+
+`GrayCodeSync`は別ドメインのグレイ符号値`gray_in`（`GrayCounter`の出力やFIFOポインタ）を受信クロックで
+2段FF同期化し、2進`bin_out`へ戻す。グレイ符号は隣接値が1ビットしか変わらないので、遷移中にサンプルしても
+新旧どちらかに定まり（化けた中間値にならない）、多ビット値を安全にクロック跨ぎで受け取れる。`FifoAsync`の
+ポインタ受け渡しの核。段数は2固定（`Sync2ff`と同じ理由）。同期後の値を`Gray2Bin`と同じ`(g2>>i).xor_reduce()`で
+復号する。gray(0..7)を与えて2サイクル遅れで0..7に復号されることを確認。**入力はグレイ符号であること**
+（生の2進バスには使えない）。CDC制約（`ASYNC_REG`・最大遅延SDC）はIRISから出せず論理のみ。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `RstSequencer` | リセット解除シーケンサ（多段リセットを順に解除） | `N`（段数、既定4、1以上）、`Width`（タイマ幅、既定8、1以上）、`StgWidth`（導出） |
+
+`RstSequencer`はグローバルリセット解除後に`N`本のリセット出力`rst_out`を下位から順に`step`サイクルおきに
+1本ずつ解除する。電源やクロックが安定してからブロックを段階的に立ち上げる、依存する複数ドメインを決まった
+順序で起こす用途に使う（`RstSync`が単一ビットの解除同期なのに対し、こちらは複数段の解除順序を作る）。内部で
+解除済み段数`stage`を持ち、タイマが`step`に達するたびに`stage`を1増やす（`Prescaler`と同じ`>=`終端）。出力は
+`Thermometer`を反転した形で`rst_out[i] = 1 ⇔ i >= stage`（既定1に`i < stage`を0上書き）。`stage == N`で`done`。
+`step`は入力ポートで可変（`step >= 1`）。比較の`i`・`N`は`.resize(StgWidth)`で幅を合わせ幅警告を避ける。
+出力は能動High（1でリセット中）。N=4・step=5で 0xF→0xE→0xC→0x8→0x0 と順に解除しdoneが立つこと、
+一度解除した段が戻らず解除済みが常に下位連続であること（単調・形の不変条件）を確認。verilatorは`-Wall`で警告なし。
 
 ### coding
 
@@ -459,6 +671,42 @@ SEU耐性や機能安全の出力合流に使う。組み合わせのみ。
 `Descrambler`は同じ`poly`で、`dout = din ^ 帰還`、`sr`には**受信した`din`**をシフトインする。
 自己同期なので種の同期は不要で、受信開始から数ビットで整合し元データを復元する（往復一致を確認）。
 連続0/1の抑制やDCバランス（ラインコーディング）に使う。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `DiffPair` | 差動（デュアルレール）符号化・復号（断線／故障検出） | `Width`（データ幅、既定8、1以上。符号は2*Width） |
+
+`DiffPair`は`DiffEncode`と`DiffDecode`の対。各データビット`d[i]`を相補レール`{d[i], ~d[i]}`
+（`enc[2*i]`＝真値、`enc[2*i+1]`＝相補）に符号化し、受信側は対が相補なら復元、`(0,0)`や`(1,1)`
+なら断線・スタックアット故障として`err`を立てる。機能安全の信号線に使う。符号化・復号ともに
+組み合わせで、ビットごとに`for`で1対ずつ組む。`err`は総和の畳み込みが要るが、combでは畳めないので、
+対ごとの不良フラグをWidth幅ベクタ`bad`へ立て`err = bad != 0`（0との比較）で1本にまとめる。
+0xB4→0x659A→0xB4のループバックでerr=0、全対(0,0)や1対だけ不良の符号でerr=1を確認。
+2モジュール1ファイルのMULTITOPと、comb内部一時信号のMULTIDRIVENは`-Wall`で警告が出るが、
+`Secded`（2モジュール）や`SatAdd`（comb一時信号）と同じ既存パターンで、conformanceのverilator機能検証は通る。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Interleaver` | ブロックインターリーバ（行方向書込み・列方向読出し） | `Width`（記号幅、既定8、1以上）、`Rows`（2のべき乗、既定2、2以上）、`Cols`（2のべき乗、既定4、2以上）、`Depth`／`RowWidth`／`ColWidth`／`AddrWidth`（導出） |
+
+`Interleaver`はRows×Colsのブロックに記号を行方向で書き、列方向で読み出して並べ替える。連続した
+バースト誤りを時間軸へ拡散し、後段のFECが分散した単発誤りとして訂正しやすくする（通信・ストレージ）。
+`we`で書込みカウンタへ順に詰め、`re`で列方向に読む。RowsとColsを2のべき乗に限れば列方向アドレス
+`rr*Cols+rc`は連結`{rr, rc}`そのものになり乗算不要（さらにカウンタが各幅で自然に巻き上がる）。
+mem索引に連結を直に渡す（comb一時信号を置かずMULTIDRIVEN警告を避ける）。登録読み出しで1サイクル遅れ、
+`dvalid`は`re`の1サイクル後。0..7を書いて0,4,1,5,2,6,3,7に並べ替わることを確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `LockstepCompare` | 二重化コアの出力比較（時間ずらし・故障ラッチ付き） | `Width`（既定8、1以上）、`Delay`（ずらし段数、既定1、1以上）、`Total`（導出＝Width*Delay） |
+
+`LockstepCompare`は同じ計算をする2つの冗長コアの出力を突き合わせ、食い違えば`error`を上げる。
+共通原因故障を避けるためコアBはコアAより`Delay`サイクル遅れて走らせるのが定石で、コアAの出力を
+`Delay`段の遅延線（`ShiftRegister`と同型のパックドベクタ）で遅らせてコアBの現在値と揃えてから比較する。
+立ち上がりで遅延線が埋まるまでの誤検出を避けるため、1ビットの妥当性遅延線`bit[Delay]`を並走させ、
+遅延出力が本物になってから比較する。`error_sticky`は一度でも食い違うとリセットまで1を保持する（故障のラッチ）。
+`TmrVoter`（3入力の多数決で単一故障を吸収）と違い、2入力の照合で故障を検出する。機能安全に使う。
+verilatorは`-Wall`で警告なし。
 
 ### periph
 
@@ -527,6 +775,7 @@ SDAはオープンドレインなので出力イネーブル`sda_oe`（1で0駆�
 | 部品 | 機能 | パラメータ |
 |---|---|---|
 | `ComplexMult` | 複素乗算（(ar+j*ai)*(br+j*bi)、符号付き、組み合わせ） | `Width`（入力実部・虚部の幅、既定8、1以上）、`OutWidth`（導出＝2*Width+1） |
+| `PeakDetect` | ピーク検出・閾値検出（ヒステリシス付き、符号なし） | `Width`（標本と閾値の幅、既定8、1以上） |
 
 `ComplexMult`は2つの複素数の積を1サイクルの組み合わせ回路で求める（実部=ar*br-ai*bi、
 虚部=ar*bi+ai*br）。周波数変換（ミキサ）やFFTのバタフライ、複素相関の核に使う。
@@ -534,6 +783,75 @@ IRISの`*`はオペランド幅に切り詰められるので、各入力を結�
 符号拡張してから掛ける。全幅の積が低位ビットに正しく現れ、積の差・和も2の補数で正しい。
 combは同一ブロックで更新した変数を読み直せないため中間変数を置かず、式を直に書く。
 出力は符号付き（`.signed()`で読む）。`(3+2j)(4+5j)=2+23j`、`(-3+2j)(4-5j)=-2+23j`を確認。
+
+`PeakDetect`は`din`が上側閾値`thr_high`を超えると`over`を立て、下側閾値`thr_low`を割るまで
+保つ（シュミットトリガ型ヒステリシス）。単一閾値だと閾値近傍でチャタリングするが、上下2つの
+閾値で不感帯を設けて防ぐ。併せて事象中の最大値を`peak`にラッチする（立ち上がりで開始、事象中は
+最大へ更新、立ち下がり後もその事象のピークを保持し、次の立ち上がりでやり直す）。syncは非ブロッキング
+なので更新はすべて前エッジの値で決まり自己参照がない。閾値は入力ポートで実行時に変えられる
+（`thr_low < thr_high`を守る）。50→210→230→180→90→250の系列でヒステリシスとピーク保持を確認。
+
+| `CicDecimator` | CICデシメータ（1次、間引きフィルタ、乗算器不要） | `Width`（入力幅、既定8、1以上）、`R`（間引き率、既定4、2以上）、`CntWidth`／`AccWidth`（導出） |
+
+`CicDecimator`は入力を積分器（累算器）に足し込み、Rサンプルごとに1回だけ、その時点と前回
+間引き時点の累算値の差を出す（積分器＋コム器の1次CIC）。差は「直近Rサンプルの総和」に等しく、
+乗算器を使わずに間引きと移動和を同時に行う。CICは合同算術で成り立つので積分器は`AccWidth`ビットで
+自然に巻き上がり、コム器の差が正しい総和を復元する（`AccWidth=Width+$clog2(R)`で1次のビット成長を
+吸収）。syncは非ブロッキングなので更新後の累算値は`acc+din`と書き下す（同一ブロックで`acc`を
+読み直せないため）。定数10で総和40、入力を20へ変えると総和80、`dvalid`が4サンプルに1回立つのを確認。
+`$clog2`で作った`CntWidth`と定数比較`cnt==R-1`は`-Wall`でWIDTHEXPAND警告が出るが（`ClkDivider`など
+パラメータ比較の既存部品と同じ）、値は正しく、conformanceのverilator機能検証は通る。
+
+| `PidController` | PID制御器（位置型、符号付き） | `DataWidth`（目標・測定幅、既定8、1以上）、`GainWidth`（ゲイン幅、既定8、1以上）、`OutWidth`（内部・出力幅、既定32） |
+
+`PidController`は誤差`e=sp-pv`から比例・積分・微分の3項を足して操作量を出す位置型PID
+（`dout=Kp*e+Ki*Σe+Kd*(e-e_prev)`）。閉ループ制御の核に使う。積の切り詰めを避けるため、すべてを
+1つの広い符号付き領域`OutWidth`へ`.signed().sign_extend[OutWidth]()`で拡張してから掛ける（`ComplexMult`と同じ）。
+syncは非ブロッキングなので誤差を1段レジスタに登録し、次サイクルにその誤差・前回誤差・積分から
+3項を組む（`MacSerial`と同じ2段構え）。このため最初の`en`で`dout`は0（誤差登録の1サイクル遅延）。
+Kp=2/Ki=1/Kd=3で、正の誤差+6（36→24→30→42…）と負の誤差-6（符号反転）を確認。積分の飽和
+（アンチワインドアップ）は持たない（必要なら`SatAdd`と組む）。verilatorは`-Wall`で警告なし。
+
+| `IirBiquad` | 2次IIRフィルタ（バイクアッド、直接形I、符号付き） | `DataWidth`（入力幅、既定8、1以上）、`CoeffWidth`（係数幅、既定8、1以上）、`FracBits`（小数ビット、既定0）、`AccWidth`（内部・出力幅、既定32） |
+
+`IirBiquad`は2次IIRの1セクションを直接形Iで計算する（`y[n]=b0*x[n]+b1*x[n-1]+b2*x[n-2]-a1*y[n-1]-a2*y[n-2]`）。
+縦続で高次フィルタを作る基本単位で、`FirSerial`（有限応答）に対する無限応答版。係数・入力・状態を
+`AccWidth`へ符号拡張して掛ける（`ComplexMult`と同じ）。syncが非ブロッキングなので出力レジスタ`y1`を
+そのままフィードバック源に使える（`y1`へ新出力、`y2`へ旧`y1`、`x1`へ現入力、`x2`へ旧`x1`を同時代入し、
+すべて前エッジの値で整合。中間変数が要らない）。b=[1,2,1]のFIR的ステップ応答1,3,4,4とb0=1/a1=-1の
+アキュムレータ1,2,3,4,5（フィードバックと負係数）を確認。`FracBits>0`は算術右シフトで小数部を落とすが
+負方向への切り捨てで丸めはしない（TBは`FracBits=0`の整数係数で確認）。verilatorは`-Wall`で警告なし。
+
+| `Median3` | 3タップ中央値フィルタ（ストリーミング、符号なし・符号付き） | `Width`（標本幅、既定8、1以上）、`Signed`（0=符号なし/1=符号付き、既定0） |
+
+`Median3`は直近3標本の中央値を毎サイクル出す非線形フィルタ。単発スパイク（ごま塩ノイズ、外れ値）を
+エッジをなまさず除去できる（移動平均と違い1標本だけのインパルスは中央値に選ばれない）。乗算器不要。
+中央値は「最大でも最小でもない値」で、3入力なら比較の入れ子で選べる。combは更新した信号を読み直せないが、
+これは選択（比較は入力だけを読む）なのでcombで書ける（`MinMax`の考え方を3入力の入れ子にしたもの）。
+10,10,100,10,10…でスパイク100が出力に一切現れないことを確認。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Histogram` | ヒストグラム集計（ビン別カウンタ） | `Bins`（ビン数、既定8、2以上）、`CountWidth`（カウンタ幅、既定8、1以上）、`BinWidth`／`Total`／`IdxWidth`（導出） |
+
+`Histogram`は`en`のたびに`bin`のビンのカウンタを1つ増やし、`raddr`で任意ビンの度数を`rcount`に読む。
+`clear`で全ビン0。画像の輝度ヒストグラム、統計収集、閾値決定の前段に使う。ビンのカウンタを連結パックド
+ベクタ`bit[CountWidth*Bins]`にレジスタで持つので、**読み書きが同一サイクルで完結し**同じビンの連続加算を
+取りこぼさない（登録読み出しのRAMだと1サイクル遅れでread-modify-writeのハザードが出るが、これは避ける）。
+書込み位置は`bin.resize(IdxWidth)*CountWidth`と幅拡張。`clear`は連結ベクタを一括0で全ビン即消去。
+ビン列1,1,2,1,3,3で度数3/1/2、clearで0を確認。カウンタは飽和しない（必要なら`SatAdd`と組む）。verilatorは`-Wall`で警告なし。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `Correlator` | 直列ビット相関器（整合フィルタ、同期語検出） | `Length`（相関長、既定8、2以上）、`IdxWidth`／`SumWidth`（導出） |
+
+`Correlator`は`start`で1ブロックの相関を始め、`en`のたびに入力ビット`din`を1つ取り込み、参照パターン
+`pattern`の対応ビットと一致するかを数える。`Length`ビット取り込むと`done`を1サイクル立て、一致数`score`と
+しきい値以上かの判定`detect`を確定する。PN符号・プリアンブル・同期語の検出、ビット単位の整合フィルタに使う。
+相関値はcombの畳み込み（加算リダクション）が書けないため、`MacSerial`と同じく`en`のサイクルごとに時間方向へ
+1ビットずつ数える。`pattern`・`threshold`は入力ポートで実行時に変えられる。終端判定`idx == (Length-1)`は
+`.resize(IdxWidth)`で幅を合わせ幅警告を避ける。`matches`はSystemVerilog予約語なので出力名を`score`にした。
+完全一致でscore=8・detect=1、din全0でpatternの0ビット数(4)だけ一致しdetect=0、doneが1サイクル幅を確認。
 
 ### util
 
@@ -556,6 +874,17 @@ SVへ写す（優先順位に応じた括弧付けに対応。従来は`Bytes-1-
 `RangeMask`は`lo`以上`hi`未満のビットを1にする（`mask[i] = lo<=i<hi`）。`for`でループ定数`i`と
 `lo`／`hi`を比べて1ビットずつ埋める。フィールド切り出し・ウィンドウ・区間バイトイネーブルに使う。
 `hi<=lo`は空（全0）。組み合わせのみ。
+
+| 部品 | 機能 | パラメータ |
+|---|---|---|
+| `SignMag` | 符号絶対値 ⇔ 2の補数の変換（`Sm2Tc`／`Tc2Sm`） | `Width`（既定8、2以上） |
+
+`SignMag`は`Sm2Tc`（符号絶対値→2の補数）と`Tc2Sm`（逆）の対。符号絶対値は最上位ビットが符号、下位
+Width-1ビットが絶対値。オーディオの一部フォーマット、符号絶対値ALU、浮動小数点の仮数処理で行き来する。
+`Sm2Tc`は負なら絶対値を**Widthへ拡張してから**`0 - mag`（狭い幅で否定すると誤るため`.resize(Width)`）。
+`Tc2Sm`は負なら`0 - tc`の下位ビットを置き符号ビットを立てる（部分代入。combの再読みなし）。
+0x81(-1)⇔0xFF、0xFF(-127)⇔0x81、±5/±127/-0を確認。2の補数の最小値0x80(-2^(Width-1))は符号絶対値で
+表せず絶対値0に丸まる（明記）。2モジュール1ファイルのMULTITOPは`Secded`/`DiffPair`と同じ既存パターン。
 
 ## 実装上の注意
 

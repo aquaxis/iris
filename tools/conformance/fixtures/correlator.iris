@@ -1,0 +1,94 @@
+/// 直列ビット相関器（整合フィルタ、同期語検出）
+///
+/// `start`で1ブロックの相関を始め、`en`のたびに入力ビット`din`を1つ取り込み、
+/// 参照パターン`pattern`の対応ビットと一致するかを数える。`Length`ビットを取り込み終えると
+/// `done`を1サイクル立て、一致数`score`と、しきい値以上かの判定`detect`を確定する。
+/// PN符号・プリアンブル・同期語の検出、ビット単位の整合フィルタに使う。
+///
+/// 相関値（一致数）は`en`のサイクルごとに直列に積む（IRISのcombは畳み込み＝加算の
+/// リダクションを書けないため、`MacSerial`と同じく時間方向に1ビットずつ数える）。
+/// パターンは入力ポートなので実行時に差し替えられる。`threshold`も入力ポートで可変。
+///
+/// 位相：`start`で`st=1`にし内部添字`idx`と一致数`acc`を0に戻す。以後`en`のたびに
+/// `din == pattern[idx]`なら`acc`を1増やし、`idx`を進める。`idx == Length-1`の取り込みで
+/// `st=0`へ戻り`done`を立てる（この最後の一致も非ブロッキングで`acc`に入る）。
+/// `detect`は`done`のサイクルで`acc >= threshold`のとき1にする（途中のグリッチを出さない）。
+///
+/// ジェネリックパラメータ:
+/// - Length:   相関長（取り込むビット数、既定8、2以上）
+/// - IdxWidth: 添字の幅（導出＝$clog2(Length)）
+/// - SumWidth: 一致数・しきい値の幅（導出＝$clog2(Length + 1)、0..Lengthを表す）
+///
+/// ポート:
+/// - start:     1でブロックの相関を開始する（idx・accを0に戻す）
+/// - en:        1で din を1ビット取り込む（0なら保持）
+/// - din:       入力ビット
+/// - pattern:   参照パターン（Lengthビット、ビット0が最初に取り込む対象）
+/// - threshold: 検出しきい値（この一致数以上でdetect）
+/// - score:     現在の一致数
+/// - detect:    doneのサイクルで score >= threshold のとき1（1サイクル幅）
+/// - done:      Lengthビットを数え終えたサイクルで1（1サイクル幅）
+/// - busy:      相関の実行中は1
+///
+/// リセットは非同期assert・同期deassert、能動High。停止（st=0）・一致数0で始まる。
+mod Correlator[
+    Length: uint = 8,
+    IdxWidth: uint = $clog2(Length),
+    SumWidth: uint = $clog2(Length + 1),
+]
+where
+    Length >= 2,
+(
+    in  clk:       clock,
+    in  rst:       reset,
+    in  start:     bit,
+    in  en:        bit,
+    in  din:       bit,
+    in  pattern:   bit[Length],
+    in  threshold: bit[SumWidth],
+    out score:     bit[SumWidth],
+    out detect:    bit,
+    out done:      bit,
+    out busy:      bit,
+) {
+    var st:     bit = 0;
+    var idx:    bit[IdxWidth] = 0;
+    var acc:    bit[SumWidth] = 0;
+    var done_r: bit = 0;
+
+    sync(clk.posedge, rst.async) {
+        done_r = 0;
+        if st == 0 {
+            if start {
+                idx = 0;
+                acc = 0;
+                st = 1;
+            }
+        } else {
+            if en {
+                // 一致ビットを数える（din と参照パターンの現在ビットが等しいか）。
+                if din == pattern[idx] {
+                    acc = acc + 1;
+                }
+                idx = idx + 1;
+                if idx == (Length - 1).resize(IdxWidth) {
+                    st = 0;
+                    done_r = 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        score = acc;
+        busy = st != 0;
+        done = done_r;
+        // 検出は確定サイクル（done）だけ。`&`と比較の混在はif入れ子で切り詰めを避ける。
+        detect = 0;
+        if done_r {
+            if acc >= threshold {
+                detect = 1;
+            }
+        }
+    }
+}

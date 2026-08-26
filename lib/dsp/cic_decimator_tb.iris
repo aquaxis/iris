@@ -1,0 +1,66 @@
+/// CicDecimatorのテストベンチ
+///
+/// Width=8、間引き率R=4（既定）。en=1で標本を連続して取り込む。
+/// step 8以降は入力を10から20へ変える。次を確かめる（monitorで実測した値に一致）。
+///   - dvalidは4サンプルに1回だけ立つ（step 4,8,12,16）＝間引き
+///   - 定数10のブロックの総和は40（step 4,8）
+///   - 入力が10→20へ切り替わる遷移ブロックは 10+20+20+20=70（step 12）
+///   - 全て20になったブロックの総和は80（step 16）
+///
+/// step基準の同期チェッカで確かめる（Nco/MovingAverageと同じ型）。
+/// stepとDUTは同一クロックで進むので、観測は常に整合する。
+test CicDecimatorTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var din: bit[8] = 8'd10;
+    var step: bit[8] = 0;
+
+    inst dut = CicDecimator {
+        clk: clk,
+        rst: rst,
+        en: en,
+        din: din,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+        } else {
+            step = step + 1;
+            if step >= 8'd8 {
+                din = 8'd20;
+            }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd4 {
+                assert dut.dvalid == 1, "decimation tick after 4 samples";
+                assert dut.dout == 10'd40, "sum of four 10s = 40";
+            }
+            if step == 8'd5 {
+                assert dut.dvalid == 0, "no tick between decimation points";
+            }
+            if step == 8'd8 {
+                assert dut.dvalid == 1, "decimation tick at 8";
+                assert dut.dout == 10'd40, "sum of four 10s = 40 again";
+            }
+            if step == 8'd12 {
+                assert dut.dvalid == 1, "decimation tick at 12";
+                assert dut.dout == 10'd70, "transition block 10+20+20+20 = 70";
+            }
+            if step == 8'd16 {
+                assert dut.dvalid == 1, "decimation tick at 16";
+                assert dut.dout == 10'd80, "sum of four 20s = 80";
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(20);
+        $display("CicDecimatorTB: all checks passed");
+        $finish;
+    }
+}

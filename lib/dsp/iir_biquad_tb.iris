@@ -1,0 +1,90 @@
+/// IirBiquadのテストベンチ
+///
+/// 2インスタンスを同時に駆動する（FracBits=0の整数係数、入力は定数x=1）。
+///   - a: フィードフォワードのみ b=[1,2,1], a=[0,0]（FIR）
+///        ステップ応答は 1,3,4,4,4…（係数和4へ立ち上がる）
+///   - b: フィードバック b0=1, a1=-1（-a1*y1=+y1 でアキュムレータ y=x+y[n-1]）
+///        ステップ応答は 1,2,3,4,5…（負係数とフィードバックの確認）
+///
+/// -1 は8ビットの2の補数 8'd255 で渡す（モジュールが`.signed()`で解釈する）。
+/// 出力登録の1サイクル遅延があるため有効値はstep1から。monitorの実測に一致する。
+test IirBiquadTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var x: bit[8] = 8'd1;
+
+    // a: FIR b=[1,2,1], a=[0,0]
+    var b0a: bit[8] = 8'd1;
+    var b1a: bit[8] = 8'd2;
+    var b2a: bit[8] = 8'd1;
+    var zero: bit[8] = 8'd0;
+
+    // b: accumulator b0=1, a1=-1 (= 8'd255)
+    var b0b: bit[8] = 8'd1;
+    var a1m: bit[8] = 8'd255;
+
+    var step: bit[8] = 0;
+
+    inst a = IirBiquad {
+        clk: clk,
+        rst: rst,
+        en: en,
+        x: x,
+        b0: b0a,
+        b1: b1a,
+        b2: b2a,
+        a1: zero,
+        a2: zero,
+    };
+    inst b = IirBiquad {
+        clk: clk,
+        rst: rst,
+        en: en,
+        x: x,
+        b0: b0b,
+        b1: zero,
+        b2: zero,
+        a1: a1m,
+        a2: zero,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+        } else {
+            step = step + 1;
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd1 {
+                assert a.dout.signed() == 1, "FIR: y0 = b0 = 1";
+                assert b.dout.signed() == 1, "acc: y0 = 1";
+            }
+            if step == 8'd2 {
+                assert a.dout.signed() == 3, "FIR: b0+b1 = 3";
+                assert b.dout.signed() == 2, "acc: 2";
+            }
+            if step == 8'd3 {
+                assert a.dout.signed() == 4, "FIR: b0+b1+b2 = 4";
+                assert b.dout.signed() == 3, "acc: 3";
+            }
+            if step == 8'd4 {
+                assert a.dout.signed() == 4, "FIR: steady state 4";
+                assert b.dout.signed() == 4, "acc: 4";
+            }
+            if step == 8'd6 {
+                assert a.dout.signed() == 4, "FIR: still 4";
+                assert b.dout.signed() == 6, "acc: ramps to 6";
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(9);
+        $display("IirBiquadTB: all checks passed");
+        $finish;
+    }
+}

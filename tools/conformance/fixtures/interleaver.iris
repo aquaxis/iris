@@ -1,0 +1,93 @@
+/// ブロックインターリーバ（行方向書込み・列方向読出し）
+///
+/// Rows×Colsのブロックに記号を行方向（row-major）で書き込み、列方向（column-major）で
+/// 読み出して並べ替える。連続したバースト誤りを時間軸へ拡散し、後段のFEC（誤り訂正）が
+/// 分散した単発誤りとして訂正しやすくする。通信・ストレージのバースト誤り対策に使う。
+///
+/// `we`で内部書込みカウンタ`wcnt`（0..Depth-1）へ順に`din`を書く。`re`で列方向の順に読み出す：
+/// 読出しアドレスは行`rr`・列`rc`から`rr*Cols + rc`。RowsとColsを2のべき乗に限れば、このアドレスは
+/// 連結`{rr, rc}`そのものになり（`rr`が上位、`rc`が下位）、乗算なしで作れる。`rr`を速く回すと
+/// 同じ列の各行（＝元の行を跨ぐ）を順に読むので、行方向で書いた記号が列方向に散らばる。
+/// カウンタはRows/Cols/Depthが2のべき乗なので各幅で自然に巻き上がる（終端リテラル不要）。
+/// 読出しは登録読み出しで1サイクル遅れ、`dvalid`は`re`を1サイクル遅らせた有効フラグ。
+///
+/// **RowsとColsは2のべき乗であること**（アドレスが連結で作れ、カウンタが自然に巻き上がるため）。
+///
+/// ジェネリックパラメータ:
+/// - Width:     記号のビット幅（既定8、1以上）
+/// - Rows:      行数（2のべき乗、既定2、2以上）
+/// - Cols:      列数（2のべき乗、既定4、2以上）
+/// - Depth:     ブロックの記号数（導出＝Rows*Cols）
+/// - RowWidth:  行カウンタ幅（導出＝$clog2(Rows)）
+/// - ColWidth:  列カウンタ幅（導出＝$clog2(Cols)）
+/// - AddrWidth: アドレス幅（導出＝$clog2(Rows*Cols)）
+///
+/// ポート:
+/// - we:     1で`din`を書き込む（書込みアドレスは内部カウンタ）
+/// - din:    書き込む記号
+/// - re:     1で列方向に1記号読み出す
+/// - dout:   読み出した記号（1サイクル遅れ）
+/// - dvalid: doutが有効なサイクルで1（reの1サイクル後）
+///
+/// リセットは非同期assert・同期deassert、能動High。メモリ内容はリセットしない。
+mod Interleaver[
+    Width: uint = 8,
+    Rows: uint = 2,
+    Cols: uint = 4,
+    Depth: uint = Rows * Cols,
+    RowWidth: uint = $clog2(Rows),
+    ColWidth: uint = $clog2(Cols),
+    AddrWidth: uint = $clog2(Rows * Cols),
+]
+where
+    Width >= 1,
+    Rows >= 2,
+    Cols >= 2,
+(
+    in  clk:    clock,
+    in  rst:    reset,
+    in  we:     bit,
+    in  din:    bit[Width],
+    in  re:     bit,
+    out dout:   bit[Width],
+    out dvalid: bit,
+) {
+    mem storage: bit[Width][Depth];
+    var wcnt:     bit[AddrWidth] = 0;
+    var rr:       bit[RowWidth]  = 0;
+    var rc:       bit[ColWidth]  = 0;
+    var dout_r:   bit[Width]     = 0;
+    var dvalid_r: bit            = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            wcnt = 0;
+            rr = 0;
+            rc = 0;
+            dout_r = 0;
+            dvalid_r = 0;
+        } else {
+            // 書込み：行方向に順に詰める（Depthが2のべき乗なのでwcntは自然に巻き上がる）
+            if we {
+                storage[wcnt] = din;
+                wcnt = wcnt + 1;
+            }
+            // 読出し：列方向。登録読み出しで1サイクル遅れ
+            dvalid_r = re;
+            if re {
+                // 列方向の読出しアドレス＝rr*Cols+rc。2のべき乗なので連結{rr, rc}で作れる
+                dout_r = storage[{ rr, rc }];
+                // rrを速く回し、Rows-1で巻き上がるときに列rcを進める（自然巻き上がり）
+                if rr + 1 == 0 {
+                    rc = rc + 1;
+                }
+                rr = rr + 1;
+            }
+        }
+    }
+
+    comb {
+        dout = dout_r;
+        dvalid = dvalid_r;
+    }
+}

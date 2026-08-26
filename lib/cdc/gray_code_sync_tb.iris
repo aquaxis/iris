@@ -1,0 +1,42 @@
+/// GrayCodeSyncのテストベンチ
+///
+/// Width=8。グレイ符号`gray(n) = n ^ (n>>1)`を毎サイクル与え（n=step）、2段同期化を経て
+/// `bin_out`が元の2進値へ復号されることを確かめる。2段FFなので2サイクル遅れ
+/// （bin_out(step) = n(step-2)）。step基準の同期チェッカ（monitorの実測に一致）。
+///   step5→2, step7→4, step9→6
+test GrayCodeSyncTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var n: bit[8] = 0;
+    var step: bit[8] = 0;
+
+    inst d = GrayCodeSync {
+        clk: clk,
+        rst: rst,
+        gray_in: n ^ (n >> 1),
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+            n = 0;
+        } else {
+            step = step + 1;
+            n = step;
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd5 { assert d.bin_out == 8'd2, "sync+decode: n from 2 cycles ago = 2"; }
+            if step == 8'd7 { assert d.bin_out == 8'd4, "sync+decode = 4"; }
+            if step == 8'd9 { assert d.bin_out == 8'd6, "sync+decode = 6"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(11);
+        $display("GrayCodeSyncTB: all checks passed");
+        $finish;
+    }
+}

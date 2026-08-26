@@ -1,0 +1,55 @@
+/// グレイコード値の同期化（多ビットCDCポインタ受信）
+///
+/// 別クロックドメインのグレイ符号化された値`gray_in`（例：`GrayCounter`の出力や
+/// FIFOのポインタ）を、受信ドメインのクロックで2段FF同期化してから2進`bin_out`へ戻す。
+/// グレイ符号は隣接値が1ビットしか変わらないので、遷移中にサンプルしても新旧どちらかの値に
+/// 定まり（中間の化けた値にならない）、多ビット値を安全にクロック跨ぎで受け取れる。
+/// 非同期FIFO（`FifoAsync`）のポインタ受け渡しの核であり、カウンタ・進捗値のCDCに使う。
+///
+/// 段数は2固定（`Sync2ff`と同じく、var配列の可変段は生成境界に定数を要するため）。
+/// 同期化した`g2`を`Gray2Bin`と同じ`(g2 >> i).xor_reduce()`で2進へ戻す。
+/// **入力はグレイ符号であること**（連続値でも1ビットずつ変わる符号。生の2進バスには使えない）。
+///
+/// CDC制約（`ASYNC_REG`・`dont_touch`・最大遅延SDC）はIRISからは出せない。論理のみを提供する。
+///
+/// ジェネリックパラメータ:
+/// - Width: 値のビット幅（既定8、1以上）
+///
+/// ポート:
+/// - gray_in: 送信ドメインのグレイ符号値（非同期）
+/// - bin_out: 受信ドメインで同期化・復号した2進値（2サイクル遅れ）
+///
+/// リセットは非同期assert・同期deassert、能動High。同期レジスタは0で始まる。
+mod GrayCodeSync[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk:     clock,
+    in  rst:     reset,
+    in  gray_in: bit[Width],
+    out bin_out: bit[Width],
+) {
+    // 2段の同期化レジスタ（メタステーブル対策）
+    var g1: bit[Width] = 0;
+    var g2: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            g1 = 0;
+            g2 = 0;
+        } else {
+            g1 = gray_in;
+            g2 = g1;
+        }
+    }
+
+    comb {
+        // 同期化したグレイ値を2進へ戻す（bin[i] = 第i位以上のXOR）
+        bin_out = 0;
+        for i in 0..Width {
+            bin_out[i] = (g2 >> i).xor_reduce();
+        }
+    }
+}

@@ -1,0 +1,59 @@
+/// ロック付き固定優先度アービタ
+///
+/// 基本は`ArbiterFixed`と同じく最下位の要求にone-hotのgrantを与えるが、`lock`が1の間は
+/// 直前に選んだマスタが要求を出し続ける限りそのgrantを保持する（原子的／連続バーストの間、
+/// 途中でより高優先の要求へ切り替わらないようにする）。DMAのロック転送、read-modify-write、
+/// 分割不可なトランザクションの調停に使う。
+///
+/// 実装は前回grantを登録する1レジスタ＋組み合わせ選択。foldは使わない（ビット演算と0比較のみ）。
+///   pick  = req & (~req + 1)         （最下位の1、`ArbiterFixed`と同じ）
+///   保持   = lock かつ (held & req) != 0 なら grant = held & req（要求継続中の保持マスタ）
+///   それ以外は grant = pick
+/// `&`と比較を混ぜるとiris2svが片方を1ビットに切り詰めるため、条件はif文の入れ子で書く。
+///
+/// ジェネリックパラメータ:
+/// - N: 要求の本数（既定4、2以上）
+///
+/// ポート:
+/// - req:   要求（各ビットが1マスタ）
+/// - lock:  1のとき現在のgrantを保持する
+/// - grant: 与えたgrant（one-hot）
+/// - valid: どれか要求があれば1
+///
+/// リセットは非同期assert・同期deassert、能動High。保持は0で始まる。
+mod ArbiterLock[
+    N: uint = 4,
+]
+where
+    N >= 2,
+(
+    in  clk:   clock,
+    in  rst:   reset,
+    in  req:   bit[N],
+    in  lock:  bit,
+    out grant: bit[N],
+    out valid: bit,
+) {
+    var held: bit[N] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            held = 0;
+        } else {
+            // 今サイクルのgrantを次サイクルの保持候補として登録する
+            held = grant;
+        }
+    }
+
+    comb {
+        // 既定は固定優先度の選択（最下位の1）
+        grant = req & (~req + 1);
+        // lock中で、前回grantのマスタがまだ要求していればそれを保持する
+        if lock {
+            if (held & req) != 0 {
+                grant = held & req;
+            }
+        }
+        valid = req != 0;
+    }
+}

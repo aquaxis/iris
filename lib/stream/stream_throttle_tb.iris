@@ -1,0 +1,69 @@
+/// StreamThrottleのテストベンチ
+///
+/// 上流を10から連続で送り、下流は常に受ける（out_ready=1）。doneを返さないと
+/// 未完了数がMaxOutstanding=4まで上がり、そこで前方が止まる（out_valid=0、in_ready=0）。
+/// step10でdoneを1つ返すと1枠空き、次の1語だけ流れて再び上限で止まることを確かめる。
+/// 未完了数がMaxOutstandingを超えないことも各サイクルで見る。
+/// 駆動も検査もsyncで行い、既知のサイクルで読む。
+test StreamThrottleTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var in_valid: bit = 0;
+    var in_data: bit[8] = 0;
+    var out_ready: bit = 0;
+    var done: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = StreamThrottle {
+        clk: clk,
+        rst: rst,
+        in_valid: in_valid,
+        in_data: in_data,
+        out_ready: out_ready,
+        done: done,
+    };
+
+    // 上流：受理されたら次の値へ。下流：常に受ける。
+    sync(clk.posedge) {
+        step = step + 1;
+        if step == 8'd2 { in_valid = 1; in_data = 8'd10; out_ready = 1; }
+        if step >= 8'd2 & in_valid & dut.in_ready {
+            in_data = in_data + 1;
+        }
+        // step10でdoneを1つ返す（枠を1つ空ける）
+        if step == 8'd9 { done = 1; }
+        if step == 8'd10 { done = 0; }
+    }
+
+    sync(clk.posedge) {
+        // 未完了数はどのサイクルでもMaxOutstanding=4を超えない
+        assert dut.outstanding <= 4'd4, "outstanding never exceeds MaxOutstanding";
+        if step == 8'd6 {
+            assert dut.out_valid == 1, "passes while under the limit";
+            assert dut.in_ready == 1, "ready while under the limit";
+            assert dut.out_data == 8'd13, "data passes through";
+            assert dut.outstanding == 4'd1, "outstanding counts up";
+        }
+        if step == 8'd7 { assert dut.outstanding == 4'd2, "counts up per issue"; }
+        if step == 8'd8 { assert dut.outstanding == 4'd3, "counts up per issue"; }
+        if step == 8'd9 {
+            assert dut.outstanding == 4'd4, "reaches the cap";
+            assert dut.out_valid == 0, "throttled at the cap";
+            assert dut.in_ready == 0, "not ready at the cap";
+        }
+        if step == 8'd11 {
+            assert dut.outstanding == 4'd3, "done frees one slot";
+            assert dut.out_valid == 1, "flows again after done";
+        }
+        if step == 8'd12 {
+            assert dut.outstanding == 4'd4, "back at the cap after one more issue";
+            assert dut.out_valid == 0, "throttled again";
+        }
+    }
+
+    seq {
+        await clk.cycles(14);
+        $display("StreamThrottleTB: all checks passed");
+        $finish;
+    }
+}

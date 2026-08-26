@@ -1,0 +1,102 @@
+/// 3タップ中央値フィルタ（ストリーミング、符号なし・符号付き両対応）
+///
+/// 直近3標本（`din`とその2つ前まで）の中央値を毎サイクル出す非線形フィルタ。
+/// 単発スパイク（ごま塩ノイズ、外れ値）を、エッジをなまさずに除去できる
+/// （移動平均と違い、1標本だけのインパルスは中央値では選ばれない）。乗算器は要らない。
+///
+/// 中央値は「最大でも最小でもない値」で、3入力なら比較の入れ子で選べる。
+/// combは同一ブロックで更新した信号を読み直せないが、これは選択（比較は入力だけを読み、
+/// 出力は読まない）なのでcombで書ける（`MinMax`と同じ考え方を3入力の入れ子にしたもの）。
+/// syncは非ブロッキングなので、3段の遅延線`r0/r1/r2`のシフトは前エッジの値で正しく回る。
+/// リセット直後は遅延線が0なので、最初の2サイクルで正しく立ち上がる。
+///
+/// ジェネリックパラメータ:
+/// - Width:  標本のビット幅（既定8、1以上）
+/// - Signed: 0=符号なし比較、1=符号付き比較（`.signed()`で解釈、既定0）
+///
+/// ポート:
+/// - en:  1のとき1標本進める（0なら状態を保つ）
+/// - din: 入力標本
+/// - med: 直近3標本の中央値
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod Median3[
+    Width: uint = 8,
+    Signed: uint = 0,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  en:  bit,
+    in  din: bit[Width],
+    out med: bit[Width],
+) {
+    var r0: bit[Width] = 0;
+    var r1: bit[Width] = 0;
+    var r2: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            r0 = 0;
+            r1 = 0;
+            r2 = 0;
+        } else if en {
+            // 遅延線を1段進める（r0が最新）
+            r2 = r1;
+            r1 = r0;
+            r0 = din;
+        }
+    }
+
+    comb {
+        // r0/r1/r2 の中央値を比較の入れ子で選ぶ（比較は入力だけを読む）
+        med = r0;
+        if Signed == 1 {
+            if r0.signed() < r1.signed() {
+                if r1.signed() < r2.signed() {
+                    med = r1;
+                } else {
+                    if r0.signed() < r2.signed() {
+                        med = r2;
+                    } else {
+                        med = r0;
+                    }
+                }
+            } else {
+                if r0.signed() < r2.signed() {
+                    med = r0;
+                } else {
+                    if r1.signed() < r2.signed() {
+                        med = r2;
+                    } else {
+                        med = r1;
+                    }
+                }
+            }
+        } else {
+            if r0 < r1 {
+                if r1 < r2 {
+                    med = r1;
+                } else {
+                    if r0 < r2 {
+                        med = r2;
+                    } else {
+                        med = r0;
+                    }
+                }
+            } else {
+                if r0 < r2 {
+                    med = r0;
+                } else {
+                    if r1 < r2 {
+                        med = r2;
+                    } else {
+                        med = r1;
+                    }
+                }
+            }
+        }
+    }
+}

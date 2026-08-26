@@ -1,0 +1,48 @@
+/// Clampのテストベンチ
+///
+/// 符号なし（lo=20, hi=200）と符号付き（lo=-50, hi=50）の2インスタンスで、
+/// 範囲内はそのまま、下限・上限を割ると丸められることを確かめる。
+/// Clampは組み合わせ回路なので、入力`a`を変えて1サイクル待てば出力が追従する。
+test ClampTB {
+    let clk: clock(period: 10ns);
+
+    var au: bit[8] = 8'd10;
+    var as: bit[8] = 8'h9C;   // -100
+
+    inst u = Clamp {
+        a: au,
+        lo: 8'd20,
+        hi: 8'd200,
+    };
+    inst s = Clamp[Signed: 1] {
+        a: as,
+        lo: 8'hCE,             // -50
+        hi: 8'd50,
+    };
+
+    seq {
+        await clk.cycles(1);
+        // 符号なし: 10 は下限20へ、-100(=符号付きでは別扱い)
+        assert u.out_val == 8'd20, "unsigned: 10 clamped up to lo 20";
+        assert s.out_val.signed() == -50, "signed: -100 clamped up to lo -50";
+
+        au = 8'd100;
+        as = 8'd100;
+        await clk.cycles(1);
+        assert u.out_val == 8'd100, "unsigned: 100 in range";
+        assert s.out_val.signed() == 50, "signed: 100 clamped down to hi 50";
+
+        au = 8'd250;
+        as = 8'd0;
+        await clk.cycles(1);
+        assert u.out_val == 8'd200, "unsigned: 250 clamped down to hi 200";
+        assert s.out_val.signed() == 0, "signed: 0 in range";
+
+        au = 8'd200;
+        await clk.cycles(1);
+        assert u.out_val == 8'd200, "unsigned: 200 at upper bound stays";
+
+        $display("ClampTB: all checks passed");
+        $finish;
+    }
+}

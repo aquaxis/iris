@@ -1,0 +1,51 @@
+/// デルタカウンタ（可変増減量・プリセット付き）
+///
+/// `en`のたびに計数値へ`step`を足す（`Counter`が±1固定なのに対し、増減量を実行時に指定できる）。
+/// `step`は2の補数として解釈すれば正で加算・負で減算になる（加算そのものは符号に依らず同じ桁なので、
+/// 符号の区別は使う側の解釈だけでよい）。`load`で任意の初期値`load_val`にプリセットできる。
+/// DSPのストライドアクセスのアドレス生成、ランプ／スイープ生成、可変レートの位相累算に使う。
+///
+/// 計数はWidth幅で自然に巻き上がる（ラップ）。`load`は`en`より優先。
+///
+/// ジェネリックパラメータ:
+/// - Width: 計数値と増減量のビット幅（既定8、1以上）
+///
+/// ポート:
+/// - en:       1のとき`step`を足す（0なら保持）
+/// - load:     1で`load_val`にプリセットする（enより優先）
+/// - load_val: プリセット値
+/// - step:     増減量（2の補数。正で加算・負で減算）
+/// - count:    現在の計数値
+///
+/// リセットは非同期assert・同期deassert、能動High。0で始まる。
+mod DeltaCounter[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk:      clock,
+    in  rst:      reset,
+    in  en:       bit,
+    in  load:     bit,
+    in  load_val: bit[Width],
+    in  step:     bit[Width],
+    out count:    bit[Width],
+) {
+    var q: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            q = 0;
+        } else if load {
+            q = load_val;
+        } else if en {
+            // stepを足す（Width幅で巻き上がる。2の補数なので負のstepは減算になる）
+            q = q + step;
+        }
+    }
+
+    comb {
+        count = q;
+    }
+}

@@ -5,23 +5,23 @@ arbiter as a part instead of writing it again each time.
 
 ## Overview
 
-74 parts in 10 categories. Every part passes three checks: an `iris-sim`
+105 parts in 10 categories. Every part passes three checks: an `iris-sim`
 testbench, `iris sv` (SystemVerilog conversion), and `iris lint` (naming). And
-`tools/conformance/run.sh` stays at 584/0 (70 library parts registered as fixtures).
+`tools/conformance/run.sh` stays at 770/0 (101 library parts registered as fixtures).
 
 | Category | Count | Parts |
 |---|---|---|
-| `timing/` | 11 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog`, `JohnsonCounter` |
-| `arith/` | 17 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator`, `Bin2Bcd` |
-| `mem/` | 8 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer`, `Lifo` |
-| `arbiter/` | 2 | `ArbiterFixed`, `ArbiterRr` |
-| `stream/` | 12 | `SpillRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter`, `StreamArbiter` |
-| `cdc/` | 4 | `Sync2ff`, `RstSync`, `PulseSync`, `HandshakeSync` |
-| `coding/` | 7 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler` |
+| `timing/` | 16 | `Counter`, `EdgeDetect`, `GrayCounter`, `Lfsr`, `ClkDivider`, `Pwm`, `Debounce`, `Timer`, `OneShot`, `Watchdog`, `JohnsonCounter`, `TripCounter`, `Prescaler`, `DeltaCounter`, `RingCounter`, `RateLimiter` |
+| `arith/` | 25 | `PriorityEncoder`, `Lzc`, `Bin2Gray`, `Decoder`, `Rotator`, `Gray2Bin`, `MinMax`, `DivSerial`, `MulSerial`, `SatAdd`, `SatSub`, `OneHotCheck`, `Abs`, `Accumulator`, `PopcountSerial`, `Comparator`, `Bin2Bcd`, `Clamp`, `Mux1H`, `AbsDiff`, `Extend`, `Thermometer`, `BarrelShift`, `Ctz`, `Negate` |
+| `mem/` | 9 | `FifoSync`, `FifoAsync`, `RamSp`, `RamDp`, `Ram2r1w`, `ShiftRegister`, `RingBuffer`, `Lifo`, `Cam` |
+| `arbiter/` | 4 | `ArbiterFixed`, `ArbiterRr`, `ArbiterLock`, `Semaphore` |
+| `stream/` | 14 | `SpillRegister`, `StreamRegister`, `Serializer`, `Deserializer`, `VecMux`, `VecDemux`, `StreamDownsizer`, `StreamUpsizer`, `StreamFork`, `StreamJoin`, `StreamFilter`, `CreditCounter`, `StreamArbiter`, `StreamThrottle` |
+| `cdc/` | 6 | `Sync2ff`, `RstSync`, `PulseSync`, `HandshakeSync`, `GrayCodeSync`, `RstSequencer` |
+| `coding/` | 10 | `Crc`, `Parity`, `Secded`, `TmrVoter`, `Checksum`, `Scrambler`, `Descrambler`, `DiffPair`, `Interleaver`, `LockstepCompare` |
 | `periph/` | 4 | `UartTx`, `UartRx`, `SpiMaster`, `I2cMaster` |
-| `dsp/` | 5 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco`, `ComplexMult` |
-| `util/` | 4 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask` |
-| Total | 74 | |
+| `dsp/` | 12 | `FirSerial`, `MacSerial`, `MovingAverage`, `Nco`, `ComplexMult`, `PeakDetect`, `CicDecimator`, `PidController`, `IirBiquad`, `Median3`, `Histogram`, `Correlator` |
+| `util/` | 5 | `BitReverse`, `EndianSwap`, `ByteEnableExpand`, `RangeMask`, `SignMag` |
+| Total | 105 | |
 
 **The line between what is and is not expressible is the point of this list.**
 Single-clock logic (counters, FIFOs, arbiters), FSM + shift (peripheral
@@ -102,7 +102,7 @@ runs each `_tb`'s asserts and catches **behavioral** regressions (iris-sim exits
 on an assertion failure).
 
 ```
-bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 74/0)
+bash tools/lib_test.sh    # runs every lib/ <name>_tb.iris under iris-sim (currently 105/0)
 ```
 
 ## Parts
@@ -169,6 +169,68 @@ fault when the periodic `kick` stops (functional safety / monitoring) — unlike
 → 10…0 → 0…0`. Adjacent states differ by one bit, so it suits phase/quadrature
 generation and glitch-free state decode; `en` low holds.
 
+| Part | Function | Parameters |
+|---|---|---|
+| `RingCounter` | ring counter (one-hot rotation, N states) | `Width` (states, default 8, >= 2), `Right` (direction, 0=left/1=right, default 0) |
+
+`RingCounter` rotates a single set bit one place each `en` (`{r[Width-2:0], r[Width-1]}`
+for left, `Right` for right): `0…01 → 0…10 → … → 10…0 → 0…01`, staying one-hot across
+`Width` states. It pairs with `JohnsonCounter` (a 2*Width twisted ring); since all-zero
+is an absorbing state, the reset value is `1`. Use it for phase generation, stepping a
+one-hot FSM, or driving a mux select; `en` low holds. Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `TripCounter` | trip counter (asserts on reaching a threshold, saturating) | `Width` (count/threshold width, default 8, >= 1) |
+
+`TripCounter` counts one per `en` and asserts `trip` when `count >= threshold` — event
+counting, retry-limit detection, error-count alarms. The counter saturates at all-ones and
+does not wrap, so once `trip` is set it stays until `clear` (latch-like). Saturation is
+detected with `q + 1 != 0` (`0 - 1` would be an unsized 32-bit `-1`, not a width comparison,
+so the wrap of `q + 1` at `Width` is used to spot all-ones instead). The threshold is an input
+port. Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Prescaler` | prescaler (runtime-variable divide, tick generator) | `Width` (ratio/counter width, default 8, >= 1) |
+
+`Prescaler` divides the `en` cycles by `ratio`, emitting a one-cycle `tick` every `ratio`
+enabled cycles. Where `ClkDivider` fixes the ratio in the compile-time `Div`, this takes
+`ratio` as an input port and changes it at runtime (baud generation, timer prescalers). The
+terminal check is `cnt + 1 >= ratio` (`>=`, not `==`) so lowering `ratio` below the current
+`cnt` does not strand the counter — it wraps next cycle. Verified that a runtime 3→2 change
+recovers immediately and that no tick appears while `en` is low. Mixing `en` with the `>=`
+under `&` makes iris2sv emit an expression that truncates one side to a single bit, so `tick`
+is written with `if` statements to convert cleanly. Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `DeltaCounter` | delta counter (variable step, preset) | `Width` (count/step width, default 8, >= 1) |
+
+`DeltaCounter` adds `step` to the count on each `en` (where `Counter` is fixed ±1, this takes a
+runtime step). Read as two's complement, a positive `step` adds and a negative one subtracts —
+the add itself is sign-agnostic (same bits), so signedness is only the caller's interpretation.
+`load` presets the count to `load_val`. For DSP strided-access address generation, ramp/sweep
+generation, or variable-rate phase accumulation; the count wraps naturally at `Width`. Verified
+step=3 counts up, `load` presets to 100, and step=-2 (0xFE) counts down. Verilator is clean
+under `-Wall`.
+
+| part | function | parameters |
+|---|---|---|
+| `RateLimiter` | rate limiter (token-bucket bandwidth limiting) | `Width` (token/capacity/interval width, default 8, >= 1) |
+
+`RateLimiter` fills a bucket with tokens at a fixed interval; when a request `req` arrives and at
+least one token is available, it raises `grant` and consumes one. The average rate is set by
+`refill` (one token every this many enabled cycles, same `>=` terminus as `Prescaler`) and the
+allowed burst by the bucket capacity `burst`. For bandwidth limiting, transmit pacing, or retry
+spacing. The bucket saturates at `burst` and drops the overflow. `grant` is decided on the current
+level only (a token arriving via refill this cycle is usable from the next). Raising `refill` at
+runtime stops the refill and lets the bucket drain cleanly. `grant` mixes `en & req & (tokens != 0)`,
+which iris2sv would truncate to one bit if written with `&`, so it is written with `if` to convert
+reliably. Verified that with refill=2, burst=3 it fills to capacity and saturates, that a request
+consumes one token at a time and `grant` drops when empty, and that `en=0` withholds `grant` and
+holds the level. Verilator is clean under `-Wall`.
+
 ### arith
 
 | Part | Function | Parameters |
@@ -234,6 +296,18 @@ are built with per-bit assignment (set/clear just the MSB). Combinational only.
 
 | Part | Function | Parameters |
 |---|---|---|
+| `Clamp` | range limiter (clamps any value into `[lo, hi]`) | `Width` (default 8, >= 1), `Signed` (0/1, default 0) |
+
+`Clamp` confines input `a` to the range `[lo, hi]` (`lo` if `a < lo`, `hi` if `a > hi`,
+otherwise `a`). Where `SatAdd`/`SatSub` saturate on the overflow of an add/subtract, this
+rounds an arbitrary value into a range supplied at runtime (`lo`/`hi` are input ports) — a
+signal limiter, index/coordinate range rounding, or an AGC output clamp. It is a `comb`
+selection (`out = a` by default, overwritten by two `<` comparisons that read only inputs,
+the `MinMax` idea). `Signed` switches unsigned/signed comparison. The caller must keep
+`lo <= hi`. Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
 | `OneHotCheck` | exactly-one-bit detector | `Width` (default 8, >= 1) |
 
 `OneHotCheck` clears the lowest set bit with `din & (din - 1)`; if the result is 0
@@ -280,6 +354,89 @@ cycles — the front end of a 7-segment or decimal display. Each cycle it comput
 top binary bit. `255 -> 0x255`, `99 -> 0x099` are checked. Same idiom as the serial
 DSP/CRC parts (intermediate result in `comb`, `sync` is non-blocking); `done` pulses
 on the final cycle.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Mux1H` | one-hot mux (N inputs, one-hot select) | `Width` (word width, default 8, >= 1), `N` (words / select width, default 4, >= 2), `Total` (derived) |
+
+`Mux1H` selects one of N input words with a one-hot `sel` (exactly one bit set). Where
+`VecMux` selects with a binary `sel`, this fits places where a decoded control is natural
+(instruction decode, ALU result select). The inputs arrive as a concatenated packed vector
+`bit[Width*N]`, element `i` at `data[i*Width +: Width]`. `comb` cannot fold an OR, but this
+is a selection, so `out = 0` by default is overwritten by the element whose `sel[i]` is 1
+(exactly once when one-hot; 0 when `sel` is 0; highest index wins if several bits are set).
+Verified that {0x11, 0x22, 0x33, 0x44} are each selected by their one-hot bit. Verilator is
+clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `AbsDiff` | absolute difference (`|a - b|`, unsigned or signed) | `Width` (default 8, >= 1), `Signed` (0/1, default 0) |
+
+`AbsDiff` computes the magnitude of the difference of two inputs in one cycle — the kernel of
+sum-of-absolute-differences (video motion estimation) and distance metrics (where `Abs` is a
+one-input absolute value, this is the size of a two-input difference). Subtracting the smaller
+from the larger is always non-negative, so it is a `comb` selection: `a - b` by default,
+overwritten by `b - a` when `a < b` (the `MinMax` idiom). `Signed` switches unsigned/signed
+comparison. The signed extreme `|-128 - 127| = 255` fits in `Width` bits, as verified.
+Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Extend` | width extension (zero-extend / sign-extend) | `InWidth` (default 8, >= 1), `OutWidth` (default 16, >= InWidth), `Signed` (0/1, default 0) |
+
+`Extend` widens an `InWidth` input to `OutWidth`. `Signed=0` zero-extends; `Signed=1`
+sign-extends (replicating the MSB, preserving two's complement) — the standard bridge from a
+narrow signal to a wider bus or datapath. Sign-extend uses `.signed().sign_extend[OutWidth]()`
+and zero-extend uses `din.resize(OutWidth)` to make the width explicit (a bare assignment
+zero-fills but draws a Verilator width warning, so `.resize` is used). Requires
+`OutWidth >= InWidth`. Verified 4→8 bits: `0xF -> 0xFF` (signed) / `0x0F` (zero). Verilator is
+clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Thermometer` | binary to thermometer (unary) code | `Width` (output width, default 8, >= 1), `ValWidth` (derived `$clog2(Width+1)`) |
+
+`Thermometer` encodes `value` (0..Width) into a `Width`-bit code whose low `value` bits are 1
+(`therm[i] = 1` iff `i < value`) — for flash ADC/DAC codes, unary representation, or "open the
+low N of N requests" (where `Decoder` is binary→one-hot, this is binary→thermometer, a run of
+`value` ones from the LSB). Each bit is decided independently by `i < value` (`i` a loop
+constant), so it is a `comb` selection (`therm = 0` default, set the bits that qualify).
+Verified `value` 3 → 0x07, 5 → 0x1F, 8 → 0xFF. Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `BarrelShift` | barrel shifter (variable logical / arithmetic shift) | `Width` (default 8, >= 2), `Right` (0=left / 1=right, default 0), `Arith` (0=logical / 1=arithmetic, right only, default 0), `ShWidth` (derived) |
+
+`BarrelShift` shifts `din` by `amt` (where `Rotator` rotates, this fills the vacated side with 0
+or the sign). It supports left (zero-fill low), logical right (zero-fill high), and arithmetic
+right (sign-replicate). **IRIS's `>>` is a logical shift even on `.signed()`** (zero-fill), so
+the arithmetic right shift is built by hand: OR the logical right shift with a top-`amt`-bits
+mask `~((din | ~din) >> amt)` when the sign bit is set (all-ones is formed as `din | ~din`;
+`comb` can't re-read what it just wrote, so this is one expression). Verified 0x80(-128)>>1 =
+0xC0, 0xF0(-16)>>4 = 0xFF, positive values match the logical shift, and amt=0 is unchanged.
+Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Ctz` | count trailing zeros (index of the lowest set bit) | `Width` (default 8, >= 1), `CountWidth` (derived `$clog2(Width)+1`) |
+
+`Ctz` counts the zeros from the LSB up to the first 1 (the index of the lowest set bit; `Width`
+if none) — the counterpart to `Lzc`, for priority encoders, alignment, or power-of-two tests.
+Since `comb` is last-wins, the lowest set bit must be written last; IRIS's `for` runs low→high,
+so the index is walked as `Width-1-i` (high→low) to let the lowest set bit win. Verified
+ctz(0x08)=3, 0x0A=1, 0x01=0, 0x80=7, 0x00=8. The `count = Width;` WIDTHTRUNC note matches the
+shipped `Lzc`.
+
+| part | function | parameters |
+|---|---|---|
+| `Negate` | two's-complement negation (with overflow flag) | `Width` (default 8, >= 2) |
+
+`Negate` outputs `-a` for a signed (two's-complement) `a` (equivalent to `~a + 1`) — for
+building a subtrahend, flipping a coefficient's sign, or polarity switching. Combinational only.
+It is written as `0 - a` so the NOT is not placed in a 32-bit context, keeping Verilator clean
+under `-Wall` (the same trick as `SignMag`). Only the most-negative value (0x80..) cannot be
+represented positive in the same width and wraps back to itself, so `ovf` flags exactly that one
+case. Verified -(5)=0xFB, -(-5)=5, and -(0x80)=0x80 with ovf=1.
 
 ### mem
 
@@ -348,6 +505,22 @@ top `storage[sp-1]` and decrements `sp` on `pop` (registered read, one-cycle del
 counterpart — for save/restore, bracket matching, backtracking, or reversal. Contents
 are not reset (`mem`).
 
+| Part | Function | Parameters |
+|---|---|---|
+| `Cam` | content-addressable memory (search by key, one-hot match) | `Width` (key width, default 8, >= 1), `Entries` (default 4, >= 2), `SelWidth`/`IdxWidth`/`Total` (derived) |
+
+`Cam` stores a key in each of `Entries` entries and marks the entries matching a search
+`key` in a one-hot `match_oh` (`hit = match_oh != 0`) — a routing table, cache tag match, or
+address compare. An entry is written at `waddr` on `we` and enabled with a `valid` bit;
+`clear` invalidates all. With no array ports, entries live in a concatenated packed vector
+`bit[Width*Entries]` accessed by part-select / part-write (the `VecMux`/`VecDemux` idiom; the
+write position is widened `waddr.resize(IdxWidth)*Width`, but the single-bit `valid` write
+indexes with `waddr` directly, since an over-wide index draws a Verilator width warning). The
+search compares each entry against `key` with a fixed part-select and builds `match_oh` in
+`comb`. `match` is an IRIS keyword, so the output is named `match_oh`. A duplicate key sets
+several bits (pair with `PriorityEncoder` for the first-match index). Verilator is clean under
+`-Wall`.
+
 ### arbiter
 
 | Part | Function | Parameters |
@@ -361,6 +534,32 @@ are not reset (`mem`).
 `mask = ~(grant | (grant - 1))`. Granting the top bit makes the mask 0, which
 wraps to the lowest — so no all-ones literal is needed.
 
+| Part | Function | Parameters |
+|---|---|---|
+| `ArbiterLock` | fixed-priority arbiter with grant hold (held while `lock`) | `N` (requesters, default 4, >= 2) |
+
+`ArbiterLock` is `ArbiterFixed`'s lowest-priority pick, but while `lock` is high it holds the
+previous grant as long as that master keeps requesting — so an atomic/locked burst is not
+preempted by a higher-priority request mid-transaction (DMA locked transfers, read-modify-write,
+indivisible transactions). It registers the previous grant and, when `lock && (held & req) != 0`,
+keeps `grant = held & req`; otherwise `req & (~req + 1)` (no fold — just bitwise ops and a
+compare-to-0). The `&`-with-compare mix is avoided with nested `if`s. Verified that master2 is
+held under lock even as higher-priority master1 arrives, and switches once lock releases. The
+`~req + 1` WIDTHEXPAND matches the shipped `ArbiterFixed`.
+
+| part | function | parameters |
+|---|---|---|
+| `Semaphore` | counting semaphore (acquire/release, capacity limit) | `Width` (count/capacity width, default 4, >= 1) |
+
+`Semaphore` counts tokens from 0 to capacity `max`: `acquire` takes one (with `grant` when there
+is room) and `rel` returns one — for limiting concurrent use of a shared resource, bounding
+outstanding requests, or producer/consumer inventory. Capacity 1 makes it a mutex (binary
+semaphore). `grant` is combinational `acquire & (count < max)` (the `&`-with-compare mix avoided
+with nested `if`s); `rel` decrements only when `count > 0` (saturates at 0). Simultaneous
+`acquire` and `rel` cancel, leaving `count` unchanged. The input is named `rel` because `release`
+is a SystemVerilog keyword. Verified filling 0→3 with grant dropping when full, draining 3→0 with
+`empty` at the bottom, and the cancel on simultaneous acquire/release.
+
 ### stream
 
 | Part | Function | Parameters |
@@ -370,6 +569,18 @@ wraps to the lowest — so no all-ones literal is needed.
 `SpillRegister` breaks the upstream/downstream path, loses no data under
 backpressure, and passes one word per cycle when not stalled. `in_ready` depends
 only on the skid slot being free (not combinationally on `out_ready`).
+
+| Part | Function | Parameters |
+|---|---|---|
+| `StreamRegister` | ready/valid depth-1 registered stage (cuts both combinational paths, with `flush`) | `Width` (default 8, >= 1) |
+
+`StreamRegister` registers the forward side (valid/data) and drives the backward
+side from its own slot (`in_ready = ~valid_q`), so it breaks the combinational
+path between upstream and downstream in both directions. Being depth-1, it passes
+one word every two cycles under continuous flow (50% throughput). Use the depth-2
+`SpillRegister` when 100% throughput is needed; use `StreamRegister` for the
+shortest path and smallest area. A cycle with `flush` high drops the stored word
+and empties the stage (for pipeline flush / bubble insertion).
 
 | Part | Function | Parameters |
 |---|---|---|
@@ -442,6 +653,20 @@ written last and wins. `out_valid` is "any input valid", `in_ready` is asserted 
 the granted line only, and accepting the output advances `ptr`. Unlike `StreamJoin`
 (all inputs required), it selects one — for merging onto a shared bus.
 
+| Part | Function | Parameters |
+|---|---|---|
+| `StreamThrottle` | limit the number of outstanding transactions | `Width` (default 8, >= 1), `CntWidth` (default 4), `MaxOutstanding` (default 4) |
+
+`StreamThrottle` passes a ready/valid stream through but caps the number of
+issued-but-not-completed (in-flight) transactions at `MaxOutstanding`. While at the
+cap it stalls the forward path (`out_valid=0`, `in_ready=0`). An issue is a cycle
+with `out_valid & out_ready`, a completion is a cycle with `done`, and the two
+cancel when they coincide. Use it to bound read reordering depth or the number of
+unanswered requests on a bus. The decision is written as nested `if`s to avoid
+mixing `&` with a comparison. `cnt < MaxOutstanding` compares operands of different
+widths, so Verilator emits WIDTHEXPAND, but the value is correct (same class of
+warning as `ArbiterFixed`).
+
 ### cdc
 
 | Part | Function | Parameters |
@@ -474,6 +699,36 @@ pulses `valid`, and returns an ack toggle; the source 2-flop syncs the ack and, 
 it catches up, re-raises `src_ready`. The data lines themselves are not synchronized
 (the source holds them until the ack returns, so they are stable). Max-delay SDC on
 the toggle/data lines is the user's responsibility.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `GrayCodeSync` | gray-coded value synchronizer (multi-bit CDC pointer receive) | `Width` (value width, default 8, >= 1) |
+
+`GrayCodeSync` 2-flop-synchronizes a gray-coded value `gray_in` from another domain (a
+`GrayCounter` output or a FIFO pointer) on the receive clock, then converts it back to binary
+`bin_out`. Because a gray code changes one bit at a time, a sample taken mid-transition
+settles to either the old or new value (never a corrupt intermediate), so a multi-bit value
+crosses safely — the core of `FifoAsync` pointer passing. The depth is fixed at two (same
+reason as `Sync2ff`); the synchronized value is decoded with the `Gray2Bin` reduction
+`(g2 >> i).xor_reduce()`. Verified that gray(0..7) decodes to 0..7 with a two-cycle latency.
+**The input must be gray-coded** (not a raw binary bus). CDC constraints (`ASYNC_REG`,
+max-delay SDC) can't be emitted from IRIS — logic only. Verilator is clean under `-Wall`.
+
+| part | function | parameters |
+|---|---|---|
+| `RstSequencer` | staged reset-release sequencer | `N` (stages, default 4, >= 1), `Width` (timer width, default 8, >= 1), `StgWidth` (derived) |
+
+`RstSequencer` releases `N` reset outputs `rst_out` one at a time from the LSB, every `step` cycles,
+after the global reset deasserts — for bringing blocks up in stages once power/clocks are stable, or
+waking dependent domains in a fixed order (where `RstSync` is a single-bit deassert sync, this builds
+a multi-stage release order). It holds a released-stage count `stage` and bumps it whenever the timer
+reaches `step` (the same `>=` terminus as `Prescaler`). The output is an inverted `Thermometer`,
+`rst_out[i] = 1 ⇔ i >= stage` (default 1, overwritten to 0 where `i < stage`); `stage == N` raises
+`done`. `step` is a runtime port (`step >= 1`). The `i`/`N` compares are width-matched with
+`.resize(StgWidth)` to stay warning-free. Outputs are active-high (1 = in reset). Verified with N=4,
+step=5 the release goes 0xF→0xE→0xC→0x8→0x0 and `done` asserts, with per-cycle invariants that a
+released stage never re-asserts and the released set is always low-contiguous. Verilator is clean
+under `-Wall`.
 
 ### coding
 
@@ -524,6 +779,49 @@ the same `poly`, outputs `din ^ feedback`, and shifts the **received `din`** int
 `sr`. Being self-synchronizing it needs no seed exchange — it locks within a few
 bits and recovers the original stream (round-trip verified). Use it to break up runs
 of 0/1 and keep DC balance (line coding).
+
+| Part | Function | Parameters |
+|---|---|---|
+| `DiffPair` | dual-rail differential encode/decode (break / fault detection) | `Width` (data width, default 8, >= 1; code is 2*Width) |
+
+`DiffPair` is the `DiffEncode`/`DiffDecode` pair. Each data bit `d[i]` is encoded onto a
+complementary rail pair `{d[i], ~d[i]}` (`enc[2*i]` = true, `enc[2*i+1]` = complement); the
+receiver recovers the bit when the pair is complementary and raises `err` on `(0,0)` or
+`(1,1)` (a broken wire or stuck-at fault) — for functional-safety signal lines. Both encode
+and decode are combinational, built one pair at a time with a `for` loop. The `err` flag
+needs a reduction, which `comb` cannot fold, so per-pair bad flags are gathered into a
+`Width`-wide vector `bad` and collapsed with `err = bad != 0` (a compare to 0). Verified with
+a 0xB4→0x659A→0xB4 loopback (err=0) and both all-`(0,0)` and single-broken-pair codes (err=1).
+The MULTITOP (two modules in one file) and MULTIDRIVEN (a `comb` temp) `-Wall` notes match the
+established `Secded` (two modules) and `SatAdd` (comb temp) patterns; the conformance Verilator
+functional check passes.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Interleaver` | block interleaver (row-major write, column-major read) | `Width` (symbol width, default 8, >= 1), `Rows` (power of 2, default 2, >= 2), `Cols` (power of 2, default 4, >= 2), `Depth`/`RowWidth`/`ColWidth`/`AddrWidth` (derived) |
+
+`Interleaver` writes symbols row-major into a Rows×Cols block and reads them column-major to
+reorder them, spreading a burst error over time so a downstream FEC sees scattered single
+errors (comms, storage). `we` fills the block via a write counter; `re` reads column-major.
+Restricting `Rows` and `Cols` to powers of two makes the column-major address `rr*Cols + rc`
+exactly the concatenation `{rr, rc}` (no multiply), and the counters wrap naturally at each
+width. The concatenation indexes the memory inline (no `comb` temp, so no MULTIDRIVEN warning).
+Registered read gives a one-cycle latency; `dvalid` follows `re` by one cycle. Verified that
+0..7 reorders to 0,4,1,5,2,6,3,7. Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `LockstepCompare` | compares two redundant cores (staggered delay, sticky fault latch) | `Width` (default 8, >= 1), `Delay` (stagger stages, default 1, >= 1), `Total` (derived = Width*Delay) |
+
+`LockstepCompare` checks the outputs of two redundant cores that run the same
+computation and raises `error` when they disagree. To avoid common-cause faults,
+core B runs `Delay` cycles behind core A; the comparator delays core A's output
+through a `Delay`-stage line (a packed vector, like `ShiftRegister`) to align it
+with core B's current value before comparing. A parallel 1-bit validity line
+(`bit[Delay]`) suppresses false errors while the delay line fills. `error_sticky`
+latches on the first mismatch and holds until reset. Unlike `TmrVoter` (three-way
+majority that masks a single fault), it detects faults by comparing two inputs —
+for functional safety. Verilator is clean under `-Wall`.
 
 ### periph
 
@@ -614,6 +912,99 @@ the same block, so it uses no intermediates and writes the expressions directly.
 output is signed (read with `.signed()`). Checked against `(3+2j)(4+5j)=2+23j` and
 `(-3+2j)(4-5j)=-2+23j`.
 
+| `PeakDetect` | peak / threshold detection (with hysteresis, unsigned) | `Width` (sample and threshold width, default 8, >= 1) |
+
+`PeakDetect` raises `over` when `din` rises above `thr_high` and holds it until `din`
+falls below `thr_low` (a Schmitt-trigger hysteresis). A single threshold chatters near
+the level under noise; the two thresholds form a dead band that prevents it. It also
+latches the maximum during an event into `peak` (started at the rising sample, updated
+to the running max while over, held after the falling edge, restarted on the next rise).
+`sync` is non-blocking, so every update is decided by pre-edge values with no self-
+reference. The thresholds are input ports and can change at runtime (keep
+`thr_low < thr_high`). Verified over the sequence 50, 210, 230, 180, 90, 250 for both
+the hysteresis and the peak hold.
+
+| `CicDecimator` | CIC decimator (1st order, decimation filter, no multiplier) | `Width` (input width, default 8, >= 1), `R` (decimation rate, default 4, >= 2), `CntWidth` / `AccWidth` (derived) |
+
+`CicDecimator` feeds the input into an integrator (accumulator) and, once every R samples,
+outputs the difference between the current accumulator and its value at the previous
+decimation point (a 1st-order CIC: integrator plus comb). That difference equals the sum
+of the most recent R samples, so it decimates and boxcar-sums without a multiplier. A CIC
+works in modular arithmetic: the integrator wraps naturally in `AccWidth` bits and the
+comb difference recovers the correct sum (`AccWidth = Width + $clog2(R)` absorbs the
+1st-order bit growth). `sync` is non-blocking, so the updated accumulator is written out as
+`acc + din` (the block cannot re-read `acc`). Verified: constant 10 gives a sum of 40,
+switching to 20 gives 80, and `dvalid` asserts once per four samples. The `$clog2`-derived
+`CntWidth` compared against `cnt == R - 1` draws a WIDTHEXPAND note under `-Wall` (the same
+as `ClkDivider` and other parameterized-compare parts); the value is correct and the
+conformance Verilator functional check passes.
+
+| `PidController` | PID controller (positional form, signed) | `DataWidth` (setpoint/measured width, default 8, >= 1), `GainWidth` (gain width, default 8, >= 1), `OutWidth` (internal/output width, default 32) |
+
+`PidController` sums the proportional, integral, and derivative terms of the error
+`e = sp - pv` into a control output (`dout = Kp*e + Ki*Σe + Kd*(e - e_prev)`) — the core of a
+closed loop. To avoid multiply truncation, everything is sign-extended into one wide signed
+domain `OutWidth` with `.signed().sign_extend[OutWidth]()` before multiplying (same as
+`ComplexMult`). `sync` is non-blocking, so the error is registered one stage and the three
+terms are formed the next cycle from that error, the previous error, and the integral (the
+same two-stage shape as `MacSerial`); hence `dout` is 0 on the first `en` (one-cycle error
+registration). Verified with Kp=2/Ki=1/Kd=3 for a positive error +6 (36→24→30→42…) and a
+negative error -6 (mirrored). No integral anti-windup (pair with `SatAdd` if needed).
+Verilator is clean under `-Wall`.
+
+| `IirBiquad` | 2nd-order IIR filter (biquad, Direct Form I, signed) | `DataWidth` (input width, default 8, >= 1), `CoeffWidth` (coefficient width, default 8, >= 1), `FracBits` (fractional bits, default 0), `AccWidth` (internal/output width, default 32) |
+
+`IirBiquad` computes one 2nd-order IIR section in Direct Form I
+(`y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]`) — the building block for
+higher-order filters by cascading, and the infinite-response counterpart to `FirSerial`.
+Coefficients, input, and state are sign-extended to `AccWidth` before multiplying (same as
+`ComplexMult`). Because `sync` is non-blocking, the output register `y1` doubles as the
+feedback source: assigning the new output to `y1`, the old `y1` to `y2`, the current input to
+`x1`, and the old `x1` to `x2` all resolve from pre-edge values, so no intermediates are
+needed. Verified with a b=[1,2,1] FIR step response (1,3,4,4) and a b0=1/a1=-1 accumulator
+(1,2,3,4,5, exercising feedback and a negative coefficient). `FracBits > 0` drops the
+fractional part with an arithmetic right shift (truncation toward negative infinity, no
+rounding); the TB covers `FracBits = 0` integer coefficients. Verilator is clean under `-Wall`.
+
+| `Median3` | 3-tap median filter (streaming, unsigned or signed) | `Width` (sample width, default 8, >= 1), `Signed` (0 = unsigned / 1 = signed, default 0) |
+
+`Median3` outputs the median of the most recent three samples every cycle — a nonlinear
+filter that removes single-sample spikes (salt-and-pepper noise, outliers) without blurring
+edges (unlike a moving average, a one-sample impulse is never selected as the median). No
+multiplier. The median is the value that is neither the max nor the min; for three inputs it
+is chosen with nested comparisons. `comb` cannot re-read a signal it just wrote, but this is
+a selection (the comparisons read only inputs), so it is expressible in `comb` (the `MinMax`
+idea nested for three inputs). Verified that a spike of 100 in 10,10,100,10,10… never appears
+at the output. Verilator is clean under `-Wall`.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `Histogram` | histogram accumulation (per-bin counters) | `Bins` (default 8, >= 2), `CountWidth` (counter width, default 8, >= 1), `BinWidth`/`Total`/`IdxWidth` (derived) |
+
+`Histogram` increments the counter of the bin `bin` on each `en` and reads any bin's count on
+`raddr`→`rcount`; `clear` zeroes all bins — for a luminance histogram, statistics gathering, or
+threshold selection. The per-bin counters live in a concatenated packed vector
+`bit[CountWidth*Bins]` of registers, so a **read-modify-write completes in one cycle** and
+consecutive hits on the same bin are not dropped (a registered-read RAM would incur a
+one-cycle read latency and an RMW hazard on back-to-back increments; this avoids it). The
+write position is widened `bin.resize(IdxWidth)*CountWidth`; `clear` zeroes the whole vector at
+once. Verified the sequence 1,1,2,1,3,3 gives counts 3/1/2 and `clear` resets to 0. Counters
+wrap (no saturation — pair with `SatAdd` if needed). Verilator is clean under `-Wall`.
+
+| part | function | parameters |
+|---|---|---|
+| `Correlator` | serial bit correlator (matched filter, sync-word detect) | `Length` (correlation length, default 8, >= 2), `IdxWidth`/`SumWidth` (derived) |
+
+`Correlator` starts a block on `start`, takes one input bit `din` per `en`, and counts how many
+match the reference `pattern`'s corresponding bit. After `Length` bits it pulses `done` for one
+cycle and settles the match count `score` and the over-threshold decision `detect` — for PN-code,
+preamble, or sync-word detection, and bit-level matched filtering. The correlation is accumulated
+serially per `en` (like `MacSerial`), since `comb` cannot express the addition reduction. `pattern`
+and `threshold` are input ports (runtime-variable). The terminal test `idx == (Length-1)` is
+width-matched with `.resize(IdxWidth)` to stay warning-free. The output is named `score` because
+`matches` is a SystemVerilog keyword. Verified a full match gives score=8/detect=1, all-zero input
+matches only the pattern's four zero-bits (detect=0), and `done` is a single-cycle pulse.
+
 ### util
 
 | Part | Function | Parameters |
@@ -638,6 +1029,19 @@ previously it emitted `Bytes-1-i*8`, silently changing the meaning).
 filling one bit per `for` iteration by comparing the loop constant `i` with `lo`/`hi`.
 Use it for field extraction, windowing, or ranged byte-enables; `hi<=lo` gives an
 empty mask. Combinational only.
+
+| Part | Function | Parameters |
+|---|---|---|
+| `SignMag` | sign-magnitude ↔ two's-complement (`Sm2Tc` / `Tc2Sm`) | `Width` (default 8, >= 2) |
+
+`SignMag` is the `Sm2Tc` (sign-magnitude → two's complement) and `Tc2Sm` (the inverse) pair.
+Sign-magnitude keeps the sign in the MSB and the magnitude in the low `Width-1` bits — for some
+audio formats, sign-magnitude ALUs, or floating-point mantissa handling. `Sm2Tc` negates the
+magnitude **after widening it to `Width`** (`0 - mag`; negating in the narrow width is wrong, so
+`.resize(Width)`). `Tc2Sm` places the low bits of `0 - tc` and sets the sign bit (part-writes,
+no `comb` re-read). Verified 0x81(-1)⇔0xFF, 0xFF(-127)⇔0x81, and ±5/±127/-0. The two's-complement
+minimum 0x80 (-2^(Width-1)) has no sign-magnitude form and folds to magnitude 0 (documented). The
+two-module MULTITOP note matches the established `Secded`/`DiffPair` pattern.
 
 ## Implementation notes
 

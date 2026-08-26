@@ -1,0 +1,60 @@
+/// LockstepCompareのテストベンチ
+///
+/// コアAは10からのランプ。コアBはAを2サイクル遅らせた値（Delay=2に一致）で、
+/// 正常時は遅延線で揃えて比較され`error`・`error_sticky`とも0のまま。埋まるまでの
+/// 立ち上がり期間も誤検出しないことを見る。step8で1サイクルだけBに+1の故障を注入し、
+/// `error`が1サイクル立ち、`error_sticky`がラッチしてリセットまで保持することを確かめる。
+/// 駆動も検査もsyncで行い、既知のサイクルで読む。
+test LockstepCompareTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var a: bit[8] = 10;
+    var b: bit[8] = 0;
+    var a_prev: bit[8] = 0;
+    var fault: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = LockstepCompare[Width: 8, Delay: 2] {
+        clk: clk,
+        rst: rst,
+        in_a: a,
+        in_b: b,
+    };
+
+    // コアA：ランプ。コアB：Aを2サイクル遅らせた値（連鎖する非ブロッキングで2段遅れる）。
+    sync(clk.posedge) {
+        step = step + 1;
+        a = a + 1;
+        a_prev = a;
+        if fault == 1 {
+            b = a_prev + 8'd1;   // 故障注入：1ずれる
+        } else {
+            b = a_prev;
+        }
+        if step == 8'd7 { fault = 1; }
+        if step == 8'd8 { fault = 0; }
+    }
+
+    sync(clk.posedge) {
+        if step == 8'd6 {
+            assert dut.error == 0, "aligned cores agree, no error";
+            assert dut.error_sticky == 0, "no sticky before any fault";
+        }
+        if step == 8'd9 {
+            assert dut.error == 1, "injected mismatch is detected";
+        }
+        if step == 8'd10 {
+            assert dut.error == 0, "error is a one-cycle pulse";
+            assert dut.error_sticky == 1, "sticky latches on mismatch";
+        }
+        if step == 8'd12 {
+            assert dut.error_sticky == 1, "sticky holds until reset";
+        }
+    }
+
+    seq {
+        await clk.cycles(14);
+        $display("LockstepCompareTB: all checks passed");
+        $finish;
+    }
+}

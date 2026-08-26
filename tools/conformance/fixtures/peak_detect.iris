@@ -1,0 +1,74 @@
+/// ピーク検出・閾値検出（ヒステリシス付き、符号なし）
+///
+/// 入力標本`din`が上側閾値`thr_high`を超えたら検出フラグ`over`を立て、
+/// 下側閾値`thr_low`を下回るまで`over`を保つ（シュミットトリガ型のヒステリシス）。
+/// 単一の閾値で判定すると閾値近傍でノイズによりチャタリングするが、
+/// 上下2つの閾値で不感帯（thr_low〜thr_high）を設けることでこれを防ぐ。
+/// 併せて、`over`が立っている一連の事象の間の最大値を`peak`にラッチする
+/// （事象の立ち上がりで`peak`をその標本で開始し、事象中は最大値へ更新、
+/// 立ち下がり後もその事象のピーク値を保持する。次の立ち上がりでやり直す）。
+/// レベル検出、包絡線のピーク保持、しきい値超えイベントの計数の前段などに使う。
+///
+/// syncは非ブロッキング（右辺は前エッジの値）なので、`over`・`peak`の更新は
+/// すべて前エッジの`din`・`over`・`peak`で決まり、同一エッジでの自己参照がない。
+/// 比較は符号なし（既定のbit型）。閾値は入力ポートなので実行時に変えられる。
+/// 使う側は`thr_low < thr_high`を守ること（不感帯が正になるように）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 標本と閾値のビット幅（既定8、1以上）
+///
+/// ポート:
+/// - en:       1のとき1標本進める（0なら状態を保つ）
+/// - din:      入力標本（符号なし）
+/// - thr_high: 上側閾値（これを超えると検出）
+/// - thr_low:  下側閾値（これを下回ると検出解除）
+/// - over:     検出フラグ（ヒステリシス付き）
+/// - peak:     検出中の最大値（事象ごとにラッチ）
+///
+/// リセットは非同期assert・同期deassert、能動High。
+mod PeakDetect[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk:      clock,
+    in  rst:      reset,
+    in  en:       bit,
+    in  din:      bit[Width],
+    in  thr_high: bit[Width],
+    in  thr_low:  bit[Width],
+    out over:     bit,
+    out peak:     bit[Width],
+) {
+    var q_over: bit        = 0;
+    var q_peak: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            q_over = 0;
+            q_peak = 0;
+        } else if en {
+            if q_over {
+                // 検出中：ピークを更新し、下側閾値を割ったら解除する
+                if din > q_peak {
+                    q_peak = din;
+                }
+                if din < thr_low {
+                    q_over = 0;
+                }
+            } else {
+                // 非検出：上側閾値を超えたら検出を開始し、ピークをその標本で始める
+                if din > thr_high {
+                    q_over = 1;
+                    q_peak = din;
+                }
+            }
+        }
+    }
+
+    comb {
+        over = q_over;
+        peak = q_peak;
+    }
+}

@@ -1,0 +1,83 @@
+/// TripCounterのテストベンチ
+///
+/// 2インスタンスで確かめる。
+///   - main: Width=8, threshold=3。count=3でtripが立ち、以降も保つ。
+///     step6でclearを与えると次サイクルでcount=0・trip=0に戻る。
+///   - sat: Width=3, threshold=5, clearなし。上限7で飽和し折り返さない
+///     （count>=5でtrip、count=7に貼り付いてもtripは立ったまま）。
+/// step基準の同期チェッカ（Nco/MovingAverageと同じ）。monitorの実測に一致する。
+test TripCounterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var clear: bit = 0;
+    var thr8: bit[8] = 8'd3;
+    var thr3: bit[3] = 3'd5;
+    var step: bit[8] = 0;
+
+    inst main = TripCounter {
+        clk: clk,
+        rst: rst,
+        en: en,
+        clear: clear,
+        threshold: thr8,
+    };
+    inst sat = TripCounter[Width: 3] {
+        clk: clk,
+        rst: rst,
+        en: en,
+        clear: 1'b0,
+        threshold: thr3,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+        } else {
+            step = step + 1;
+            if step == 8'd6 {
+                clear = 1;
+            } else {
+                clear = 0;
+            }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd2 {
+                assert main.count == 8'd2, "main counts to 2";
+                assert main.trip == 0, "below threshold, no trip";
+            }
+            if step == 8'd3 {
+                assert main.count == 8'd3, "main reaches 3";
+                assert main.trip == 1, "trip asserts at threshold";
+            }
+            if step == 8'd5 {
+                assert main.trip == 1, "trip stays high";
+            }
+            if step == 8'd8 {
+                assert main.count == 8'd0, "cleared to 0";
+                assert main.trip == 0, "trip drops after clear";
+            }
+            // 飽和インスタンス
+            if step == 8'd5 {
+                assert sat.count == 3'd5, "sat counts to 5";
+                assert sat.trip == 1, "sat trip at threshold 5";
+            }
+            if step == 8'd8 {
+                assert sat.count == 3'd7, "sat saturates at 7 (no wrap)";
+                assert sat.trip == 1, "sat trip held while saturated";
+            }
+            if step == 8'd9 {
+                assert sat.count == 3'd7, "sat still 7, no wrap-around";
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(11);
+        $display("TripCounterTB: all checks passed");
+        $finish;
+    }
+}
