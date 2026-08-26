@@ -1,0 +1,63 @@
+/// Median3のテストベンチ
+///
+/// Width=8（符号なし既定）。標本を 10,10,100,10,10,20,30,5,5,5 と与え、
+/// 単発スパイク100が中央値出力に現れないこと（除去）と、通常の追従を確かめる。
+/// 遅延線r0/r1/r2（r0が最新）とmedはmonitorで実測した値に一致する。
+///   step2: r=10,10,0   → med=10（立ち上がり）
+///   step4: r=100,10,10 → med=10（スパイク除去）
+///   step6: r=10,10,100 → med=10（スパイクが遅延線を抜けても出力に出ない）
+///   step8: r=30,20,10  → med=20
+///   step10: r=5,5,30   → med=5
+test Median3TB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var din: bit[8] = 8'd10;
+    var step: bit[8] = 0;
+
+    inst d = Median3 {
+        clk: clk,
+        rst: rst,
+        en: en,
+        din: din,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+        } else {
+            step = step + 1;
+            if step == 8'd2 { din = 8'd100; }
+            if step == 8'd3 { din = 8'd10; }
+            if step == 8'd5 { din = 8'd20; }
+            if step == 8'd6 { din = 8'd30; }
+            if step == 8'd7 { din = 8'd5; }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd2 {
+                assert d.med == 8'd10, "warmup median 10";
+            }
+            if step == 8'd4 {
+                assert d.med == 8'd10, "spike at r0 suppressed";
+            }
+            if step == 8'd6 {
+                assert d.med == 8'd10, "spike passes delay line, never output";
+            }
+            if step == 8'd8 {
+                assert d.med == 8'd20, "median of 30,20,10 = 20";
+            }
+            if step == 8'd10 {
+                assert d.med == 8'd5, "median of 5,5,30 = 5";
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(12);
+        $display("Median3TB: all checks passed");
+        $finish;
+    }
+}

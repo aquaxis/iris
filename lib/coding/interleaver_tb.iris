@@ -1,0 +1,63 @@
+/// Interleaverのテストベンチ
+///
+/// Rows=2, Cols=4（既定）、Depth=8。0..7を行方向に書き込み、列方向に読み出すと
+/// 0,4,1,5,2,6,3,7 の順に並べ替わることを確かめる（バースト誤りの拡散）。
+/// 書込みは step1..8、読出しは step9..16。読出しは登録読み出しで1サイクル遅れ、
+/// dvalidの立つ step11..18 で出力列を確かめる（monitorの実測に一致）。
+test InterleaverTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var we: bit = 0;
+    var din: bit[8] = 0;
+    var re: bit = 0;
+    var step: bit[8] = 0;
+
+    inst d = Interleaver {
+        clk: clk,
+        rst: rst,
+        we: we,
+        din: din,
+        re: re,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+        } else {
+            step = step + 1;
+            we = 0;
+            re = 0;
+            if step >= 8'd1 {
+                if step <= 8'd8 {
+                    we = 1;
+                    din = step - 1;
+                }
+            }
+            if step >= 8'd9 {
+                if step <= 8'd16 {
+                    re = 1;
+                }
+            }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            // 列方向の読出し列 0,4,1,5,2,6,3,7（dvalidの立つ step11..18）
+            if step == 8'd11 { assert d.dvalid == 1, "first read valid"; assert d.dout == 8'd0, "out 0"; }
+            if step == 8'd12 { assert d.dout == 8'd4, "out 4"; }
+            if step == 8'd13 { assert d.dout == 8'd1, "out 1"; }
+            if step == 8'd14 { assert d.dout == 8'd5, "out 5"; }
+            if step == 8'd15 { assert d.dout == 8'd2, "out 2"; }
+            if step == 8'd16 { assert d.dout == 8'd6, "out 6"; }
+            if step == 8'd17 { assert d.dout == 8'd3, "out 3"; }
+            if step == 8'd18 { assert d.dout == 8'd7, "out 7"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(19);
+        $display("InterleaverTB: all checks passed");
+        $finish;
+    }
+}

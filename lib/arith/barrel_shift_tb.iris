@@ -1,0 +1,48 @@
+/// BarrelShiftのテストベンチ
+///
+/// Width=8。左シフト・論理右シフト・算術右シフトの3インスタンスで確かめる。
+///   - 左: 0x0F<<2=0x3C, 0x01<<3=0x08（下位に0）
+///   - 論理右: 0x80>>1=0x40, 0xF0>>4=0x0F（上位に0）
+///   - 算術右: 0x80(-128)>>1=0xC0(-64), 0xF0(-16)>>4=0xFF(-1)（符号を保つ）、
+///             0x40(正)>>2=0x10（正は論理と同じ）、amt=0はそのまま
+/// 組み合わせ回路なので入力varを変えて1サイクル待てば追従する。
+test BarrelShiftTB {
+    let clk: clock(period: 10ns);
+
+    var din: bit[8] = 8'h0F;
+    var amt: bit[3] = 3'd2;
+
+    inst l  = BarrelShift[Width: 8] { din: din, amt: amt };
+    inst rl = BarrelShift[Width: 8, Right: 1] { din: din, amt: amt };
+    inst ra = BarrelShift[Width: 8, Right: 1, Arith: 1] { din: din, amt: amt };
+
+    seq {
+        await clk.cycles(1);
+        assert l.dout == 8'h3C, "left 0x0F<<2 = 0x3C";
+
+        din = 8'h01; amt = 3'd3;
+        await clk.cycles(1);
+        assert l.dout == 8'h08, "left 0x01<<3 = 0x08";
+
+        din = 8'h80; amt = 3'd1;
+        await clk.cycles(1);
+        assert rl.dout == 8'h40, "logical right 0x80>>1 = 0x40";
+        assert ra.dout == 8'hC0, "arith right 0x80>>1 = 0xC0 (sign kept)";
+
+        din = 8'hF0; amt = 3'd4;
+        await clk.cycles(1);
+        assert rl.dout == 8'h0F, "logical right 0xF0>>4 = 0x0F";
+        assert ra.dout == 8'hFF, "arith right 0xF0>>4 = 0xFF (-1)";
+
+        din = 8'h40; amt = 3'd2;
+        await clk.cycles(1);
+        assert ra.dout == 8'h10, "arith right 0x40>>2 = 0x10 (positive = logical)";
+
+        din = 8'h80; amt = 3'd0;
+        await clk.cycles(1);
+        assert ra.dout == 8'h80, "arith right by 0 = unchanged";
+
+        $display("BarrelShiftTB: all checks passed");
+        $finish;
+    }
+}

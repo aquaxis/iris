@@ -1,0 +1,56 @@
+/// Prescalerのテストベンチ
+///
+/// Width=8。ratio=3で3有効サイクルごとにtick、step7でratioを2へ実行時変更すると
+/// 2サイクルごとのtickに切り替わることを確かめる（`==`でなく`>=`終端なので取り残されない）。
+/// 併せてen=0の間はtickが出ないことを確かめる。
+/// step基準の同期チェッカ（Nco/MovingAverageと同じ）。monitorの実測に一致する。
+///   tick=1: step 2,5,8,10,12    tick=0: それ以外
+test PrescalerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var ratio: bit[8] = 8'd3;
+    var step: bit[8] = 0;
+
+    inst d = Prescaler {
+        clk: clk,
+        rst: rst,
+        en: en,
+        ratio: ratio,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+        } else {
+            step = step + 1;
+            if step == 8'd7 {
+                ratio = 8'd2;
+            }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            // ratio=3：3有効サイクルごとにtick
+            if step == 8'd2 { assert d.tick == 1, "ratio 3: tick at 3rd cycle"; }
+            if step == 8'd3 { assert d.tick == 0, "no tick between"; }
+            if step == 8'd5 { assert d.tick == 1, "ratio 3: tick again"; }
+            // step7でratioを2へ。取り残されず次で復帰し、以降2サイクルごと
+            if step == 8'd8 { assert d.tick == 1, "ratio 2: recovers without lag"; }
+            if step == 8'd9 { assert d.tick == 0, "no tick between"; }
+            if step == 8'd10 { assert d.tick == 1, "ratio 2: tick every 2"; }
+            if step == 8'd12 { assert d.tick == 1, "ratio 2: tick every 2"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(13);
+        // en=0の間はtickが出ない
+        en = 0;
+        await clk.cycles(5);
+        assert d.tick == 0, "no tick while disabled";
+        $display("PrescalerTB: all checks passed");
+        $finish;
+    }
+}

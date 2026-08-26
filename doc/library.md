@@ -12,20 +12,20 @@ FIFOやカウンタや調停器を毎回書き直さずに、部品として取�
 ## 置き場所
 
 分類ごとにディレクトリを分ける。
-現在74部品を10分類に置く。
+現在105部品を10分類に置く。
 
 | 分類 | 部品数 | 主な部品 |
 |---|---|---|
-| `timing/` | 11 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce、Timer、OneShot、Watchdog、JohnsonCounter |
-| `arith/` | 17 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial、SatAdd、SatSub、OneHotCheck、Abs、Accumulator、PopcountSerial、Comparator、Bin2Bcd |
-| `mem/` | 8 | FifoSync、FifoAsync、RamSp、RamDp、Ram2r1w、ShiftRegister、RingBuffer、Lifo |
-| `arbiter/` | 2 | ArbiterFixed、ArbiterRr |
-| `stream/` | 12 | SpillRegister、Serializer、Deserializer、VecMux、VecDemux、StreamDownsizer、StreamUpsizer、StreamFork、StreamJoin、StreamFilter、CreditCounter、StreamArbiter |
-| `cdc/` | 4 | Sync2ff、RstSync、PulseSync、HandshakeSync |
-| `coding/` | 7 | Crc、Parity、Secded、TmrVoter、Checksum、Scrambler、Descrambler |
+| `timing/` | 16 | Counter、EdgeDetect、GrayCounter、Lfsr、ClkDivider、Pwm、Debounce、Timer、OneShot、Watchdog、JohnsonCounter、TripCounter、Prescaler、DeltaCounter、RingCounter、RateLimiter |
+| `arith/` | 25 | PriorityEncoder、Lzc、Bin2Gray、Decoder、Rotator、Gray2Bin、MinMax、DivSerial、MulSerial、SatAdd、SatSub、OneHotCheck、Abs、Accumulator、PopcountSerial、Comparator、Bin2Bcd、Clamp、Mux1H、AbsDiff、Extend、Thermometer、BarrelShift、Ctz、Negate |
+| `mem/` | 9 | FifoSync、FifoAsync、RamSp、RamDp、Ram2r1w、ShiftRegister、RingBuffer、Lifo、Cam |
+| `arbiter/` | 4 | ArbiterFixed、ArbiterRr、ArbiterLock、Semaphore |
+| `stream/` | 14 | SpillRegister、StreamRegister、Serializer、Deserializer、VecMux、VecDemux、StreamDownsizer、StreamUpsizer、StreamFork、StreamJoin、StreamFilter、CreditCounter、StreamArbiter、StreamThrottle |
+| `cdc/` | 6 | Sync2ff、RstSync、PulseSync、HandshakeSync、GrayCodeSync、RstSequencer |
+| `coding/` | 10 | Crc、Parity、Secded、TmrVoter、Checksum、Scrambler、Descrambler、DiffPair、Interleaver、LockstepCompare |
 | `periph/` | 4 | UartTx、UartRx、SpiMaster、I2cMaster |
-| `dsp/` | 5 | FirSerial、MacSerial、MovingAverage、Nco、ComplexMult |
-| `util/` | 4 | BitReverse、EndianSwap、ByteEnableExpand、RangeMask |
+| `dsp/` | 12 | FirSerial、MacSerial、MovingAverage、Nco、ComplexMult、PeakDetect、CicDecimator、PidController、IirBiquad、Median3、Histogram、Correlator |
+| `util/` | 5 | BitReverse、EndianSwap、ByteEnableExpand、RangeMask、SignMag |
 
 1部品は3点で構成する。
 実装（`<分類>/<name>.iris`）、試験（`<分類>/<name>_tb.iris`）、資料（`lib/README.md`）である。
@@ -48,10 +48,10 @@ iris lint    <分類>/<name>.iris
 ```
 
 全部品のテストベンチ（振る舞い＝assert）は`bash tools/lib_test.sh`で一括実行できる
-（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在74/0）。
+（conformanceは変換・往復・verilatorを守り、これはassertの回帰を捕まえる。現在105/0）。
 
-74部品すべてのテストベンチが`iris-sim`で通る。
-`tools/conformance/run.sh`は584/0を保つ（lib部品70個を検体に登録）。
+105部品すべてのテストベンチが`iris-sim`で通る。
+`tools/conformance/run.sh`は770/0を保つ（lib部品101個を検体に登録）。
 SystemVerilogへ変換した部品はverilatorがexit 0で受ける
 （無型リテラルやパラメータがSVで32ビットになることに由来する幅警告は出るが、値は正しい）。
 
@@ -67,7 +67,7 @@ IRISで素直に書けるのは次の3種である。
 | FSM＋シフトレジスタ | UartTx／Rx、SpiMaster、I2cMaster | 状態機械とシフトで周辺IFを組める |
 | 直列にして時間へ展開する積算 | Crc、Lfsr、FirSerial、MacSerial | syncの逐次加算で畳み込みを時間に展開できる |
 | 直列に展開した総和の畳み込み | PopcountSerial | combの畳み込み不可を直列（Widthサイクル）で回避 |
-| 符号付き演算 | MacSerial[Signed: 1]、ComplexMult | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
+| 符号付き演算 | MacSerial[Signed: 1]、ComplexMult、PidController、IirBiquad | `.signed()`＋`.sign_extend[N]()`で2の補数のまま積算。結果は`acc.signed()`で読む |
 | XORの畳み込み | Parity、Gray2Bin、Secded | `.xor_reduce()`と部分ビット代入（`out[i]=...`はビットごとに積む）で書ける |
 | 多ストリームのmux／demux（パックドベクタ） | VecMux、VecDemux | 要素を連結した`bit[Width*N]`と部分選択`[i*Width +: Width]`で表せる（添字は幅拡張してから掛ける） |
 | 語彙変換（ビット/バイト順、マスク展開） | BitReverse、EndianSwap、ByteEnableExpand | `for`と部分ビット代入/部分選択で1要素ずつ埋める |
@@ -81,6 +81,7 @@ IRISで素直に書けるのは次の3種である。
 | `bit[W][N]`をsignal/portに使う配列型 | 非対応。使うと明示エラー`O1009`（配列信号はビットに平坦化され`d[i]`が要素でなくビットを指す誤りを防ぐ）。多ストリームmux/demuxはパックドベクタで可（上表）。`mem`は`bit[W][Depth]`可 |
 | ジェネリック関数で本体が幅の数値を要するもの | `fn f[W]`自体は書ける（インライン）。ただし本体で`W`を数値として使うと展開後に未解決になる |
 | 可変段数の同期化器 | var配列が生成境界に定数を要するため2段固定 |
+| 算術右シフト（`>>`で符号複製） | `>>`は`.signed()`でも論理シフト（上位0埋め）。符号ビットが1のとき上位マスクをORして手で組む（`BarrelShift[Arith:1]`が実例） |
 
 符号付きの`==`／`!=`が値で比較するよう、iris-simを修正した（負のリテラルと比較できる。仕様9.3.1）。
 

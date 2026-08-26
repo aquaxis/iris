@@ -1,0 +1,47 @@
+/// 範囲制限（クランプ／リミッタ、符号なし・符号付き両対応）
+///
+/// 入力`a`を下限`lo`と上限`hi`の範囲`[lo, hi]`に収める。
+/// `a < lo`なら`lo`、`a > hi`なら`hi`、その間ならそのまま`a`を出す。
+/// 信号の飽和（リミッタ）、インデックスや座標の範囲丸め、AGCの出力制限などに使う。
+/// `SatAdd`/`SatSub`が加減算の桁あふれで飽和するのに対し、これは任意の値を実行時に
+/// 与えた範囲へ丸める（下限・上限は入力ポート）。
+///
+/// combは同一ブロックで更新した信号を読み直せないが、これは選択（比較は入力だけを読み、
+/// 出力は読まない）なのでcombで書ける（`MinMax`と同じ考え方）。まず`out = a`とし、
+/// 下限・上限を割る条件で上書きする。上書きは`<`比較の2文で、比較はすべて入力を読む。
+///
+/// 使う側は`lo <= hi`を守ること（`lo > hi`だと範囲が空で、その間の値は`a`のまま返る）。
+///
+/// ジェネリックパラメータ:
+/// - Width:  ビット幅（既定8、1以上）
+/// - Signed: 0=符号なし比較、1=符号付き比較（`.signed()`で解釈、既定0）
+///
+/// ポート:
+/// - a:       入力
+/// - lo:      下限
+/// - hi:      上限
+/// - out_val: 範囲へ収めた値
+mod Clamp[
+    Width: uint = 8,
+    Signed: uint = 0,
+]
+where
+    Width >= 1,
+(
+    in  a:  bit[Width],
+    in  lo: bit[Width],
+    in  hi: bit[Width],
+    out out_val: bit[Width],
+) {
+    comb {
+        out_val = a;
+        if Signed == 1 {
+            // 符号付き比較：a<loならlo、hi<aならhi
+            if a.signed() < lo.signed() { out_val = lo; }
+            if hi.signed() < a.signed() { out_val = hi; }
+        } else {
+            if a < lo { out_val = lo; }
+            if hi < a { out_val = hi; }
+        }
+    }
+}

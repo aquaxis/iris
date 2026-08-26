@@ -1,0 +1,66 @@
+/// ヒストグラム集計（ビン別カウンタ）
+///
+/// `en`のたびに`bin`が指すビンのカウンタを1つ増やし、各ビンの度数を数える。
+/// 別ポート`raddr`でビンの度数`rcount`をいつでも読める。`clear`で全ビンを0に戻す。
+/// 画像の輝度ヒストグラム、統計収集、閾値決定（大津の方法など）の前段に使う。
+///
+/// ビンのカウンタは連結パックドベクタ`bit[CountWidth*Bins]`にレジスタで持ち、
+/// 部分選択・部分書き込みで出し入れする（`Cam`と同じ）。**レジスタなので読み書きが同一サイクルで
+/// 完結し**、同じビンが連続しても取りこぼさない（登録読み出しのRAMだと読出しが1サイクル遅れ、
+/// 連続加算でread-modify-writeのハザードが出るが、この方式はそれを避ける）。`clear`は連結ベクタ全体を
+/// 0にするだけで全ビンが一度に消える。書込み位置は`bin.resize(IdxWidth)*CountWidth`と幅拡張して
+/// 積の桁あふれを防ぐ。カウンタは上限で巻き上がる（飽和はしない。必要なら`SatAdd`と組む）。
+///
+/// ジェネリックパラメータ:
+/// - Bins:       ビン数（既定8、2以上）
+/// - CountWidth: 各ビンのカウンタ幅（既定8、1以上）
+/// - BinWidth:   ビン番号の幅（導出＝$clog2(Bins)）
+/// - Total:      パックドベクタの総幅（導出＝CountWidth*Bins）
+/// - IdxWidth:   ビット位置計算の幅（導出＝$clog2(CountWidth*Bins)+1）
+///
+/// ポート:
+/// - clear:  1で全ビンを0に戻す（enより優先）
+/// - en:     1で`bin`のビンを1つ増やす
+/// - bin:    集計するビン番号（0..Bins-1）
+/// - raddr:  読み出すビン番号
+/// - rcount: `raddr`のビンの現在の度数
+///
+/// リセットは非同期assert・同期deassert、能動High。全ビン0で始まる。
+mod Histogram[
+    Bins: uint = 8,
+    CountWidth: uint = 8,
+    BinWidth: uint = $clog2(Bins),
+    Total: uint = CountWidth * Bins,
+    IdxWidth: uint = $clog2(CountWidth * Bins) + 1,
+]
+where
+    Bins >= 2,
+    CountWidth >= 1,
+(
+    in  clk:    clock,
+    in  rst:    reset,
+    in  clear:  bit,
+    in  en:     bit,
+    in  bin:    bit[BinWidth],
+    in  raddr:  bit[BinWidth],
+    out rcount: bit[CountWidth],
+) {
+    var counts: bit[Total] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            counts = 0;
+        } else if clear {
+            counts = 0;
+        } else if en {
+            // 該当ビンを+1（非ブロッキングで右辺は前エッジ値。レジスタなので同一サイクルで完結）
+            counts[bin.resize(IdxWidth) * CountWidth +: CountWidth]
+                = counts[bin.resize(IdxWidth) * CountWidth +: CountWidth] + 1;
+        }
+    }
+
+    comb {
+        // 読み出しは組み合わせ（ビンの度数をいつでも即座に返す）
+        rcount = counts[raddr.resize(IdxWidth) * CountWidth +: CountWidth];
+    }
+}

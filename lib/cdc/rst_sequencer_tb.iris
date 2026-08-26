@@ -1,0 +1,54 @@
+/// RstSequencerのテストベンチ
+///
+/// N=4、step=5。解除後に下位から順に1本ずつ解除され、rst_outが
+/// 0xF → 0xE → 0xC → 0x8 → 0x0 と進み、最後にdoneが立つことを確かめる。
+/// 時刻に依らない不変条件をsync監視で、境界の確定値をseqで確かめる。
+///   - 監視1（単調）：一度解除した段は再びリセットに戻らない（0→1のビットが無い）
+///   - 監視2（形）：解除済みは下位連続（~rst_outが温度計＝下位連続の1）
+///   - seq：開始時は全段リセット(0xF)、十分待つと全段解除(0x0)＋done
+test RstSequencerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var step: bit[8] = 8'd5;
+    var prev: bit[4] = 4'hF;
+
+    inst dut = RstSequencer {
+        clk: clk,
+        rst: rst,
+        step: step,
+    };
+
+    // 監視：一度解除した段は戻らず、解除済みは常に下位連続。
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            // 単調：リセット中ビットが 0->1 に増えない（解除は不可逆）。
+            assert (dut.rst_out & ~prev) == 0, "released stage never re-asserts";
+            // 形：~rst_out（解除済み）は下位連続の1（温度計）。t & (t+1) == 0。
+            assert (~dut.rst_out & (~dut.rst_out + 1)) == 0, "released bits are low-contiguous";
+            prev = dut.rst_out;
+        }
+    }
+
+    seq {
+        // step=5でプラトーは cyc0-4=0xF, 5-9=0xE, 10-14=0xC, 15-19=0x8, 20+=0x0。
+        // 各プラトーの中央付近で確定値を確かめる（±2の揺れに耐える）。
+        await clk.cycles(2);
+        assert dut.rst_out == 4'hF, "all stages in reset at start";
+        assert dut.done == 0, "not done yet";
+        await clk.cycles(5);
+        assert dut.rst_out == 4'hE, "stage 0 released first";
+        await clk.cycles(5);
+        assert dut.rst_out == 4'hC, "stage 1 released next";
+        await clk.cycles(5);
+        assert dut.rst_out == 4'h8, "stage 2 released";
+        await clk.cycles(5);
+        assert dut.rst_out == 4'h0, "all stages released";
+        assert dut.done == 1, "done after all stages";
+        await clk.cycles(5);
+        assert dut.rst_out == 4'h0, "stays released";
+        assert dut.done == 1, "stays done";
+
+        $display("RstSequencerTB: all checks passed");
+        $finish;
+    }
+}

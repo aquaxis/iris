@@ -1,0 +1,39 @@
+/// DiffEncode / DiffDecode のテストベンチ
+///
+/// Width=8。エンコード→デコードのループバックで値が復元され`err=0`、
+/// 相補でない対を含む符号では`err=1`（断線／故障検出）になることを確かめる。
+///   - din=0xB4 を符号化すると enc=0x659A、復号で 0xB4・err=0
+///   - 全対(0,0)の 0x0000 は全対不良 → err=1
+///   - 0x659A の bit1 を落とした 0x6598 は対0だけ不良 → d=0xB4・err=1
+///     （真値レール enc[0]=0 は無傷なので復元値は変わらない）
+test DiffPairTB {
+    let clk: clock(period: 10ns);
+
+    var din: bit[8] = 8'hB4;
+    var all_bad: bit[16] = 16'h0000;
+    var one_bad: bit[16] = 16'h6598;
+
+    inst e = DiffEncode { d: din };
+    inst g = DiffDecode { enc: e.enc };
+    inst ab = DiffDecode { enc: all_bad };
+    inst ob = DiffDecode { enc: one_bad };
+
+    seq {
+        await clk.cycles(2);
+
+        // ループバック：符号は0x659A、復元は0xB4、errなし
+        assert e.enc == 16'h659A, "encode 0xB4 -> 0x659A";
+        assert g.d == 8'hB4, "loopback recovers 0xB4";
+        assert g.err == 0, "valid dual-rail: no error";
+
+        // 全対(0,0)：全て不良
+        assert ab.err == 1, "all-zero pattern flags error";
+
+        // 1対だけ不良：errは立つが真値レールは無傷
+        assert ob.err == 1, "one broken pair flags error";
+        assert ob.d == 8'hB4, "true rail intact, value still 0xB4";
+
+        $display("DiffPairTB: all checks passed");
+        $finish;
+    }
+}

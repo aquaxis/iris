@@ -1,0 +1,73 @@
+/// PeakDetectのテストベンチ
+///
+/// Width=8、上側閾値200・下側閾値100で不感帯を設ける。
+/// 標本を 50,150,210,230,180,90,120,250 と与え、次を確かめる。
+///   - 200を超えるまで over は立たない（150では立たない）
+///   - 210で over が立ち、peak がその標本(210)から始まる
+///   - 230で peak が最大値へ更新される
+///   - 180（不感帯内）では over を保つ（ヒステリシス）
+///   - 90（下側閾値割れ）で over が下がり、peak はその事象の最大(230)を保持する
+///   - 120（不感帯内）では立ち上がらない
+///   - 250で新しい事象が始まり、peak がやり直しで250になる
+test PeakDetectTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var din: bit[8] = 0;
+    var thr_high: bit[8] = 8'd200;
+    var thr_low: bit[8] = 8'd100;
+
+    inst dut = PeakDetect {
+        clk: clk,
+        rst: rst,
+        en: en,
+        din: din,
+        thr_high: thr_high,
+        thr_low: thr_low,
+    };
+
+    seq {
+        // リセット（既定で先頭5サイクル）が明けるまで待つ
+        await clk.cycles(6);
+
+        din = 8'd50;
+        await clk.cycles(1);
+        assert dut.over == 0, "below high stays low";
+
+        din = 8'd150;
+        await clk.cycles(1);
+        assert dut.over == 0, "in-band from low: no rise";
+
+        din = 8'd210;
+        await clk.cycles(1);
+        assert dut.over == 1, "crosses high -> over";
+        assert dut.peak == 8'd210, "peak starts at rising sample";
+
+        din = 8'd230;
+        await clk.cycles(1);
+        assert dut.over == 1, "stays over";
+        assert dut.peak == 8'd230, "peak tracks the maximum";
+
+        din = 8'd180;
+        await clk.cycles(1);
+        assert dut.over == 1, "in-band holds over (hysteresis)";
+        assert dut.peak == 8'd230, "peak holds during event";
+
+        din = 8'd90;
+        await clk.cycles(1);
+        assert dut.over == 0, "drops below low -> clear";
+        assert dut.peak == 8'd230, "peak latched after event";
+
+        din = 8'd120;
+        await clk.cycles(1);
+        assert dut.over == 0, "in-band from low: no rise";
+
+        din = 8'd250;
+        await clk.cycles(1);
+        assert dut.over == 1, "new event";
+        assert dut.peak == 8'd250, "peak restarts on new rising";
+
+        $display("PeakDetectTB: all checks passed");
+        $finish;
+    }
+}

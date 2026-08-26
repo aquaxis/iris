@@ -1,0 +1,64 @@
+/// Correlatorのテストベンチ
+///
+/// Length=8、pattern=0xB2(1011_0010)、threshold=6。
+/// 1回目：patternと完全一致する系列を流し、score=8・detect=1・done=1サイクルを確かめる。
+/// 2回目：din全0を流すと、patternの0ビット数(4個)だけ一致し、score=4・detect=0になる。
+/// seq基準（入力を与えて1サイクル進めてから観測）。pattern.bit0を最初に取り込む。
+test CorrelatorTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var start:     bit = 0;
+    var en:        bit = 0;
+    var din:       bit = 0;
+    var pattern:   bit[8] = 8'hB2;   // 1011_0010
+    var threshold: bit[4] = 4'd6;
+
+    inst dut = Correlator {
+        clk: clk,
+        rst: rst,
+        start: start,
+        en: en,
+        din: din,
+        pattern: pattern,
+        threshold: threshold,
+    };
+
+    seq {
+        await clk.cycles(6);
+
+        // 1回目：完全一致（bit0..bit7 = 0,1,0,0,1,1,0,1）
+        start = 1;
+        await clk.cycles(1);       // st=1, idx=0, acc=0
+        start = 0;
+        en = 1;
+        din = 0; await clk.cycles(1);   // bit0
+        assert dut.busy == 1, "busy during run";
+        din = 1; await clk.cycles(1);   // bit1
+        din = 0; await clk.cycles(1);   // bit2
+        din = 0; await clk.cycles(1);   // bit3
+        din = 1; await clk.cycles(1);   // bit4
+        din = 1; await clk.cycles(1);   // bit5
+        din = 0; await clk.cycles(1);   // bit6
+        din = 1; await clk.cycles(1);   // bit7 -> done edge
+        assert dut.done == 1, "done pulses after Length bits";
+        assert dut.score == 4'd8, "all 8 bits match";
+        assert dut.detect == 1, "score >= threshold -> detect";
+        en = 0;
+        await clk.cycles(1);
+        assert dut.done == 0, "done is a single-cycle pulse";
+        assert dut.busy == 0, "idle after done";
+
+        // 2回目：din全0 -> patternの0ビット(4個)だけ一致
+        start = 1;
+        await clk.cycles(1);
+        start = 0;
+        en = 1;
+        din = 0;
+        await clk.cycles(8);       // 8ビットすべて0を流す
+        assert dut.score == 4'd4, "four zero-bits in pattern match";
+        assert dut.detect == 0, "below threshold -> no detect";
+
+        $display("CorrelatorTB: all checks passed");
+        $finish;
+    }
+}

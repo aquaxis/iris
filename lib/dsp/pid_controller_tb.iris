@@ -1,0 +1,83 @@
+/// PidControllerのテストベンチ
+///
+/// 2インスタンスを同時に駆動する。ゲインはKp=2, Ki=1, Kd=3で共通。
+///   - a: sp=10, pv=4  → 誤差 e=+6（正）
+///   - b: sp=4,  pv=10 → 誤差 e=-6（負、符号付き演算の確認）
+///
+/// 誤差が一定なので、微分項は最初の1回だけ効き（Kd*6=18）、以降は積分項が
+/// 毎ステップKi*6=6ずつ増える。誤差登録の1サイクル遅延があるため、有効な
+/// 出力はstep2から始まる（step0/step1は0）。monitorで実測した系列に一致する。
+///   step2=36, step3=24, step4=30, step5=36, step6=42（P=12一定＋積分ランプ）
+/// 負側bはこれらを符号反転した値になる。
+test PidControllerTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var sp_a: bit[8] = 8'd10;
+    var pv_a: bit[8] = 8'd4;
+    var sp_b: bit[8] = 8'd4;
+    var pv_b: bit[8] = 8'd10;
+    var kp: bit[8] = 8'd2;
+    var ki: bit[8] = 8'd1;
+    var kd: bit[8] = 8'd3;
+    var step: bit[8] = 0;
+
+    inst a = PidController {
+        clk: clk,
+        rst: rst,
+        en: en,
+        sp: sp_a,
+        pv: pv_a,
+        kp: kp,
+        ki: ki,
+        kd: kd,
+    };
+    inst b = PidController {
+        clk: clk,
+        rst: rst,
+        en: en,
+        sp: sp_b,
+        pv: pv_b,
+        kp: kp,
+        ki: ki,
+        kd: kd,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            step = 0;
+        } else {
+            step = step + 1;
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if step == 8'd1 {
+                assert a.dout.signed() == 0, "priming cycle outputs 0";
+            }
+            if step == 8'd2 {
+                assert a.dout.signed() == 36, "P+I+D at first valid step (+6 error)";
+                assert b.dout.signed() == -36, "negative error mirrors";
+            }
+            if step == 8'd3 {
+                assert a.dout.signed() == 24, "derivative drops out, P+I";
+                assert b.dout.signed() == -24, "negative side";
+            }
+            if step == 8'd4 {
+                assert a.dout.signed() == 30, "integral ramps";
+                assert b.dout.signed() == -30, "negative side";
+            }
+            if step == 8'd6 {
+                assert a.dout.signed() == 42, "integral keeps ramping (+6/step)";
+                assert b.dout.signed() == -42, "negative side";
+            }
+        }
+    }
+
+    seq {
+        await clk.cycles(9);
+        $display("PidControllerTB: all checks passed");
+        $finish;
+    }
+}

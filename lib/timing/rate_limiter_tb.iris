@@ -1,0 +1,70 @@
+/// RateLimiterのテストベンチ
+///
+/// Width=8。refill=2・burst=3で、2有効サイクルごとに1トークン貯まり容量3で飽和すること、
+/// 要求`req`がトークンを1つずつ消費して`grant`を出し、空になると`grant`が下がること、
+/// `refill`を実行時に大きくすると補充が止まり純粋にドレインできること、
+/// `en=0`の間は`grant`を出さず残量も保つことを確かめる。
+/// seq基準の逐次チェッカ（PeakDetectと同じ、入力を与えて1サイクル進めてから観測）。
+test RateLimiterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en:     bit = 1;
+    var req:    bit = 0;
+    var refill: bit[8] = 8'd2;
+    var burst:  bit[8] = 8'd3;
+
+    inst dut = RateLimiter {
+        clk: clk,
+        rst: rst,
+        en: en,
+        req: req,
+        refill: refill,
+        burst: burst,
+    };
+
+    seq {
+        // リセット（既定で先頭5サイクル）が明けるまで待つ
+        await clk.cycles(6);
+
+        // req=0で貯める。2有効サイクルごとに1トークン、burst=3で飽和。
+        await clk.cycles(10);
+        assert dut.tokens == 8'd3, "fills to burst capacity";
+        assert dut.grant == 0, "no grant without request";
+
+        // さらに待っても容量を超えない（あふれ分は捨てる）。
+        await clk.cycles(4);
+        assert dut.tokens == 8'd3, "saturates at burst, never overflows";
+
+        // 補充を止めて（refillを大きく）純粋にドレインする。
+        refill = 8'd15;
+        req = 1;
+        await clk.cycles(1);
+        assert dut.grant == 1, "grant while a token is available";
+        assert dut.tokens == 8'd2, "consumes one token per grant";
+        await clk.cycles(1);
+        assert dut.grant == 1, "still granting";
+        assert dut.tokens == 8'd1, "drains toward empty";
+        await clk.cycles(1);
+        assert dut.grant == 0, "bucket empty -> no grant";
+        assert dut.tokens == 8'd0, "empty";
+        await clk.cycles(1);
+        assert dut.grant == 0, "stays empty and blocked";
+        assert dut.tokens == 8'd0, "stays empty";
+
+        // 補充を戻すと再び貯まり、容量3で飽和する。
+        req = 0;
+        refill = 8'd2;
+        await clk.cycles(10);
+        assert dut.tokens == 8'd3, "refills again after rate is restored";
+
+        // en=0の間はgrantを出さず、残量も保つ。
+        en = 0;
+        req = 1;
+        await clk.cycles(3);
+        assert dut.grant == 0, "no grant while disabled";
+        assert dut.tokens == 8'd3, "holds tokens while disabled";
+
+        $display("RateLimiterTB: all checks passed");
+        $finish;
+    }
+}

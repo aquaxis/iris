@@ -1,0 +1,36 @@
+/// サーモメータ符号化（2進 → 温度計コード／単項コード）
+///
+/// 入力`value`（0..Width）を、下位`value`ビットが1・残りが0のWidthビットへ符号化する
+/// （`therm[i] = 1` ⇔ `i < value`）。フラッシュADC/DACの符号、単項（ユナリ）表現、
+/// 「N本の要求のうち下位N本を開く」といった用途に使う。`Decoder`が2進→one-hot（1ビットだけ1）
+/// なのに対し、こちらは2進→温度計（下位から連続してvalueビット1）。
+///
+/// 各ビットは独立に`i < value`で決まる（`i`はループ定数、`value`は入力）。combは選択なので
+/// `therm = 0`を既定に、条件を満たすビットだけ1で上書きする（`Decoder`等と同じ手筋）。組み合わせのみ。
+///
+/// ジェネリックパラメータ:
+/// - Width:    出力のビット幅（既定8、1以上）
+/// - ValWidth: 入力`value`の幅（導出＝$clog2(Width+1)、0からWidthを表す）
+///
+/// ポート:
+/// - value: 立てるビット数（0..Width）
+/// - therm: 温度計コード（下位valueビットが1）
+mod Thermometer[
+    Width: uint = 8,
+    ValWidth: uint = $clog2(Width + 1),
+]
+where
+    Width >= 1,
+(
+    in  value: bit[ValWidth],
+    out therm: bit[Width],
+) {
+    comb {
+        therm = 0;
+        for i in 0..Width {
+            if i < value {
+                therm[i] = 1;
+            }
+        }
+    }
+}

@@ -1,0 +1,77 @@
+/// PID制御器（位置型、符号付き）
+///
+/// 目標値`sp`と測定値`pv`の誤差`e = sp - pv`から、比例・積分・微分の3項を足して
+/// 操作量`dout`を出す位置型PID。`dout = Kp*e + Ki*Σe + Kd*(e - e_prev)`。
+/// モータ・温度・電圧などの閉ループ制御の核に使う。
+///
+/// すべてを1つの広い符号付き領域`OutWidth`に拡張して計算する（積の切り詰めを避ける）。
+/// IRISの`*`はオペランド幅に切り詰められるので、ゲインと誤差を`OutWidth`へ
+/// `.signed().sign_extend[OutWidth]()`で符号拡張してから掛ける（`ComplexMult`と同じ）。
+/// syncは非ブロッキング（右辺は前エッジの値）なので、誤差を1段レジスタ`e`に登録し、
+/// 次サイクルにその`e`と前回誤差`e_prev`・積分`integ`から3項を組む（`MacSerial`と同じ2段構え）。
+/// このため入力から`dout`反映まで誤差登録の1サイクル遅延がある（最初の`en`で`dout`は0）。
+/// I項は今サイクルの誤差を含めた`integ + e`を使い、`integ`も同じ`integ + e`へ更新する。
+/// 積分のアンチワインドアップ（飽和）は持たない（必要なら`SatAdd`と組む）。
+///
+/// ジェネリックパラメータ:
+/// - DataWidth: 目標・測定のビット幅（符号付き、既定8、1以上）
+/// - GainWidth: ゲインKp/Ki/Kdのビット幅（符号付き、既定8、1以上）
+/// - OutWidth:  内部・出力の幅（符号付き、既定32）。積と積分の余裕を持たせる
+///
+/// ポート:
+/// - en:  1のとき1標本進める（0なら状態を保つ）
+/// - sp:  目標値（符号付き）
+/// - pv:  測定値（符号付き）
+/// - kp:  比例ゲイン（符号付き）
+/// - ki:  積分ゲイン（符号付き）
+/// - kd:  微分ゲイン（符号付き）
+/// - dout: 操作量（符号付き、OutWidth幅。読む側は`.signed()`で解釈する）
+///
+/// リセットは非同期assert・同期deassert、能動High。全状態0で始まる。
+mod PidController[
+    DataWidth: uint = 8,
+    GainWidth: uint = 8,
+    OutWidth: uint = 32,
+]
+where
+    DataWidth >= 1,
+    GainWidth >= 1,
+(
+    in  clk:  clock,
+    in  rst:  reset,
+    in  en:   bit,
+    in  sp:   bit[DataWidth],
+    in  pv:   bit[DataWidth],
+    in  kp:   bit[GainWidth],
+    in  ki:   bit[GainWidth],
+    in  kd:   bit[GainWidth],
+    out dout: bit[OutWidth],
+) {
+    var e:      bit[OutWidth] = 0;
+    var e_prev: bit[OutWidth] = 0;
+    var integ:  bit[OutWidth] = 0;
+    var q_out:  bit[OutWidth] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            e = 0;
+            e_prev = 0;
+            integ = 0;
+            q_out = 0;
+        } else if en {
+            // 前サイクルに登録した誤差eから3項を組む（すべて前エッジの値）
+            q_out = kp.signed().sign_extend[OutWidth]() * e.signed()
+                  + ki.signed().sign_extend[OutWidth]() * (integ.signed() + e.signed())
+                  + kd.signed().sign_extend[OutWidth]() * (e.signed() - e_prev.signed());
+            // 積分は今サイクルの誤差を含める。微分のため前回誤差を退避する
+            integ = integ.signed() + e.signed();
+            e_prev = e;
+            // 今サイクルの入力から次サイクル用の誤差を登録する
+            e = sp.signed().sign_extend[OutWidth]() - pv.signed().sign_extend[OutWidth]();
+        }
+    }
+
+    comb {
+        dout = q_out;
+    }
+}

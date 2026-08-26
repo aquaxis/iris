@@ -1,0 +1,88 @@
+/// セマフォ（計数型の排他・資源管理）
+///
+/// 0から容量`max`までのトークンを数え、`acquire`で1つ取得（空きがあれば`grant`）、
+/// `rel`で1つ返す。共有資源の同時使用数の制限、未完了要求の上限、生産者消費者の
+/// 在庫管理などに使う。容量1にすればミューテックス（二値セマフォ）になる。
+///
+/// `grant`は組み合わせで`acquire & (count < max)`とし、取得はそのサイクルのエッジで数える。
+/// `rel`は`count > 0`のときだけ減らす（下限0で飽和、返しすぎても壊れない）。
+/// `acquire`と`rel`が同じサイクルで両立したときは差し引きで数える
+/// （空きも在庫もあれば±1が相殺して`count`は変わらない）。
+///
+/// ジェネリックパラメータ:
+/// - Width: 計数値と容量のビット幅（既定4、1以上）
+///
+/// ポート:
+/// - acquire: 1でトークンを1つ取得しようとする
+/// - rel: 1でトークンを1つ返す
+/// - max:     容量（この数まで取得できる。実行時に変えられる）
+/// - grant:   取得が成立したとき1（1サイクル幅、count < max のとき）
+/// - count:   現在の取得数
+/// - full:    count == max のとき1（空きなし）
+/// - empty:   count == 0 のとき1（在庫なし）
+///
+/// リセットは非同期assert・同期deassert、能動High。0で始まる（全トークン空き）。
+mod Semaphore[
+    Width: uint = 4,
+]
+where
+    Width >= 1,
+(
+    in  clk:     clock,
+    in  rst:     reset,
+    in  acquire: bit,
+    in  rel:     bit,
+    in  max:     bit[Width],
+    out grant:   bit,
+    out count:   bit[Width],
+    out full:    bit,
+    out empty:   bit,
+) {
+    var cnt: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            cnt = 0;
+        } else if acquire {
+            if cnt < max {
+                // 取得成立。同時relが在庫を持つなら±1相殺でcntは不変。
+                if rel {
+                    if cnt != 0 {
+                        cnt = cnt;
+                    } else {
+                        cnt = cnt + 1;
+                    }
+                } else {
+                    cnt = cnt + 1;
+                }
+            } else {
+                // 空きなし。relだけ効く。
+                if rel {
+                    if cnt != 0 {
+                        cnt = cnt - 1;
+                    }
+                }
+            }
+        } else {
+            // acquireなし。relだけ効く。
+            if rel {
+                if cnt != 0 {
+                    cnt = cnt - 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        // 空きがあるときだけ取得を通す（`&`と`<`の混在はif入れ子で切り詰めを避ける）。
+        grant = 0;
+        if acquire {
+            if cnt < max {
+                grant = 1;
+            }
+        }
+        count = cnt;
+        full = cnt == max;
+        empty = cnt == 0;
+    }
+}

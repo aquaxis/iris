@@ -1,0 +1,33 @@
+/// Extendのテストベンチ
+///
+/// InWidth=4 → OutWidth=8。ゼロ拡張と符号拡張の2インスタンスで確かめる。
+///   - ゼロ拡張: 0x7→0x07, 0xF→0x0F（上位は常に0）
+///   - 符号拡張: 0x7→0x07（正）, 0xF(-1)→0xFF, 0x8(-8)→0xF8（負は上位が1）
+/// 組み合わせ回路なので入力varを変えて1サイクル待てば追従する。
+test ExtendTB {
+    let clk: clock(period: 10ns);
+
+    var din: bit[4] = 4'h7;
+
+    inst z = Extend[InWidth: 4, OutWidth: 8] { din: din };
+    inst s = Extend[InWidth: 4, OutWidth: 8, Signed: 1] { din: din };
+
+    seq {
+        await clk.cycles(1);
+        assert z.dout == 8'h07, "zero-extend 0x7 -> 0x07";
+        assert s.dout == 8'h07, "sign-extend 0x7 -> 0x07 (positive)";
+
+        din = 4'hF;   // -1 signed
+        await clk.cycles(1);
+        assert z.dout == 8'h0F, "zero-extend 0xF -> 0x0F";
+        assert s.dout == 8'hFF, "sign-extend 0xF -> 0xFF (-1)";
+
+        din = 4'h8;   // -8 signed
+        await clk.cycles(1);
+        assert z.dout == 8'h08, "zero-extend 0x8 -> 0x08";
+        assert s.dout == 8'hF8, "sign-extend 0x8 -> 0xF8 (-8)";
+
+        $display("ExtendTB: all checks passed");
+        $finish;
+    }
+}

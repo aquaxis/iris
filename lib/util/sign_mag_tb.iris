@@ -1,0 +1,44 @@
+/// Sm2Tc / Tc2Sm のテストベンチ
+///
+/// Width=8。符号絶対値⇔2の補数の相互変換を確かめる。
+///   Sm2Tc: 0x81(-1)→0xFF, 0x05→0x05, 0xFF(-127)→0x81, 0x7F→0x7F, 0x80(-0)→0x00
+///   Tc2Sm: 0xFF(-1)→0x81, 0x05→0x05, 0x81(-127)→0xFF, 0x7F→0x7F, 0x00→0x00
+/// 組み合わせ回路なので入力varを変えて1サイクル待てば追従する。
+test SignMagTB {
+    let clk: clock(period: 10ns);
+
+    var sm: bit[8] = 8'h81;
+    var tc: bit[8] = 8'hFF;
+
+    inst s2t = Sm2Tc { sm: sm };
+    inst t2s = Tc2Sm { tc: tc };
+
+    seq {
+        await clk.cycles(1);
+        assert s2t.tc == 8'hFF, "Sm2Tc: 0x81(-1) -> 0xFF";
+        assert t2s.sm == 8'h81, "Tc2Sm: 0xFF(-1) -> 0x81";
+
+        sm = 8'h05; tc = 8'h05;
+        await clk.cycles(1);
+        assert s2t.tc == 8'h05, "Sm2Tc: +5 -> 0x05";
+        assert t2s.sm == 8'h05, "Tc2Sm: +5 -> 0x05";
+
+        sm = 8'hFF; tc = 8'h81;
+        await clk.cycles(1);
+        assert s2t.tc == 8'h81, "Sm2Tc: 0xFF(-127) -> 0x81";
+        assert t2s.sm == 8'hFF, "Tc2Sm: 0x81(-127) -> 0xFF";
+
+        sm = 8'h7F; tc = 8'h7F;
+        await clk.cycles(1);
+        assert s2t.tc == 8'h7F, "Sm2Tc: +127 -> 0x7F";
+        assert t2s.sm == 8'h7F, "Tc2Sm: +127 -> 0x7F";
+
+        sm = 8'h80; tc = 8'h00;
+        await clk.cycles(1);
+        assert s2t.tc == 8'h00, "Sm2Tc: 0x80(-0) -> 0x00";
+        assert t2s.sm == 8'h00, "Tc2Sm: 0x00 -> 0x00";
+
+        $display("SignMagTB: all checks passed");
+        $finish;
+    }
+}

@@ -1,0 +1,81 @@
+/// 2次IIRフィルタ（バイクアッド、直接形I、符号付き）
+///
+/// 2次の無限インパルス応答フィルタ1セクション（バイクアッド）を直接形Iで計算する。
+/// `y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]`。
+/// 縦続接続で高次のローパス・ハイパス・バンドパス等を作る基本単位。係数は入力ポート
+/// （符号付き）で実行時に変えられる。
+///
+/// IRISの`*`はオペランド幅に切り詰められるので、係数・入力・状態をすべて広い符号付き
+/// 領域`AccWidth`へ`.signed().sign_extend[AccWidth]()`で拡張してから掛ける（`ComplexMult`と同じ）。
+/// syncは非ブロッキング（右辺は前エッジの値）なので、出力レジスタ`y1`をそのまま
+/// フィードバック源に使える：`y1`へ新しい出力、`y2`へ旧`y1`、`x1`へ現在の入力、`x2`へ旧`x1`を
+/// 同時に代入すると、すべて前エッジの値で整合する（中間変数が要らない）。出力`dout`は`y1`。
+///
+/// 固定小数点係数を使うときは`FracBits`ぶん算術右シフトして小数部を落とす（既定0＝整数係数）。
+/// `FracBits > 0`は負方向への切り捨て（トランケーション）で、丸めは行わない
+/// （四捨五入が要るならシフト前に半LSBを足す）。本部品のTBは`FracBits=0`の整数係数で確かめている。
+///
+/// ジェネリックパラメータ:
+/// - DataWidth:  入力のビット幅（符号付き、既定8、1以上）
+/// - CoeffWidth: 係数のビット幅（符号付き、既定8、1以上）
+/// - FracBits:   係数の小数ビット数（出力前の算術右シフト量、既定0）
+/// - AccWidth:   内部・状態・出力の幅（符号付き、既定32）。積と和の余裕を持たせる
+///
+/// ポート:
+/// - en:   1のとき1標本進める（0なら状態を保つ）
+/// - x:    入力標本（符号付き）
+/// - b0/b1/b2: フィードフォワード係数（符号付き）
+/// - a1/a2:    フィードバック係数（符号付き）
+/// - dout: 出力`y[n]`（符号付き、AccWidth幅。読む側は`.signed()`で解釈する）
+///
+/// リセットは非同期assert・同期deassert、能動High。全状態0で始まる。
+mod IirBiquad[
+    DataWidth: uint = 8,
+    CoeffWidth: uint = 8,
+    FracBits: uint = 0,
+    AccWidth: uint = 32,
+]
+where
+    DataWidth >= 1,
+    CoeffWidth >= 1,
+(
+    in  clk:  clock,
+    in  rst:  reset,
+    in  en:   bit,
+    in  x:    bit[DataWidth],
+    in  b0:   bit[CoeffWidth],
+    in  b1:   bit[CoeffWidth],
+    in  b2:   bit[CoeffWidth],
+    in  a1:   bit[CoeffWidth],
+    in  a2:   bit[CoeffWidth],
+    out dout: bit[AccWidth],
+) {
+    var x1: bit[AccWidth] = 0;
+    var x2: bit[AccWidth] = 0;
+    var y1: bit[AccWidth] = 0;
+    var y2: bit[AccWidth] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            x1 = 0;
+            x2 = 0;
+            y1 = 0;
+            y2 = 0;
+        } else if en {
+            // 旧y1を退避し、新しい出力をy1へ（すべて前エッジの値で計算）
+            y2 = y1;
+            y1 = (b0.signed().sign_extend[AccWidth]() * x.signed().sign_extend[AccWidth]()
+                + b1.signed().sign_extend[AccWidth]() * x1.signed()
+                + b2.signed().sign_extend[AccWidth]() * x2.signed()
+                - a1.signed().sign_extend[AccWidth]() * y1.signed()
+                - a2.signed().sign_extend[AccWidth]() * y2.signed()) >> FracBits;
+            // 入力遅延線を1段進める
+            x2 = x1;
+            x1 = x.signed().sign_extend[AccWidth]();
+        }
+    }
+
+    comb {
+        dout = y1;
+    }
+}

@@ -1,0 +1,40 @@
+/// Mux1Hのテストベンチ
+///
+/// Width=8, N=4（既定）。入力語を {0x11, 0x22, 0x33, 0x44}（要素0..3）とし、
+/// ワンホットのselで各語が選ばれること、sel=0で0が出ることを確かめる。
+/// パックドベクタは要素iが`data[i*Width +: Width]`なので、32ビットでは 0x44332211。
+test Mux1HTB {
+    let clk: clock(period: 10ns);
+
+    var sel: bit[4] = 4'b0000;
+    var data: bit[32] = 32'h44332211;
+
+    inst d = Mux1H {
+        sel: sel,
+        data: data,
+    };
+
+    seq {
+        await clk.cycles(1);
+        assert d.out_val == 8'h00, "sel=0 -> 0";
+
+        sel = 4'b0001;
+        await clk.cycles(1);
+        assert d.out_val == 8'h11, "sel bit0 -> element 0";
+
+        sel = 4'b0010;
+        await clk.cycles(1);
+        assert d.out_val == 8'h22, "sel bit1 -> element 1";
+
+        sel = 4'b0100;
+        await clk.cycles(1);
+        assert d.out_val == 8'h33, "sel bit2 -> element 2";
+
+        sel = 4'b1000;
+        await clk.cycles(1);
+        assert d.out_val == 8'h44, "sel bit3 -> element 3";
+
+        $display("Mux1HTB: all checks passed");
+        $finish;
+    }
+}

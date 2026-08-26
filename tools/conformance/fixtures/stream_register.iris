@@ -1,0 +1,64 @@
+/// ストリームレジスタ（全組み合わせパス切断ステージ）
+///
+/// ready/validのハンドシェイクを持つ深さ1の登録ステージ。上流と下流の間の
+/// 組み合わせパスを前後とも切る。
+///   前方（valid/data）はレジスタ出力なので切れる。
+///   後方（ready）は`in_ready = ~valid_q`で自段のレジスタだけから作り、
+///   `out_ready`から組み合わせで作らないので切れる。
+///
+/// 深さ1なので連続流では2サイクルに1語（スループット50%）。パスを最短に
+/// したい・面積を最小にしたい段間に置く。100%を保ちたいときは深さ2の
+/// `SpillRegister`（スキッドバッファ）を使う。
+///
+/// `flush`が1のサイクルは格納中の語を捨てて空にする（バブル注入・パイプフラッシュ用）。
+///
+/// ジェネリックパラメータ:
+/// - Width: データ幅（既定8、1以上）
+///
+/// リセットは非同期assert・同期deassert、能動High。段は空で始まる。
+mod StreamRegister[
+    Width: uint = 8,
+]
+where
+    Width >= 1,
+(
+    in  clk: clock,
+    in  rst: reset,
+    in  flush: bit,
+    in  in_valid: bit,
+    in  in_data: bit[Width],
+    out in_ready: bit,
+    out out_valid: bit,
+    out out_data: bit[Width],
+    in  out_ready: bit,
+) {
+    var data_q: bit[Width] = 0;
+    var valid_q: bit = 0;
+
+    // 発火条件はインライン展開する（iris2svはブロック内のletを未対応のため）。
+    //   in_ready  = ~valid_q         （out_readyに依存しない＝後方パス切断）
+    //   in_fire   = in_valid & ~valid_q
+    //   out_fire  = valid_q & out_ready
+    // flushが最優先。in_readyがout_readyに依らないので深さ1では出力と取込は
+    // 同一サイクルに重ならず、50%スループットになる（両パス切断の代償）。
+    sync(clk.posedge, rst.async) {
+        if flush {
+            valid_q = 0;
+        } else {
+            if (valid_q & out_ready) {
+                valid_q = 0;
+            } else {
+                if (~valid_q & in_valid) {
+                    data_q = in_data;
+                    valid_q = 1;
+                }
+            }
+        }
+    }
+
+    comb {
+        in_ready = ~valid_q;
+        out_valid = valid_q;
+        out_data = data_q;
+    }
+}

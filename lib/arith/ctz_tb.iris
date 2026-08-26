@@ -1,0 +1,35 @@
+/// Ctzのテストベンチ
+///
+/// Width=8。末尾ゼロ数（最下位の1の添字、全0ならWidth=8）を確かめる。
+/// 組み合わせ回路なので入力varを変えて1サイクル待てば追従する。
+test CtzTB {
+    let clk: clock(period: 10ns);
+
+    var d: bit[8] = 8'h08;
+
+    inst c = Ctz { d: d };
+
+    seq {
+        await clk.cycles(1);
+        assert c.count == 4'd3, "ctz(0x08) = 3";
+
+        d = 8'h0A;   // bits 1,3 -> lowest is 1
+        await clk.cycles(1);
+        assert c.count == 4'd1, "ctz(0x0A) = 1 (lowest set bit)";
+
+        d = 8'h01;
+        await clk.cycles(1);
+        assert c.count == 4'd0, "ctz(0x01) = 0";
+
+        d = 8'h80;
+        await clk.cycles(1);
+        assert c.count == 4'd7, "ctz(0x80) = 7";
+
+        d = 8'h00;
+        await clk.cycles(1);
+        assert c.count == 4'd8, "ctz(0x00) = 8 (no bit set)";
+
+        $display("CtzTB: all checks passed");
+        $finish;
+    }
+}

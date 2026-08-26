@@ -1,0 +1,66 @@
+/// Camのテストベンチ
+///
+/// Width=8, Entries=4（既定）。エントリ1に0xAA、エントリ2に0xBBを書き、
+/// キー検索でワンホット一致（match_oh）とhitが正しく出ること、未登録キーはhit=0、
+/// clearで全無効化されてhit=0になることを確かめる。
+/// 一致はエントリiのビットi：entry1→0b0010、entry2→0b0100。
+test CamTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var we: bit = 0;
+    var waddr: bit[2] = 0;
+    var wdata: bit[8] = 0;
+    var clear: bit = 0;
+    var key: bit[8] = 0;
+
+    inst d = Cam {
+        clk: clk,
+        rst: rst,
+        we: we,
+        waddr: waddr,
+        wdata: wdata,
+        clear: clear,
+        key: key,
+    };
+
+    seq {
+        await clk.cycles(6);
+
+        // エントリ1に0xAA、エントリ2に0xBBを書く
+        we = 1; waddr = 2'd1; wdata = 8'hAA;
+        await clk.cycles(1);
+        we = 1; waddr = 2'd2; wdata = 8'hBB;
+        await clk.cycles(1);
+        we = 0;
+        await clk.cycles(1);
+
+        // 0xAAはエントリ1で一致
+        key = 8'hAA;
+        await clk.cycles(1);
+        assert d.match_oh == 4'b0010, "0xAA matches entry 1";
+        assert d.hit == 1, "hit for 0xAA";
+
+        // 0xBBはエントリ2で一致
+        key = 8'hBB;
+        await clk.cycles(1);
+        assert d.match_oh == 4'b0100, "0xBB matches entry 2";
+        assert d.hit == 1, "hit for 0xBB";
+
+        // 未登録キーは一致なし
+        key = 8'hCC;
+        await clk.cycles(1);
+        assert d.match_oh == 4'b0000, "0xCC matches nothing";
+        assert d.hit == 0, "no hit for 0xCC";
+
+        // clearで全エントリ無効化
+        clear = 1;
+        await clk.cycles(1);
+        clear = 0;
+        key = 8'hAA;
+        await clk.cycles(1);
+        assert d.hit == 0, "no hit after clear";
+
+        $display("CamTB: all checks passed");
+        $finish;
+    }
+}

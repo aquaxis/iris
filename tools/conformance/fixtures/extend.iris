@@ -1,0 +1,40 @@
+/// ビット幅拡張（ゼロ拡張・符号拡張）
+///
+/// `InWidth`ビットの入力を`OutWidth`ビットへ広げる。`Signed`が0ならゼロ拡張
+/// （上位に0を詰める）、1なら符号拡張（最上位ビットを上位へ複製する）。
+/// 狭い信号を広いバス・演算幅へ橋渡しする定番の変換（符号付きなら2の補数を保つ）。組み合わせのみ。
+///
+/// ゼロ拡張は幅の広い出力への代入がそのまま行う（IRISの代入は上位を0で埋める）。
+/// 符号拡張は`.signed().sign_extend[OutWidth]()`で最上位ビットを複製する（`ComplexMult`等と同じ）。
+/// `OutWidth >= InWidth`であること（縮小はしない。縮小が要るなら部分選択で下位を取る）。
+///
+/// ジェネリックパラメータ:
+/// - InWidth:  入力幅（既定8、1以上）
+/// - OutWidth: 出力幅（既定16、InWidth以上）
+/// - Signed:   0=ゼロ拡張、1=符号拡張（既定0）
+///
+/// ポート:
+/// - din:  入力（InWidthビット）
+/// - dout: 拡張した出力（OutWidthビット。符号付きなら`.signed()`で読む）
+mod Extend[
+    InWidth: uint = 8,
+    OutWidth: uint = 16,
+    Signed: uint = 0,
+]
+where
+    InWidth >= 1,
+    OutWidth >= InWidth,
+(
+    in  din:  bit[InWidth],
+    out dout: bit[OutWidth],
+) {
+    comb {
+        if Signed == 1 {
+            // 符号拡張：最上位ビットを上位へ複製する
+            dout = din.signed().sign_extend[OutWidth]();
+        } else {
+            // ゼロ拡張：上位を0で埋める（.resizeで幅を明示し、幅警告を避ける）
+            dout = din.resize(OutWidth);
+        }
+    }
+}

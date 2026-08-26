@@ -1,0 +1,53 @@
+/// RingCounterのテストベンチ
+///
+/// Width=4の左回転で、リセット後は0001から0010→0100→1000→0001と巡ることを確かめる。
+/// `en`を1サイクル0にすると保持する（歩進しない）ことも見る。
+/// ワンホット（1ビットだけ立つ）を常に保つことを、右回転版でも確かめる。
+/// 駆動も検査もsyncで行い、既知のサイクルで読む。
+test RingCounterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 0;
+    var step: bit[8] = 0;
+
+    inst dut = RingCounter[Width: 4, Right: 0] {
+        clk: clk,
+        rst: rst,
+        en: en,
+    };
+
+    // 右回転版（同じ駆動）：0001 → 1000 → 0100 → 0010 → 0001
+    inst dutr = RingCounter[Width: 4, Right: 1] {
+        clk: clk,
+        rst: rst,
+        en: en,
+    };
+
+    sync(clk.posedge) {
+        step = step + 1;
+        if step >= 8'd2 { en = 1; }
+        // step6の1サイクルだけ止める（保持の確認）
+        if step == 8'd6 { en = 0; }
+        if step == 8'd7 { en = 1; }
+    }
+
+    sync(clk.posedge) {
+        // 左回転：1つずつ上位へ回る
+        if step == 8'd5 { assert dut.q == 4'b0001, "starts one-hot at bit0"; }
+        if step == 8'd6 { assert dut.q == 4'b0010, "rotates left"; }
+        if step == 8'd7 { assert dut.q == 4'b0100, "rotates left"; }
+        if step == 8'd8 { assert dut.q == 4'b0100, "holds while en low"; }
+        if step == 8'd9 { assert dut.q == 4'b1000, "resumes after hold"; }
+        if step == 8'd10 { assert dut.q == 4'b0001, "wraps around to bit0"; }
+        // 右回転：最上位へ回り込んでから下位へ
+        if step == 8'd6 { assert dutr.q == 4'b1000, "right rotate wraps to top"; }
+        if step == 8'd7 { assert dutr.q == 4'b0100, "right rotate steps down"; }
+        if step == 8'd9 { assert dutr.q == 4'b0010, "right rotate steps down"; }
+    }
+
+    seq {
+        await clk.cycles(12);
+        $display("RingCounterTB: all checks passed");
+        $finish;
+    }
+}

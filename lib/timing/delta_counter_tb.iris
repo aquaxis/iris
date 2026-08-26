@@ -1,0 +1,55 @@
+/// DeltaCounterのテストベンチ
+///
+/// Width=8。step=3で加算、s=4でload_val=100にプリセット、s=5でstep=-2(0xFE)へ変えて減算する。
+/// step基準の同期チェッカ（monitorの実測に一致）。
+///   s=3→9, s=5→15, s=6→100(load), s=8→96, s=10→92（-2ずつ）
+test DeltaCounterTB {
+    let clk: clock(period: 10ns);
+    let rst: reset;
+    var en: bit = 1;
+    var load: bit = 0;
+    var load_val: bit[8] = 0;
+    var step: bit[8] = 8'd3;
+    var s: bit[8] = 0;
+
+    inst d = DeltaCounter {
+        clk: clk,
+        rst: rst,
+        en: en,
+        load: load,
+        load_val: load_val,
+        step: step,
+    };
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            s = 0;
+        } else {
+            s = s + 1;
+            load = 0;
+            if s == 8'd4 {
+                load = 1;
+                load_val = 8'd100;
+            }
+            if s == 8'd5 {
+                step = 8'hFE;   // -2
+            }
+        }
+    }
+
+    sync(clk.posedge, rst.async) {
+        if !rst {
+            if s == 8'd3 { assert d.count == 8'd9, "step 3: count 9"; }
+            if s == 8'd5 { assert d.count == 8'd15, "step 3: count 15"; }
+            if s == 8'd6 { assert d.count == 8'd100, "load preset to 100"; }
+            if s == 8'd8 { assert d.count == 8'd96, "step -2: 100->96"; }
+            if s == 8'd10 { assert d.count == 8'd92, "step -2: keeps decrementing"; }
+        }
+    }
+
+    seq {
+        await clk.cycles(12);
+        $display("DeltaCounterTB: all checks passed");
+        $finish;
+    }
+}

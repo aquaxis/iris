@@ -1,0 +1,44 @@
+/// Negateのテストベンチ
+///
+/// Width=8。正・負・0の否定と、最小負値0x80での`ovf`立ち上がりを確かめる。
+/// 組み合わせなので値を与えて1サイクル進めてから観測する（seq基準）。
+test NegateTB {
+    let clk: clock(period: 10ns);
+    var a: bit[8] = 0;
+
+    inst dut = Negate {
+        a: a,
+    };
+
+    seq {
+        await clk.cycles(2);
+
+        a = 8'd5;
+        await clk.cycles(1);
+        assert dut.y == 8'hFB, "-(5) = 0xFB";
+        assert dut.ovf == 0, "no overflow for 5";
+
+        a = 8'hFB;  // -5
+        await clk.cycles(1);
+        assert dut.y == 8'd5, "-(-5) = 5";
+        assert dut.ovf == 0, "no overflow for -5";
+
+        a = 8'd0;
+        await clk.cycles(1);
+        assert dut.y == 8'd0, "-(0) = 0";
+        assert dut.ovf == 0, "no overflow for 0";
+
+        a = 8'h80;  // most negative
+        await clk.cycles(1);
+        assert dut.y == 8'h80, "-(0x80) wraps to 0x80";
+        assert dut.ovf == 1, "overflow at most-negative";
+
+        a = 8'h7F;  // most positive
+        await clk.cycles(1);
+        assert dut.y == 8'h81, "-(127) = -127 = 0x81";
+        assert dut.ovf == 0, "no overflow for 127";
+
+        $display("NegateTB: all checks passed");
+        $finish;
+    }
+}

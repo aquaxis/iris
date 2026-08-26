@@ -1,0 +1,68 @@
+/// リセット解除シーケンサ（多段リセットを順に解除する）
+///
+/// グローバルリセット`rst`が解除された後、`N`本のリセット出力`rst_out`を下位から順に、
+/// `step`サイクルおきに1本ずつ解除する。電源やクロックが安定してからブロックを段階的に
+/// 立ち上げる、依存関係のある複数ドメインを決まった順序で起こす、といった用途に使う。
+/// `RstSync`が単一ビットの解除同期なのに対し、こちらは複数段の解除順序を作る。
+///
+/// `rst`中は全段がリセット（`rst_out`全ビット1）。解除後は内部タイマが`step`に達するたびに
+/// 解除済み段数`stage`を1増やし、`stage`本目までを解除する（`rst_out[i] = 1` ⇔ `i >= stage`、
+/// `Thermometer`を反転した形）。`stage`が`N`に達すると`done`を立て、以後タイマは止まる。
+/// 出力は能動High（1でリセット中）。`step`は入力ポートで実行時に変えられる（`step >= 1`）。
+///
+/// ジェネリックパラメータ:
+/// - N:       解除する段数（既定4、1以上）
+/// - Width:   段間タイマのビット幅（既定8、1以上）
+/// - StgWidth: 解除済み段数の幅（導出＝$clog2(N + 1)、0からNを表す）
+///
+/// ポート:
+/// - step:    段の解除間隔（この数のサイクルおきに1本解除。`Prescaler`と同じ`>=`終端）
+/// - rst_out: 段別リセット出力（能動High、ビット0が最初に解除される）
+/// - done:    全段の解除が終わると1
+///
+/// リセットは非同期assert・同期deassert、能動High。全段リセット・stage0で始まる。
+mod RstSequencer[
+    N: uint = 4,
+    Width: uint = 8,
+    StgWidth: uint = $clog2(N + 1),
+]
+where
+    N >= 1,
+    Width >= 1,
+(
+    in  clk:     clock,
+    in  rst:     reset,
+    in  step:    bit[Width],
+    out rst_out: bit[N],
+    out done:    bit,
+) {
+    var stage: bit[StgWidth] = 0;
+    var timer: bit[Width] = 0;
+
+    sync(clk.posedge, rst.async) {
+        if rst {
+            stage = 0;
+            timer = 0;
+        } else if stage < (N).resize(StgWidth) {
+            // まだ解除しきっていない。タイマがstepに達したら次の段を解除する。
+            if timer + 1 >= step {
+                timer = 0;
+                stage = stage + 1;
+            } else {
+                timer = timer + 1;
+            }
+        }
+    }
+
+    comb {
+        // 各ビットは独立に「まだ解除していない（i >= stage）ならリセット中」で決まる。
+        // `Thermometer`の反転：既定を1（リセット中）にし、解除済み（i < stage）を0で上書きする。
+        for i in 0..N {
+            rst_out[i] = 1;
+            if (i).resize(StgWidth) < stage {
+                rst_out[i] = 0;
+            }
+        }
+        done = stage == (N).resize(StgWidth);
+    }
+}
